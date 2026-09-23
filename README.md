@@ -6,6 +6,20 @@ A persistent conversation sits beside a working issue desk. Pi can answer questi
 
 **One agent, three capabilities: `inspect`, `act`, `present`.** No React, generated JavaScript, or model-owned application logic.
 
+## Markdown mini-app foundation
+
+The next layer is a **read-only Markdown vault reader and validator**. It checks declarative app definitions, typed documents, dates, relationships and wiki links without activating apps or changing files.
+
+```sh
+npm run lifeapps -- check examples/life-vault
+# Direct execution also supports Bun:
+bun scripts/lifeapps.ts check examples/life-vault --json
+```
+
+The fictional sample vault has Tasks, Calendar, Journal and Wiki definitions, six managed records, and three ordinary notes arranged around PARA. Existing Taskdesk UI/data and installed LifeOS data are not connected to this foundation yet.
+
+See the [quick start](docs/vault-quickstart.md) and [implemented app-definition contract](docs/app-definition-v1.md). `lifeapps schema` exports the definition's JSON Schema. App installation, safe file writes, migrations, calendar rendering and Pi app-building are deliberately deferred.
+
 ## Run
 
 Node **22.6+** (tested on Node 26), npm, and a current browser:
@@ -167,7 +181,11 @@ src/store.ts         Local persistence and migration
 public/style.css     Shared visual system and responsive conversation rail
 public/workspace.js  Small trusted enhancement client; no generated code
 scripts/smoke-pi.ts   Opt-in real-provider, multi-turn/restart smoke test
-test/               Core, HTTP, DOM-client and Pi isolation tests
+scripts/lifeapps.ts   Read-only vault check and JSON Schema export
+src/vault/           Shared Markdown, definition and vault validation
+examples/life-vault/  Fictional, connected Markdown app examples
+docs/                Vault quick start and implemented contract
+test/                Core, HTTP, DOM-client, vault and Pi isolation tests
 ```
 
 ## Verification
@@ -178,7 +196,7 @@ npm test
 node --check public/workspace.js
 ```
 
-The **42 credential-free tests** cover discovery, invalid plans, escaping, action availability, stale state, confirmation policy, cancellation, idempotency, partial success, persistence/recovery, CSRF and sandbox isolation, native forms, streaming, layout undo, dirty-form preservation and internal navigation while streaming. DOM-client tests use jsdom; they are not visual browser tests.
+The **101 credential-free tests** cover the original conversation/UI/domain behavior plus Markdown/YAML parsing, definition schemas and semantics, temporal validation, duplicate IDs and journal dates, typed references, wiki links, external edits, read-only behavior, path/symlink boundaries, bounded scans, and CLI output/exit codes. DOM-client tests use jsdom; they are not visual browser tests. The vault milestone changes no browser UI.
 
 Optional live-provider test (consumes your configured model quota; uses a temporary sandbox, not your working issues):
 

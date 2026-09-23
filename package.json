@@ -12,12 +12,15 @@
     "start": "tsx src/server.ts",
     "check": "tsc --noEmit",
     "test": "tsx --test test/*.test.ts",
-    "smoke:pi": "tsx scripts/smoke-pi.ts"
+    "smoke:pi": "tsx scripts/smoke-pi.ts",
+    "lifeapps": "tsx scripts/lifeapps.ts"
   },
   "dependencies": {
     "@earendil-works/pi-coding-agent": "0.86.1",
     "@fontsource-variable/ibm-plex-sans": "^5.2.8",
-    "typebox": "1.3.34"
+    "typebox": "1.3.34",
+    "yaml": "^2.9.1",
+    "mdast-util-from-markdown": "^2.0.3"
   },
   "devDependencies": {
     "@types/jsdom": "^21.1.7",
