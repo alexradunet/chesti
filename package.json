@@ -1,0 +1,26 @@
+{
+  "name": "taskdesk",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "A tiny hypermedia-first, Pi-composed issue desk.",
+  "engines": {
+    "node": ">=22.6"
+  },
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "tsx src/server.ts",
+    "check": "tsc --noEmit",
+    "test": "tsx --test test/*.test.ts"
+  },
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": "0.86.1",
+    "@fontsource-variable/ibm-plex-sans": "^5.2.8",
+    "typebox": "1.3.34"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0"
+  }
+}
