@@ -2,23 +2,23 @@
 
 A small experiment in **conversational, task-specific interfaces** using hypermedia, native HTML, and the Pi SDK.
 
-A persistent conversation sits beside a working issue desk. Pi can answer questions, act on issues, and assemble the view. The server still owns the facts, allowed actions, validation and HTML.
+A persistent conversation sits beside a working **Today workspace** backed by Markdown files, or the original issue desk. Pi can inspect approved records, execute declared actions, and assemble the view. The server owns permissions, validation, writes and HTML.
 
 **One agent, three capabilities: `inspect`, `act`, `present`.** No React, generated JavaScript, or model-owned application logic.
 
-## Markdown mini-app foundation
+## A working Markdown Today workspace
 
-The next layer is a **read-only Markdown vault reader and validator**. It checks declarative app definitions, typed documents, dates, relationships and wiki links without activating apps or changing files.
+Run `npm start`, open **http://127.0.0.1:3000/today**, then use **App review** to approve each definition revision and its individual permissions. Nothing is automatically activated.
 
-```sh
-npm run lifeapps -- check examples/life-vault
-# Direct execution also supports Bun:
-bun scripts/lifeapps.ts check examples/life-vault --json
-```
+The default vault is a writable copy of the fictional sample at `.data/vault`; `examples/life-vault` remains unchanged. Set `VAULT_ROOT=/absolute/path/to/vault` to use another vault containing `.apps/`. No personal vault is discovered automatically.
 
-The fictional sample vault has Tasks, Calendar, Journal and Wiki definitions, six managed records, and three ordinary notes arranged around PARA. Existing Taskdesk UI/data and installed LifeOS data are not connected to this foundation yet.
+Today contains today's events and scheduled work, unfinished tasks, an editable daily Markdown journal, PARA links, and the same persistent conversation sidebar. Calendar links open a dated agenda. Task forms support deadlines, explicitly zoned work sessions, and completion. “Link in journal” inserts a wiki link into the draft; **Save journal** commits it.
 
-See the [quick start](docs/vault-quickstart.md) and [implemented app-definition contract](docs/app-definition-v1.md). `lifeapps schema` exports the definition's JSON Schema. App installation, safe file writes, migrations, calendar rendering and Pi app-building are deliberately deferred.
+Try **“Create a task to finish the homepage tomorrow.”** The credential-free demo supports this exact grammar; select Pi for open-ended requests. Both use `inspect`, `act`, and `present`, and the same validated mutation boundary as browser forms. Pi cannot approve apps or access arbitrary files.
+
+Definitions edited externally become pending review and their capabilities are suspended. Updates check content and definition revisions, validate prospective relationships/uniqueness, and preserve untouched YAML tokens, comments, and Markdown. Journaled writes and durable receipts survive restart without replaying interrupted edits over external changes.
+
+The read-only CLI remains available: `npm run lifeapps -- check examples/life-vault`. See the [quick start](docs/vault-quickstart.md) and [implemented app contract](docs/app-definition-v1.md). Migrations and conversational app creation remain outside this milestone.
 
 ## Run
 
@@ -57,10 +57,11 @@ COMPOSER=pi PI_MODEL=openai-codex/gpt-5.5 npm start
 | `PI_MODEL` | Saved composition model, otherwise first authenticated model | Exact provider/model ID; initial composition has no saved model |
 | `PI_AUTH_PATH` | Pi's normal auth file | Optional separate credentials |
 | `PI_MODELS_PATH` | Pi's normal models file | Optional custom model definitions |
+| `VAULT_ROOT` | `.data/vault` | Explicit Markdown vault; default is copied from fictional examples on first startup |
 
 There is no implicit `.env` loader. Export variables or prefix commands. The SDK is pinned to **0.86.1**.
 
-**Privacy:** Pi receives conversation history, workspace context, action receipts, and inspected issue data. Credentials are managed by Pi on the server, not sent to the browser or exposed through agent tools. Selecting Pi is opt-in; a failed initial Pi composition keeps Pi selected for subsequent conversation turns.
+**Privacy:** Pi receives conversation history, workspace context, action receipts, and inspected approved vault/issue data. Credentials remain server-side and are not exposed through agent tools. Selecting Pi is opt-in. Set an exact supported `PI_MODEL` if the provider's first authenticated model is unavailable to your account; provider failures do not fall back to another executor.
 
 ## What the next iteration adds
 
@@ -145,11 +146,11 @@ curl -b /tmp/taskdesk.cookies \
   'http://127.0.0.1:3000/issues?scope=triage'
 ```
 
-Pi uses the same resolver in-process. This media type is app-specific, not a standardized hypermedia format. The issue domain and some renderer details remain issue-specific: this is a reference experiment, not a published framework.
+Pi uses the same resolver in-process. Today starts discovery at `/vault`, which links approved types, collections, views, records and ordinary notes. Creation actions live on `/vault/types/<qualified-type>` resources. App approval is a separate CSRF-protected browser route, not an advertised agent action. This media type remains app-specific.
 
 ## Browser implementation
 
-Semantic server-rendered HTML, native links and forms, externally associated form controls, native input constraints, popovers and `<details>`. CSS Grid, `:has()`, container queries and reduced-motion-aware cross-document transitions provide the layout. IBM Plex Sans is served locally.
+Semantic server-rendered HTML, native links and forms, native input constraints, and `<details>`. CSS Grid, `:has()`, container queries and reduced-motion-aware cross-document transitions provide the layout. IBM Plex Sans is served locally. Markdown is rendered through a trusted CommonMark subset; raw HTML is escaped and images are not fetched.
 
 One **trusted, hand-written** `public/workspace.js` enhances conversation streaming, same-workspace navigation, form submission, selection and deferred workspace updates. Model prose is inserted as text, never parsed as HTML. HTML fragments only come from the escaping server renderer. CSP permits same-origin scripts/connections, not inline scripts or generated handlers.
 
@@ -159,11 +160,15 @@ Without JavaScript, conversations and actions still work through normal POST/red
 
 `.data/state.json` stores browser sandboxes, issues, accepted compositions, conversation turns, SDK session entries and receipts. It is ignored by Git, uses restrictive file permissions, and is replaced with an atomic rename. Version-1 stores migrate in place without discarding issues or workspace URLs.
 
+Vault records live in ordinary `.md` files. `<vault>/.lifeapps/runtime.json` holds exact definition approvals, grants, idempotent action receipts and the interrupted-write journal; back it up with the vault. Authority state and staged records are fsynced before publication. Recovery recognizes already-published content rather than blindly replaying a write. The conversation store records intent before execution and reconciles its receipt from the vault journal on restart.
+
+The configured vault and its approvals are **shared by local browser sessions**; only conversations and the original issue sandboxes are browser-specific. This is not multi-user vault authorization.
+
 Each Pi turn restores an isolated in-memory SDK session from that workspace's saved entries, then disposes it after completion. No agent is kept running while idle. Application state is independent of the transcript. A turn that was running at server restart is marked stopped; it is never automatically rerun. Pending confirmations and completed receipts survive restarts.
 
 Limits: initial composition has a 45-second deadline and 12 tool attempts; conversation turns have 60 seconds and 24 tool attempts, without provider retries. One turn per workspace, up to four concurrent conversations. A sandbox holds at most 50 workspaces; conversations stop at 100 turns or roughly 1 MB of SDK history. Start a new workspace at that point; automatic compaction is deliberately absent.
 
-This is **single-process and loopback-only**. It includes CSRF/origin/host checks, sandbox lookup, field allowlists, optimistic concurrency and HTML escaping. It does not provide production authentication, multi-process transactions, HTTPS deployment configuration or a distributed rate limiter. Do not expose it publicly unchanged.
+This is **single-process and loopback-only**. It includes CSRF/origin/host checks, field/capability allowlists, revision checks, symlink/hardlink rejection and HTML escaping. Portable filesystem APIs cannot eliminate a hostile external process swapping directories or changing files in the final check-to-rename window. Use one app writer, keep backups, and do not expose it publicly. Vault receipts are bounded to 10,000 entries and authority state to 16 MiB; reaching capacity fails closed.
 
 ## Files
 
@@ -182,7 +187,7 @@ public/style.css     Shared visual system and responsive conversation rail
 public/workspace.js  Small trusted enhancement client; no generated code
 scripts/smoke-pi.ts   Opt-in real-provider, multi-turn/restart smoke test
 scripts/lifeapps.ts   Read-only vault check and JSON Schema export
-src/vault/           Shared Markdown, definition and vault validation
+src/vault/           Parsing, validation, approval, safe writes, resources and Today UI
 examples/life-vault/  Fictional, connected Markdown app examples
 docs/                Vault quick start and implemented contract
 test/                Core, HTTP, DOM-client, vault and Pi isolation tests
@@ -196,7 +201,7 @@ npm test
 node --check public/workspace.js
 ```
 
-The **101 credential-free tests** cover the original conversation/UI/domain behavior plus Markdown/YAML parsing, definition schemas and semantics, temporal validation, duplicate IDs and journal dates, typed references, wiki links, external edits, read-only behavior, path/symlink boundaries, bounded scans, and CLI output/exit codes. DOM-client tests use jsdom; they are not visual browser tests. The vault milestone changes no browser UI.
+The **117 credential-free tests** cover the original conversation/UI behavior, reader/CLI validation, approval/grant enforcement, external definition changes, lossless edits, stale revisions, prospective uniqueness/references, path hazards, durable receipt recovery after actual child-process interruptions, and the requested conversation → Markdown → browser scheduling → completion → journal → restart flow. The enhanced form test exercises the real client against the HTTP server.
 
 Optional live-provider test (consumes your configured model quota; uses a temporary sandbox, not your working issues):
 
@@ -206,4 +211,4 @@ PI_MODEL=openai-codex/gpt-5.5 npm run smoke:pi
 
 Passed with `openai-codex/gpt-5.5`: assigned ISS-101 and ISS-105, restarted the server/store, recalled the assignment without changing anything, then recomposed the workspace without further issue mutations.
 
-**Visual verification remains pending:** Interceptor's isolation gate reports `INTERCEPTOR_TEST_CONTEXT_ID is not set`. No screenshot or cross-browser visual verification is claimed.
+**Today browser smoke passed** in Chromium at desktop and 390px widths. In a disposable vault, explicit app approvals enabled live Pi (`openai-codex/gpt-5.5`) task creation; native forms scheduled/completed the task; Pi appended its wiki link to the existing journal; native journal editing, PARA navigation, today's event creation, refresh and server restart preserved the files and conversation. The default-discovered `gpt-5.3-codex-spark` was rejected by the account, so this smoke explicitly selected the supported model. No cross-browser claim is made.

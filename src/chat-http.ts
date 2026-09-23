@@ -1,8 +1,8 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { AppError } from './core.js';
-import { createTurnContext, decideReceipt, runDemoTurn, undoLayout, visibleResources, type ChatEvent, type ChatRunner } from './conversation.js';
+import { createTurnContext, decideReceipt, runDemoTurn, undoLayout, visibleResources, workspaceResolver, type ChatEvent, type ChatRunner } from './conversation.js';
 import { conversationPanel, workspaceCanvas, resourceCanvas } from './render.js';
-import { issueResolver } from './issues.js';
+import { todayCanvas } from './vault/today.js';
 import type { ChatTurn, Store, Visitor } from './store.js';
 
 export function createConversationRoutes(store: Store, runner?: ChatRunner) {
@@ -16,8 +16,8 @@ export function createConversationRoutes(store: Store, runner?: ChatRunner) {
     if (req.method === 'GET') {
       if (target !== 'state') throw new AppError(405, 'Submit a form for this operation.');
       const focus = url.searchParams.get('focus') ?? '';
-      const resolve = issueResolver(visitor.issues);
-      const canvas = focus ? resourceCanvas(resolve(focus), visitor, workspace) : workspaceCanvas(workspace, visitor, resolve);
+      const resolve = workspaceResolver(visitor, store);
+      const canvas = focus ? resourceCanvas(resolve(focus), visitor, workspace) : workspace.kind === 'today' && store.vault ? todayCanvas(workspace, visitor, store.vault) : workspaceCanvas(workspace, visitor, resolve);
       const body = { conversation: conversationPanel(workspace, visitor, focus), canvas, revision: workspace.revision, busy: active.has(workspace.id) };
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
       res.end(JSON.stringify(body));
@@ -64,7 +64,7 @@ export function createConversationRoutes(store: Store, runner?: ChatRunner) {
     if (active.has(workspace.id) || active.size >= 4) throw new AppError(429, 'Pi is busy. Wait for the current turn or stop it.');
     if (workspace.conversation.turns.length >= 100 || JSON.stringify(workspace.conversation.entries).length > 1_000_000) throw new AppError(429, 'This conversation reached its local context limit. Start a new workspace.');
     if (fields.get('revision') !== String(workspace.revision)) throw new AppError(409, 'The workspace layout changed. Refresh before sending.');
-    const visible = visibleResources(workspace, visitor, focus).map(r => r.href);
+    const visible = visibleResources(workspace, visitor, focus, store).map(r => r.href);
     if (selected.some(ref => !visible.includes(ref))) throw new AppError(409, 'A selected issue is no longer in this view. Refresh and select it again.');
     const turn: ChatTurn = { id, engine, message, selected, visible, focus, response: '', status: 'running', created: new Date().toISOString() };
     const revision = workspace.revision;

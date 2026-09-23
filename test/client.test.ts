@@ -76,7 +76,7 @@ test('native action buttons work through enhancement and preserve an unsent chat
   const select = f.query<HTMLSelectElement>('#canvas select[name="owner"]');
   select.value = 'alex'; select.dispatchEvent(new f.window.Event('input', { bubbles: true }));
   const form = select.form!;
-  form.requestSubmit(f.query<HTMLButtonElement>(`button[form="${form.id}"]`));
+  form.requestSubmit([...form.elements].find(element => element.tagName === 'BUTTON') as HTMLButtonElement);
   await waitFor(() => f.query('#transcript').textContent!.includes('owner: alex'), 'form receipt');
   assert.equal(f.query<HTMLTextAreaElement>('#message').value, 'What should I do next?');
   assert.match(f.query('#canvas').textContent!, /Alex \(you\)/);

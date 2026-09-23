@@ -1,6 +1,6 @@
 # Markdown app contract — draft v0.1
 
-This is the implemented **read/validation foundation**, not yet an executable app platform. The existing Taskdesk server is unchanged. No app is activated by this reader; there are no file mutations, migrations, file watchers, model calls or new browser views in this milestone.
+This is the implemented definition, validation and execution contract. The read-only CLI validates candidates; the application separately approves exact revisions and grants, executes declared record operations, and presents Today through the existing conversation/browser boundary. Migrations, file watchers and conversational app creation are not implemented.
 
 ## Quick start
 
@@ -25,8 +25,8 @@ See [the short guide](vault-quickstart.md) and the real definitions in [`example
 
 - Documents are UTF-8 Markdown files. The reader retains their complete original source, body and a SHA-256 content revision. It never serializes a document back to disk.
 - App definitions are Markdown files under `.apps/`. Frontmatter holds the contract; the body is explanatory prose, not executable rules.
-- A valid definition is an **eligible candidate**, not an installed app and not a permission grant. Future installation must separately approve capabilities, retain accepted definition revisions, and authorize every operation.
-- No search database is created. Each invocation reads a fresh snapshot from disk; this phase has no persistent index or watcher.
+- A valid definition is an **eligible candidate**, not a permission grant. The browser review page binds selected capabilities to its path and SHA-256 revision. External changes suspend the app pending review; the agent cannot approve it.
+- No search database is created. Each resolution reads a fresh disk snapshot. Private runtime state stores approvals and receipts, not a replacement for the Markdown documents.
 - The scanner requires an explicit root containing a real `.apps/` directory. An empty `.apps/` directory is permitted for a notes-only vault. It does not search home directories, installed LifeOS data or ancestor directories for a vault.
 
 ## Source format
@@ -95,7 +95,7 @@ Supported types:
 
 An offset is not silently inferred from the machine timezone. Time ranges validate DST at both endpoints; named zones are checked with the runtime's Intl timezone data. Bare local timestamps, unknown `-00:00` offsets, reversed ranges and nonexistent calendar dates are errors. Date-time precision is milliseconds; leap seconds are outside this contract.
 
-A field may have `required` and `default`. Defaults are validated but **never injected into existing documents by the reader**. Future creation can apply them explicitly. Optional fields may be absent; `null` is not a synonym for absence.
+A field may have `required` and `default`. Creation applies declared defaults to omitted fields; existing documents are never silently defaulted. Optional fields may be absent; `null` is invalid stored metadata. An explicit `null` in an update request removes an optional declared field without touching unrelated metadata.
 
 Reserved names: `id`, `type`, `schema`, `title`, `body`, `path`, `revision`. App-defined fields cannot overwrite these. `title` and `body` are string fields available to actions and queries without declaration.
 
@@ -106,9 +106,9 @@ Only two operation names are recognized in this draft:
 - `record.create`
 - `record.update`, with a nonempty `fields` allowlist and/or nonempty fixed `set` values
 
-An update may include `when`. A field cannot be both caller-editable and fixed. Referenced fields and fixed value types are checked. `label` and `requiresConfirmation` are optional metadata; a future runtime must enforce its own approval floor, regardless of that flag.
+An update may include `when`. A field cannot be both caller-editable and fixed. The runtime enforces current predicates, the field allowlist, fixed values, and explicit type-level create/update grants. `requiresConfirmation` creates a pending conversational receipt; a native action submit or receipt confirmation is the explicit browser action.
 
-These are declarations only. There is no executor, deletion action, arbitrary code, shell command, plugin loading, network access, scheduler or permission-grant mechanism in the validator. Structural reference defaults/fixed values are checked as UUIDs; actual target validity must also be checked against current vault state when a future executor creates or updates a record.
+The executor supports only these two operations: no deletion, arbitrary code, shell, plugins, network access or background scheduling. Creation assigns a server UUID and a filename inside the declared default folder; callers cannot choose paths or envelope fields. Before publication, the resulting Markdown and prospective vault state are validated for types, references, uniqueness and cross-field rules.
 
 ### Queries and views
 
@@ -118,7 +118,7 @@ Predicates are exactly `{field, equals}` or `{field, in: [...]}`. Values must ma
 
 Sorting uses `ascending`/`descending`, with optional `missing: first|last`.
 
-Views declare a collection and `list`, `table` or `calendar`. A calendar additionally maps a temporal `date` field and a text/enum `label`. Multiple app views can eventually contribute to a calendar without duplicating records. These declarations are validated here but not executed or rendered; the existing Taskdesk browser does not yet understand them.
+Views declare a collection and `list`, `table` or `calendar`. A calendar maps a temporal `date` field and a text/enum `label`. The resource adapter executes declared predicates and ordering; multiple calendar views contribute projections of the same file. Today and the calendar agenda display dates and local times, including overlapping ranges and exclusive ends. A deadline and a scheduled session may intentionally appear as distinct projections.
 
 ### Cross-field and uniqueness rules
 
@@ -144,7 +144,7 @@ Free-form writing belongs here.
 - `type` resolves through a valid candidate definition. Missing or invalid definitions make structured interpretation invalid; no cached schema is silently used.
 - `schema` must equal the type's declared version. Migration is never implicit.
 - `title` is the first H1 heading, otherwise the filename without `.md`; no duplicate frontmatter title is accepted for managed records.
-- `body` is the complete Markdown body, including any title heading. Future title edits must modify that heading rather than add another source of truth.
+- `body` is the complete Markdown body, including any title heading. Title edits replace the first H1 (or insert one if absent); they do not add a second frontmatter source of truth.
 - Undeclared metadata generates a warning and is retained unchanged. Reserved runtime fields in managed frontmatter are errors.
 - Plain notes need no frontmatter. An `id` or `schema` without `type` is a partial managed envelope and is reported as an error.
 
@@ -173,7 +173,7 @@ Errors invalidate the report. Warnings permit a successful check. Invalid parsed
 
 Limits are 10,000 directory entries, 1 MiB per Markdown file, 32 MiB total Markdown and depth 32. Hidden paths are skipped except `.apps`; `node_modules` is skipped. Symlinks are reported, never intentionally followed. Normal files are opened read-only, with no-follow/nonblocking flags; containment, identity, size and change metadata are checked. Incomplete scans fail rather than report success.
 
-This is a local reader, **not a security sandbox against a hostile process racing directory changes or creating hard links**. Future write paths need their own containment, atomic-write and optimistic-concurrency protections. A whole-vault snapshot is also not transactional across concurrently edited files; rerun after external edits settle.
+The runtime adds no-follow path checks, rejects hard-linked targets, validates two fresh vault scans, and checks record/definition hashes immediately before publication. Updates use atomic rename; creation uses no-clobber publication. This remains **single-process**, not a sandbox against a hostile process racing directory swaps or the final check-to-rename window. A whole-vault snapshot is not transactional across concurrent external writers.
 
 ## Library entry points
 
@@ -183,9 +183,23 @@ This is a local reader, **not a security sandbox against a hostile process racin
 - `validateRecordRelationships(documents)` — ID, uniqueness and typed-reference checks.
 - `readVault(root, limits?)` — bounded scan and complete validation snapshot.
 - `runCli(args)` — deterministic CLI result without process-global effects.
+- `VaultRuntime(root, stateFile?)` — review/approve exact definitions, approved snapshots, declared mutations and durable receipts.
+- `vaultResolver(runtime)` / `mutationFor(...)` — common resource discovery and typed action conversion for browser forms and conversation.
 
-The CLI is a thin client of these functions. Future HTTP handlers and Pi tools should use the same validation functions, not parallel prompt-based validators. Before-write validation will also need prospective vault-wide checks, not merely a per-file check.
+The CLI, HTTP handlers and Pi tools reuse the same parser and validators. Pi only receives `inspect`, `act`, and `present`; it cannot choose an arbitrary filename or call the approval route. Forms and tools both enter `VaultRuntime.execute` through persisted action receipts.
+
+## Approval, revisions and receipts
+
+`read:<qualified-type>`, `create:<qualified-type>` and `update:<qualified-type>` are separately selected grants. Wiki can additionally offer `notes:read` for ordinary notes throughout the visible vault. Review shows exact source and individual unchecked permissions. Reapproving with fewer permissions removes the others.
+
+The default authority file is `<vault>/.lifeapps/runtime.json`, outside the visible scan. It contains accepted definition path/revision/grants, idempotent request fingerprints/results, and at most one pending publication journal. An optional explicit authority path must also be outside the visible scan. The configured vault/grants are shared by local browser sessions; this is not multi-user access control.
+
+Create requests bind the definition revision. Updates bind the record content hash; browser/tool requests additionally bind the definition revision so a stale confirmation cannot execute changed fixed values after reapproval. Action IDs and caller fields must be advertised and declared. Repeated runtime request IDs replay the same receipt; changed inputs under the same ID fail.
+
+Untouched YAML tokens (including comments, unknown metadata and CRLF/BOM) and Markdown are retained. An explicit body replacement replaces only the body. Staging and authority writes are fsynced; receipt recovery compares the published file's content hash and never replays a write over later external edits. The conversation store records intent before calling the vault runtime and reconciles interrupted receipts on restart.
+
+State is bounded to 16 MiB and 10,000 mutation receipts; capacity exhaustion rejects new writes. Back up authority state with the Markdown files rather than deleting it to clear capacity: deleting it also removes grants and receipt history. Invalid approved-readable records are not exposed as actionable resources; their diagnostics remain visible in Today.
 
 ## Still to build
 
-Accepted definition revisions and capability grants; safe writes and migrations; file watching; query/action execution; Markdown/calendar renderers; the Today workspace; and Pi-driven app creation. The contract deliberately exposes these boundaries without pretending the reader implements them.
+Migrations, filesystem watching, multi-process coordination, richer calendar layouts and Pi-driven app creation. Newly generated definitions will remain candidates until the same explicit approval boundary is used.

@@ -1,4 +1,62 @@
 // Trusted progressive enhancement only. Pi never supplies executable code.
+// Range controls only produce the declared JSON field; the server still validates it.
+function enhanceRanges(root = document) {
+  for (const range of root.querySelectorAll('.range-field:not(.range-enhanced)')) {
+    range.classList.add('range-enhanced');
+    const zone = range.querySelector('[data-range-part="timeZone"]');
+    if (zone && !zone.value) zone.value = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    range.querySelector('[data-range-part="start"]').required = range.querySelector('textarea').required;
+    range.querySelector('.range-advanced').open = false;
+  }
+}
+function zonedTime(value, timeZone) {
+  const wall = value.length === 16 ? `${value}:00` : value;
+  const nominal = Date.parse(`${wall}Z`);
+  const formatter = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23', timeZoneName: 'longOffset' });
+  let instant = nominal, offset = '+00:00', parts;
+  for (let step = 0; step < 4; step++) {
+    parts = Object.fromEntries(formatter.formatToParts(new Date(instant)).map(part => [part.type, part.value]));
+    offset = parts.timeZoneName === 'GMT' ? '+00:00' : parts.timeZoneName.slice(3);
+    if (!/^[+-]\d{2}:\d{2}$/.test(offset)) throw new Error('Choose a valid IANA timezone.');
+    const minutes = (Number(offset.slice(1, 3)) * 60 + Number(offset.slice(4))) * (offset.startsWith('-') ? -1 : 1);
+    const next = nominal - minutes * 60000;
+    if (next === instant) break;
+    instant = next;
+  }
+  parts = Object.fromEntries(formatter.formatToParts(new Date(instant)).map(part => [part.type, part.value]));
+  if (`${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}:${parts.second}` !== wall) throw new Error('This local time does not exist in that timezone. Choose a time outside the daylight-saving gap.');
+  return `${wall}${offset}`;
+}
+document.addEventListener('input', event => {
+  const range = event.target.closest('.range-field');
+  if (!range) return;
+  const start = range.querySelector('[data-range-part="start"]');
+  const end = range.querySelector('[data-range-part="end"]');
+  const zone = range.querySelector('[data-range-part="timeZone"]');
+  const raw = range.querySelector('textarea');
+  const notice = range.querySelector('.range-error');
+  start.setCustomValidity(''); notice.textContent = '';
+  if (event.target === raw) {
+    try {
+      const value = raw.value ? JSON.parse(raw.value) : {};
+      start.value = (value.start ?? '').slice(0, zone ? 16 : 10);
+      end.value = (value.end ?? '').slice(0, zone ? 16 : 10);
+      if (zone && value.timeZone) zone.value = value.timeZone;
+    } catch { /* The declared JSON field is independently validated on submission. */ }
+    return;
+  }
+  try {
+    if (!start.value && !end.value) { raw.value = ''; return; }
+    if (!start.value || !end.value) throw new Error('Choose both a start and an end.');
+    const value = zone ? { start: zonedTime(start.value, zone.value), end: zonedTime(end.value, zone.value), timeZone: zone.value } : { start: start.value, end: end.value };
+    if (zone ? Date.parse(value.start) >= Date.parse(value.end) : value.start >= value.end) throw new Error('End must be after start.');
+    raw.value = JSON.stringify(value);
+  } catch (error) {
+    notice.textContent = error.message;
+    start.setCustomValidity(error.message);
+  }
+});
+enhanceRanges();
 const desk = document.querySelector('.workbench');
 if (desk) {
   const base = `/workspaces/${desk.dataset.workspace}`;
@@ -16,7 +74,7 @@ if (desk) {
   const scrollChat = () => { const log = $('#transcript'); log.scrollTop = log.scrollHeight; };
   function selectionStatus() {
     const count = new Set([...document.querySelectorAll('input[name="selected"]:checked')].map(el => el.value)).size;
-    $('#selection-status').textContent = count ? `${count} issue${count === 1 ? '' : 's'} selected for your next message.` : 'No selection · Pi can see the current view.';
+    $('#selection-status').textContent = count ? `${count} record${count === 1 ? '' : 's'} selected for your next message.` : 'No selection · Pi can see the current view.';
   }
   function busy(value, id = '') {
     $('#conversation').dataset.busy = String(value);
@@ -37,6 +95,7 @@ if (desk) {
     const selection = new Set([...document.querySelectorAll('input[name="selected"]:checked')].map(el => el.value));
     const oldCanvas = $('#canvas');
     const nextCanvas = fromHTML(data.canvas, '#canvas');
+    enhanceRanges(nextCanvas);
     if (!oldCanvas.isEqualNode(nextCanvas)) {
       if (dirtyForms.size) pending = true;
       else {
@@ -90,7 +149,7 @@ if (desk) {
     let accepted = false;
     let streamFailure = '';
     try {
-      const response = await checked(await fetch(form.action, { method: 'POST', headers: { Accept: 'text/event-stream' }, body }));
+      const response = await checked(await fetch(form.getAttribute('action'), { method: 'POST', headers: { Accept: 'text/event-stream' }, body }));
       accepted = true;
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
@@ -138,7 +197,7 @@ if (desk) {
     const body = new URLSearchParams(new FormData(form, submitter));
     if (submitter) submitter.disabled = true;
     try {
-      await checked(await fetch(form.action, { method: 'POST', body }));
+      await checked(await fetch(form.getAttribute('action'), { method: 'POST', body }));
       if (stop) { status('Stopping. Actions already applied will remain.'); return; }
       dirtyForms.delete(form);
       if (form.classList.contains('undo-layout')) switchToWorkspace = true;
@@ -158,6 +217,7 @@ if (desk) {
       if (!next) throw new Error('That resource could not be displayed.');
       dirtyForms.clear(); pending = false; switchToWorkspace = false;
       $('#canvas').replaceWith(next);
+      enhanceRanges(next);
       next.tabIndex = -1;
       next.focus({ preventScroll: true });
       $('#pending-update').hidden = true;
@@ -171,11 +231,23 @@ if (desk) {
     } catch (error) { status(error.message); }
   }
   document.addEventListener('click', event => {
+    const insert = event.target.closest('[data-journal-link]');
+    if (insert && desk.contains(insert)) {
+      const journal = document.querySelector('#today-journal textarea[name="body"]');
+      if (!journal) { status('Open Today and enable a journal create or edit action first.'); return; }
+      const text = `${journal.value && !journal.value.endsWith('\n') ? '\n' : ''}${insert.dataset.journalLink}\n`;
+      journal.setRangeText(text, journal.value.length, journal.value.length, 'end');
+      journal.dispatchEvent(new Event('input', { bubbles: true }));
+      journal.focus();
+      journal.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      status('Wiki link inserted into your draft. Save the journal to write it to the vault.');
+      return;
+    }
     const link = event.target.closest('a');
     if (!link || !desk.contains(link) || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     const url = new URL(link.href);
     if (url.origin !== location.origin) return;
-    const sameWorkspace = url.pathname === base || ((url.pathname === '/issues' || /^\/issues\/ISS-\d+$/.test(url.pathname)) && url.searchParams.get('workspace') === desk.dataset.workspace);
+    const sameWorkspace = url.pathname === base || (desk.classList.contains('today-workbench') && url.pathname === '/today') || ((url.pathname === '/issues' || /^\/issues\/ISS-\d+$/.test(url.pathname) || (url.pathname.startsWith('/vault') && !['/vault/apps', '/vault/approve', '/vault/act'].includes(url.pathname))) && url.searchParams.get('workspace') === desk.dataset.workspace);
     if (!sameWorkspace) return;
     event.preventDefault();
     void navigate(url.href);

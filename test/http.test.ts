@@ -57,11 +57,6 @@ test('create → refresh → native mutation → refreshed workspace never recom
   const record = await a.get(`/issues/ISS-101?workspace=${id}`);
   const recordHtml = await record.text();
   assert.match(recordHtml, new RegExp(`href="/workspaces/${id}"`));
-  // Submit buttons are outside their forms but natively associated via form=.
-  const formIds = [...recordHtml.matchAll(/<form id="(block-[^"]+)"/g)].map(m => m[1]);
-  const submitIds = [...recordHtml.matchAll(/type="submit" form="([^"]+)"/g)].map(m => m[1]);
-  assert.ok(formIds.length > 0);
-  assert.deepEqual(formIds, submitIds);
   const assigned = await a.post('/issues/ISS-101/assign', { version: '1', owner: 'alex', workspace: id });
   assert.equal(assigned.status, 303);
   assert.match(assigned.headers.get('location')!, /saved=1/);

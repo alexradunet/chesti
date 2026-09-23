@@ -9,6 +9,9 @@ export interface Field {
   label: string;
   value: string;
   options: { value: string; label: string }[];
+  input?: 'text' | 'date' | 'datetime-local' | 'number' | 'textarea' | 'checkbox' | 'json';
+  required?: boolean;
+  valueType?: string;
 }
 export interface Action {
   id: string;
@@ -27,7 +30,8 @@ export interface Resource {
   links: Link[];
   actions: Action[];
   items?: Resource[];
-  version?: number;
+  version?: number | string;
+  body?: string;
 }
 export type Resolve = (href: string) => Resource;
 

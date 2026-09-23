@@ -3,13 +3,23 @@ import { AppError, createExplorer, type Resource, type ViewPlan } from './core.j
 import { applyAction, issueResolver } from './issues.js';
 import { demoComposition } from './composer.js';
 import type { ChatTurn, Composition, Receipt, Store, Visitor, Workspace } from './store.js';
+import { localDate, mutationFor, vaultResolver } from './vault/resources.js';
+
+export function workspaceResolver(visitor: Visitor, store?: Store) {
+  const issues = issueResolver(visitor.issues);
+  return (href: string) => {
+    if (!href.startsWith('/vault')) return issues(href);
+    if (!store?.vault) throw new AppError(404, 'No vault is configured.');
+    return vaultResolver(store.vault)(href);
+  };
+}
 
 export type ChatEvent = { type: 'text' | 'status'; text: string } | { type: 'receipt'; receipt: Receipt };
 export type ChatRunner = (context: TurnContext) => Promise<void>;
 export const actor = { id: 'alex', name: 'Alex' }; // Local sandbox identity; never taken from model input.
 
-export function visibleResources(workspace: Workspace, visitor: Visitor, focus = ''): Resource[] {
-  const resolve = issueResolver(visitor.issues);
+export function visibleResources(workspace: Workspace, visitor: Visitor, focus = '', store?: Store): Resource[] {
+  const resolve = workspaceResolver(visitor, store);
   const resources = focus ? [resolve(focus)] : workspace.plan.blocks.map(b => resolve(b.resource));
   const records = resources.flatMap(r => r.kind === 'collection' ? r.items ?? [] : [r]);
   return [...new Map(records.map(r => [r.href, r])).values()];
@@ -24,6 +34,17 @@ function resultMessage(receipt: Receipt): string {
 // Persist the state and receipt together before reporting success. No awaited work
 // occurs between version validation, mutation and the atomic store rename.
 export function executeReceipt(store: Store, visitor: Visitor, receipt: Receipt): Receipt {
+  if (receipt.vaultRequest) {
+    if (!store.vault) throw new AppError(404, 'No vault is configured.');
+    receipt.executionStarted = true;
+    store.save(); // Persist intent before the independently durable vault transaction.
+    const result = store.vault.execute(receipt.vaultRequest);
+    receipt.status = result.status;
+    receipt.message = result.message;
+    receipt.errorStatus = result.errorStatus;
+    store.save();
+    return receipt;
+  }
   const before = structuredClone(visitor.issues);
   const previous = structuredClone(receipt);
   try {
@@ -76,8 +97,8 @@ function compositionOf(workspace: Workspace): Composition {
 }
 
 export function createTurnContext(store: Store, visitor: Visitor, workspace: Workspace, turn: ChatTurn, signal: AbortSignal, emit: (event: ChatEvent) => void) {
-  const resolve = issueResolver(visitor.issues);
-  const explorer = createExplorer(resolve);
+  const resolve = workspaceResolver(visitor, store);
+  const explorer = createExplorer(resolve, workspace.kind === 'today' ? '/vault' : '/issues');
   const snapshots = new Map<string, Resource>();
   const startRevision = workspace.revision;
   let calls = 0;
@@ -93,6 +114,7 @@ export function createTurnContext(store: Store, visitor: Visitor, workspace: Wor
     setModel: (name: string) => { model = name; },
     context: {
       actor, task: workspace.task, plan: structuredClone(workspace.plan),
+      entry: workspace.kind === 'today' ? '/vault' : '/issues', today: localDate(), tomorrow: localDate(1),
       focus: turn.focus || 'workspace', visible: turn.visible, selected: turn.selected,
       recentActions: structuredClone(workspace.conversation.receipts.slice(-20)),
       // Covers native edits and demo turns that are intentionally not SDK messages.
@@ -107,14 +129,14 @@ export function createTurnContext(store: Store, visitor: Visitor, workspace: Wor
     act(resource: string, actionId: string, input: Record<string, string>) {
       guard();
       const snapshot = snapshots.get(resource);
-      if (!snapshot || snapshot.kind !== 'record') throw new AppError(403, 'Explicitly inspect this issue in this turn before acting.');
+      if (!snapshot || snapshot.kind !== 'record') throw new AppError(403, 'Explicitly inspect this resource in this turn before acting.');
       // Authorize using the inspected affordance, never an invented URL or method.
       const action = snapshot.actions.find(a => a.id === actionId);
       if (!action) throw new AppError(409, 'That action was not advertised by the inspected resource.');
       const fields = { ...input };
       if (actionId === 'assign' && fields.owner === 'me') fields.owner = actor.id;
       if (Object.keys(fields).some(k => !action.fields.some(f => f.name === k))) throw new AppError(422, 'Unexpected action field.');
-      for (const field of action.fields) if (!field.options.some(o => o.value === fields[field.name])) throw new AppError(422, `Choose a valid ${field.label.toLowerCase()}.`);
+      for (const field of action.fields) if (field.options.length && fields[field.name] !== undefined && !field.options.some(o => o.value === fields[field.name])) throw new AppError(422, `Choose a valid ${field.label.toLowerCase()}.`);
       const receipts = workspace.conversation.receipts;
       const signature = JSON.stringify(Object.entries(fields).sort(([a], [b]) => a.localeCompare(b)));
       const prior = receipts.find(r => r.turnId === turn.id && r.resource === resource && r.action === actionId && JSON.stringify(Object.entries(r.fields).sort(([a], [b]) => a.localeCompare(b))) === signature);
@@ -124,15 +146,19 @@ export function createTurnContext(store: Store, visitor: Visitor, workspace: Wor
         id: randomUUID(), turnId: turn.id, source: turn.engine, resource, action: actionId,
         fields, version: snapshot.version!, status: 'pending', message: 'Confirmation required. No change made.', created: new Date().toISOString(),
       };
+      if (resource.startsWith('/vault')) receipt.vaultRequest = mutationFor(snapshot, actionId, fields, receipt.id);
       receipts.push(receipt);
       try {
         if (current.version !== snapshot.version || !current.actions.some(a => a.id === actionId)) {
           receipt.status = 'failed';
-          receipt.message = 'This issue changed after inspection. No change made; ask the user before retrying in a new turn.';
+          receipt.message = 'This resource changed after inspection. No change made; ask the user before retrying in a new turn.';
           store.save();
         } else if (current.actions.find(a => a.id === actionId)?.requiresConfirmation) store.save();
         else executeReceipt(store, visitor, receipt);
-      } catch (error) { receipts.pop(); throw error; }
+      } catch (error) {
+        if (!receipt.executionStarted) receipts.pop();
+        throw error;
+      }
       emit({ type: 'receipt', receipt: structuredClone(receipt) });
       return structuredClone(receipt);
     },
@@ -166,6 +192,29 @@ export type TurnContext = ReturnType<typeof createTurnContext>;
 // back to this executor: after a partial failure, retrying could repeat actions.
 export const runDemoTurn: ChatRunner = async context => {
   const { turn } = context;
+  if (context.workspace.kind === 'today') {
+    const create = /^create a task (?:to )?(.+?) (today|tomorrow)[.!]?$/i.exec(turn.message.trim());
+    if (create) {
+      const entry = context.inspect('/vault');
+      const typeLink = entry.links.find(link => link.href === '/vault/types/tasks.task');
+      if (!typeLink) { context.text('Approve Tasks and its create permission in App review first. No changes made.'); return; }
+      const type = context.inspect(typeLink.href);
+      const action = type.actions.find(a => a.id === 'create');
+      if (!action) { context.text('Task creation is not approved. No changes made.'); return; }
+      const receipt = context.act(type.href, action.id, { title: create[1]!, due: localDate(create[2]!.toLowerCase() === 'tomorrow' ? 1 : 0) });
+      context.text(receipt.message);
+      return;
+    }
+    if (/^(show|open) today[.!]?$/i.test(turn.message.trim())) {
+      context.inspect('/vault');
+      for (const resource of ['/vault/today', '/vault/tasks', '/vault/journal', '/vault/para']) context.inspect(resource);
+      context.present({ title: 'Today', layout: 'stack', blocks: ['/vault/today', '/vault/tasks', '/vault/journal', '/vault/para'].map(resource => ({ resource, view: 'list' })) });
+      context.text('Showing Today. No records changed.');
+      return;
+    }
+    context.text('Demo supports “Create a task to finish the homepage tomorrow.” Use the task forms to schedule or complete it, and the journal to link it. Select Pi for open-ended requests.');
+    return;
+  }
   const command = /^(assign|close) (both(?: issues)?|selected(?: issues)?|these(?: issues)?|ISS-\d+(?:(?:, | and )ISS-\d+)*)( to me)?[.!]?$/i.exec(turn.message.trim());
   if (command && (command[1]!.toLowerCase() !== 'assign' || command[3])) {
     let refs = [...new Set(turn.message.match(/ISS-\d+/gi)?.map(id => `/issues/${id.toUpperCase()}`) ?? turn.selected)];

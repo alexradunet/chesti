@@ -4,6 +4,7 @@ import { dirname } from 'node:path';
 import { seedIssues, type Issue } from './issues.js';
 import type { ViewPlan } from './core.js';
 import type { SessionEntry } from '@earendil-works/pi-coding-agent';
+import type { VaultMutation, VaultRuntime } from './vault/runtime.js';
 
 export interface Composition {
   plan: ViewPlan;
@@ -20,7 +21,9 @@ export interface Receipt {
   resource: string;
   action: string;
   fields: Record<string, string>;
-  version: number;
+  version: number | string;
+  vaultRequest?: VaultMutation;
+  executionStarted?: boolean;
   status: 'applied' | 'pending' | 'failed' | 'cancelled';
   message: string;
   errorStatus?: number;
@@ -47,6 +50,7 @@ export interface Conversation {
 export interface Workspace extends Composition {
   id: string; task: string; created: string;
   revision: number;
+  kind?: 'today';
   previousPlan?: ViewPlan;
   previousComposition?: Composition;
   conversation: Conversation;
@@ -67,6 +71,20 @@ export interface Visitor {
 // Each browser gets its own sandbox. Agent transcripts are not application state.
 export class Store {
   private visitors: Visitor[] = [];
+  vault?: VaultRuntime;
+  reconcileVaultReceipts() {
+    if (!this.vault) return;
+    for (const visitor of this.visitors) for (const workspace of visitor.workspaces) {
+      for (const receipt of workspace.conversation.receipts) {
+        if (!receipt.vaultRequest || !receipt.executionStarted || receipt.status !== 'pending') continue;
+        const result = this.vault.receipt(receipt.id);
+        receipt.status = result?.status ?? 'failed';
+        receipt.message = result?.message ?? 'Interrupted before the vault write. No automatic retry was made.';
+        receipt.errorStatus = result?.errorStatus;
+      }
+    }
+    this.save();
+  }
   constructor(private file?: string) {
     if (file && existsSync(file)) {
       const data = JSON.parse(readFileSync(file, 'utf8'));

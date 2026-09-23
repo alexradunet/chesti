@@ -1,15 +1,18 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { randomUUID, timingSafeEqual } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { resolve as resolvePath } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { AppError, validatePlan } from './core.js';
 import { createComposer, type Composer } from './composer.js';
 import { issueResolver } from './issues.js';
-import { executeReceipt, type ChatRunner } from './conversation.js';
+import { executeReceipt, workspaceResolver, type ChatRunner } from './conversation.js';
 import { createConversationRoutes } from './chat-http.js';
 import { errorPage, home, resourcePage, workspacePage } from './render.js';
 import { Store, type Receipt, type Visitor, type Workspace } from './store.js';
+import { VaultRuntime } from './vault/runtime.js';
+import { mutationFor } from './vault/resources.js';
+import { approvalPage, todayPage } from './vault/today.js';
 
 function cookieId(req: IncomingMessage): string | undefined {
   return req.headers.cookie?.split(';').map(c => c.trim()).find(c => c.startsWith('taskdesk='))?.slice(9);
@@ -31,7 +34,7 @@ async function formBody(req: IncomingMessage, limit = 8192): Promise<URLSearchPa
   }
   const fields = new URLSearchParams(Buffer.concat(chunks).toString('utf8'));
   for (const key of fields.keys()) {
-    if (key !== 'selected' && fields.getAll(key).length !== 1) throw new AppError(422, 'Repeated form field.');
+    if (!['selected', 'permissions'].includes(key) && fields.getAll(key).length !== 1) throw new AppError(422, 'Repeated form field.');
   }
   return fields;
 }
@@ -50,9 +53,19 @@ function redirect(res: ServerResponse, location: string) {
   res.end();
 }
 
-export function createApp(options: { store?: Store; mode?: 'demo' | 'pi'; composer?: Composer; chatRunner?: ChatRunner } = {}) {
+export function createApp(options: { store?: Store; mode?: 'demo' | 'pi'; composer?: Composer; chatRunner?: ChatRunner; vault?: VaultRuntime } = {}) {
   const store = options.store ?? new Store(resolvePath('.data/state.json'));
   const mode = options.mode ?? (process.env.COMPOSER === 'pi' ? 'pi' : 'demo');
+  if (options.vault) store.vault = options.vault;
+  else if (!options.store) {
+    const root = process.env.VAULT_ROOT ?? resolvePath('.data/vault');
+    if (!process.env.VAULT_ROOT && !existsSync(root)) {
+      mkdirSync(resolvePath('.data'), { recursive: true, mode: 0o700 });
+      cpSync(new URL('../examples/life-vault', import.meta.url), root, { recursive: true, errorOnExist: true, force: false });
+    }
+    store.vault = new VaultRuntime(root);
+  }
+  store.reconcileVaultReceipts();
   const css = readFileSync(new URL('../public/style.css', import.meta.url));
   const font = readFileSync(new URL('../node_modules/@fontsource-variable/ibm-plex-sans/files/ibm-plex-sans-latin-wght-normal.woff2', import.meta.url));
   const client = readFileSync(new URL('../public/workspace.js', import.meta.url));
@@ -89,9 +102,41 @@ export function createApp(options: { store?: Store; mode?: 'demo' | 'pi'; compos
         if (!visitor) throw new AppError(403, 'Open the desk before submitting a form.');
         if (req.headers.origin && req.headers.origin !== `http://${host}`) throw new AppError(403, 'Cross-origin submissions are not allowed.');
         if (req.headers['sec-fetch-site'] === 'cross-site') throw new AppError(403, 'Cross-site submissions are not allowed.');
-        const fields = await formBody(req, url.pathname.endsWith('/messages') ? 32_768 : 8192);
+        const fields = await formBody(req, url.pathname === '/vault/act' ? 262_144 : url.pathname.endsWith('/messages') ? 32_768 : 8192);
         if (!sameToken(fields.get('csrf'), visitor.csrf)) throw new AppError(403, 'Invalid form token. Reload the page and try again.');
         if (await conversationRoutes(req, res, url, visitor, fields)) return;
+        if (url.pathname === '/vault/approve') {
+          if (!store.vault) throw new AppError(404, 'No vault is configured.');
+          if ([...fields.keys()].some(k => !['csrf', 'app', 'revision', 'permissions'].includes(k))) throw new AppError(422, 'Unexpected approval field.');
+          store.vault.approve(fields.get('app') ?? '', fields.get('revision') ?? '', fields.getAll('permissions'));
+          redirect(res, '/today');
+          return;
+        }
+        if (url.pathname === '/vault/act') {
+          if (!store.vault) throw new AppError(404, 'No vault is configured.');
+          const workspace = workspaceFor(visitor, fields.get('workspace'));
+          if (!workspace) throw new AppError(422, 'Vault actions require a persistent workspace.');
+          const resource = workspaceResolver(visitor, store)(fields.get('resource') ?? '');
+          if (!resource.href.startsWith('/vault/')) throw new AppError(403, 'Not a vault resource.');
+          const action = fields.get('action') ?? '';
+          const input = Object.fromEntries([...fields].filter(([key]) => !['csrf', 'workspace', 'resource', 'action', 'version', 'definitionRevision'].includes(key)));
+          const receipt: Receipt = { id: randomUUID(), source: 'form', resource: resource.href, action, fields: input, version: fields.get('version') ?? '', status: 'pending', message: '', created: new Date().toISOString() };
+          workspace.conversation.receipts.push(receipt);
+          try {
+            receipt.vaultRequest = mutationFor({ ...resource, version: receipt.version }, action, input, receipt.id);
+            receipt.vaultRequest.definitionRevision = fields.get('definitionRevision') ?? '';
+            executeReceipt(store, visitor, receipt);
+          } catch (error) {
+            if (!(error instanceof AppError) || receipt.executionStarted) throw error;
+            receipt.status = 'failed';
+            receipt.message = error.message;
+            receipt.errorStatus = error.status;
+            store.save();
+          }
+          if (receipt.status === 'failed') throw new AppError(receipt.errorStatus ?? 409, receipt.message);
+          redirect(res, `/workspaces/${workspace.id}`);
+          return;
+        }
         if (url.pathname === '/workspaces') {
           if ([...fields.keys()].some(k => !['csrf', 'task', 'engine'].includes(k))) throw new AppError(422, 'Unexpected form field.');
           const task = fields.get('task')?.trim() ?? '';
@@ -129,13 +174,45 @@ export function createApp(options: { store?: Store; mode?: 'demo' | 'pi'; compos
         visitor = store.create();
         res.setHeader('Set-Cookie', `taskdesk=${visitor.id}; Path=/; HttpOnly; SameSite=Strict; Max-Age=2592000`);
       }
-      const resolver = issueResolver(visitor.issues);
+      const resolver = workspaceResolver(visitor, store);
       if (await conversationRoutes(req, res, url, visitor)) return;
+      if (url.pathname === '/today') {
+        if (!store.vault) throw new AppError(404, 'No vault is configured. Set VAULT_ROOT when starting the server.');
+        let workspace = visitor.workspaces.find(w => w.kind === 'today');
+        if (!workspace) {
+          workspace = store.workspace(visitor, 'Plan today, finish useful work, and keep a Markdown journal.', {
+            plan: { title: 'Today', layout: 'stack', blocks: ['/vault/today', '/vault/tasks', '/vault/journal', '/vault/para'].map(resource => ({ resource, view: 'list' })) },
+            engine: 'demo', note: 'A persistent workspace over approved Markdown vault resources.', inspected: [], elapsedMs: 0,
+          });
+          workspace.kind = 'today';
+          workspace.conversation.engine = mode;
+          store.save();
+        }
+        redirect(res, `/workspaces/${workspace.id}`);
+        return;
+      }
+      if (url.pathname === '/vault/apps') {
+        if (!store.vault) throw new AppError(404, 'No vault is configured.');
+        html(res, approvalPage(visitor, store.vault)); return;
+      }
+      if (url.pathname === '/vault' || url.pathname.startsWith('/vault/')) {
+        if (!store.vault) throw new AppError(404, 'No vault is configured.');
+        const workspace = workspaceFor(visitor, url.searchParams.get('workspace')) ?? visitor.workspaces.find(w => w.kind === 'today');
+        const resourceUrl = new URL(url);
+        resourceUrl.searchParams.delete('workspace');
+        resourceUrl.searchParams.delete('saved');
+        const resource = resolver(resourceUrl.pathname + resourceUrl.search);
+        if (req.headers.accept?.includes('application/vnd.taskdesk.resource+json')) {
+          res.writeHead(200, { 'Content-Type': 'application/vnd.taskdesk.resource+json; charset=utf-8' });
+          res.end(JSON.stringify(resource));
+        } else html(res, resourcePage(resource, visitor, workspace));
+        return;
+      }
       if (url.pathname === '/') { html(res, home(visitor, mode)); return; }
       const workspaceMatch = /^\/workspaces\/([a-f0-9-]{36})$/.exec(url.pathname);
       if (workspaceMatch) {
         const workspace = workspaceFor(visitor, workspaceMatch[1]!)!;
-        html(res, workspacePage(workspace, visitor, resolver));
+        html(res, workspace.kind === 'today' && store.vault ? todayPage(workspace, visitor, store.vault) : workspacePage(workspace, visitor, resolver));
         return;
       }
       if (url.pathname === '/issues' || /^\/issues\/ISS-\d+$/.test(url.pathname)) {
