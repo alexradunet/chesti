@@ -1,13 +1,15 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { timingSafeEqual } from 'node:crypto';
+import { randomUUID, timingSafeEqual } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { resolve as resolvePath } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { AppError, validatePlan } from './core.js';
 import { createComposer, type Composer } from './composer.js';
-import { applyAction, issueResolver } from './issues.js';
+import { issueResolver } from './issues.js';
+import { executeReceipt, type ChatRunner } from './conversation.js';
+import { createConversationRoutes } from './chat-http.js';
 import { errorPage, home, resourcePage, workspacePage } from './render.js';
-import { Store, type Visitor, type Workspace } from './store.js';
+import { Store, type Receipt, type Visitor, type Workspace } from './store.js';
 
 function cookieId(req: IncomingMessage): string | undefined {
   return req.headers.cookie?.split(';').map(c => c.trim()).find(c => c.startsWith('taskdesk='))?.slice(9);
@@ -17,19 +19,19 @@ function sameToken(actual: string | null, expected: string): boolean {
   const b = Buffer.from(expected);
   return a.length === b.length && timingSafeEqual(a, b);
 }
-async function formBody(req: IncomingMessage): Promise<URLSearchParams> {
+async function formBody(req: IncomingMessage, limit = 8192): Promise<URLSearchParams> {
   if (req.headers['content-type']?.split(';')[0] !== 'application/x-www-form-urlencoded') throw new AppError(415, 'Submit a standard HTML form.');
-  if (Number(req.headers['content-length'] ?? 0) > 8192) throw new AppError(413, 'Form too large.');
+  if (Number(req.headers['content-length'] ?? 0) > limit) throw new AppError(413, 'Form too large.');
   const chunks: Buffer[] = [];
   let size = 0;
   for await (const chunk of req) {
     size += chunk.length;
-    if (size > 8192) throw new AppError(413, 'Form too large.');
+    if (size > limit) throw new AppError(413, 'Form too large.');
     chunks.push(Buffer.from(chunk));
   }
   const fields = new URLSearchParams(Buffer.concat(chunks).toString('utf8'));
   for (const key of fields.keys()) {
-    if (fields.getAll(key).length !== 1) throw new AppError(422, 'Repeated form field.');
+    if (key !== 'selected' && fields.getAll(key).length !== 1) throw new AppError(422, 'Repeated form field.');
   }
   return fields;
 }
@@ -48,14 +50,16 @@ function redirect(res: ServerResponse, location: string) {
   res.end();
 }
 
-export function createApp(options: { store?: Store; mode?: 'demo' | 'pi'; composer?: Composer } = {}) {
+export function createApp(options: { store?: Store; mode?: 'demo' | 'pi'; composer?: Composer; chatRunner?: ChatRunner } = {}) {
   const store = options.store ?? new Store(resolvePath('.data/state.json'));
   const mode = options.mode ?? (process.env.COMPOSER === 'pi' ? 'pi' : 'demo');
   const css = readFileSync(new URL('../public/style.css', import.meta.url));
   const font = readFileSync(new URL('../node_modules/@fontsource-variable/ibm-plex-sans/files/ibm-plex-sans-latin-wght-normal.woff2', import.meta.url));
+  const client = readFileSync(new URL('../public/workspace.js', import.meta.url));
+  const conversationRoutes = createConversationRoutes(store, options.chatRunner);
   let composing = false;
   const server = createServer(async (req, res) => {
-    res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'self'; font-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'; object-src 'none'");
+    res.setHeader('Content-Security-Policy', "default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'self'; font-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'; object-src 'none'");
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Referrer-Policy', 'same-origin');
     res.setHeader('Cache-Control', 'no-store');
@@ -73,10 +77,11 @@ export function createApp(options: { store?: Store; mode?: 'demo' | 'pi'; compos
         res.setHeader('Allow', 'GET, POST');
         throw new AppError(405, 'Use a link or a form.');
       }
-      if (req.method === 'GET' && (url.pathname === '/style.css' || url.pathname === '/fonts/plex.woff2')) {
+      if (req.method === 'GET' && (url.pathname === '/style.css' || url.pathname === '/fonts/plex.woff2' || url.pathname === '/workspace.js')) {
         const stylesheet = url.pathname === '/style.css';
-        res.writeHead(200, { 'Content-Type': stylesheet ? 'text/css; charset=utf-8' : 'font/woff2', 'Cache-Control': 'public, max-age=3600' });
-        res.end(stylesheet ? css : font);
+        const javascript = url.pathname === '/workspace.js';
+        res.writeHead(200, { 'Content-Type': stylesheet ? 'text/css; charset=utf-8' : javascript ? 'text/javascript; charset=utf-8' : 'font/woff2', 'Cache-Control': 'no-cache' });
+        res.end(stylesheet ? css : javascript ? client : font);
         return;
       }
       let visitor = store.get(cookieId(req));
@@ -84,8 +89,9 @@ export function createApp(options: { store?: Store; mode?: 'demo' | 'pi'; compos
         if (!visitor) throw new AppError(403, 'Open the desk before submitting a form.');
         if (req.headers.origin && req.headers.origin !== `http://${host}`) throw new AppError(403, 'Cross-origin submissions are not allowed.');
         if (req.headers['sec-fetch-site'] === 'cross-site') throw new AppError(403, 'Cross-site submissions are not allowed.');
-        const fields = await formBody(req);
+        const fields = await formBody(req, url.pathname.endsWith('/messages') ? 32_768 : 8192);
         if (!sameToken(fields.get('csrf'), visitor.csrf)) throw new AppError(403, 'Invalid form token. Reload the page and try again.');
+        if (await conversationRoutes(req, res, url, visitor, fields)) return;
         if (url.pathname === '/workspaces') {
           if ([...fields.keys()].some(k => !['csrf', 'task', 'engine'].includes(k))) throw new AppError(422, 'Unexpected form field.');
           const task = fields.get('task')?.trim() ?? '';
@@ -101,6 +107,8 @@ export function createApp(options: { store?: Store; mode?: 'demo' | 'pi'; compos
             // Validate again at the HTTP boundary; never trust a composer adapter.
             composition.plan = validatePlan(composition.plan, resolver, new Set(composition.inspected));
             const workspace = store.workspace(visitor, task, composition);
+            workspace.conversation.engine = engine;
+            store.save();
             redirect(res, `/workspaces/${workspace.id}`);
           } finally { composing = false; }
           return;
@@ -108,8 +116,12 @@ export function createApp(options: { store?: Store; mode?: 'demo' | 'pi'; compos
         const mutation = /^\/issues\/(ISS-\d+)\/(assign|prioritize|start|close|reopen)$/.exec(url.pathname);
         if (!mutation) throw new AppError(404, 'Action not found.');
         const workspace = workspaceFor(visitor, fields.get('workspace'));
-        applyAction(visitor.issues, mutation[1]!, mutation[2]!, fields);
-        store.save();
+        const version = Number(fields.get('version'));
+        if (!Number.isSafeInteger(version) || version < 1 || fields.get('version') !== String(version)) throw new AppError(422, 'Invalid resource version.');
+        const receipt: Receipt = { id: randomUUID(), source: 'form', resource: `/issues/${mutation[1]}`, action: mutation[2]!, fields: Object.fromEntries([...fields].filter(([k]) => !['csrf', 'version', 'workspace'].includes(k))), version, status: 'pending', message: '', created: new Date().toISOString() };
+        workspace?.conversation.receipts.push(receipt);
+        try { executeReceipt(store, visitor, receipt); } catch (error) { workspace?.conversation.receipts.pop(); throw error; }
+        if (receipt.status === 'failed') throw new AppError(receipt.errorStatus ?? 409, receipt.message);
         redirect(res, `/issues/${mutation[1]}?saved=1${workspace ? `&workspace=${workspace.id}` : ''}`);
         return;
       }
@@ -118,6 +130,7 @@ export function createApp(options: { store?: Store; mode?: 'demo' | 'pi'; compos
         res.setHeader('Set-Cookie', `taskdesk=${visitor.id}; Path=/; HttpOnly; SameSite=Strict; Max-Age=2592000`);
       }
       const resolver = issueResolver(visitor.issues);
+      if (await conversationRoutes(req, res, url, visitor)) return;
       if (url.pathname === '/') { html(res, home(visitor, mode)); return; }
       const workspaceMatch = /^\/workspaces\/([a-f0-9-]{36})$/.exec(url.pathname);
       if (workspaceMatch) {

@@ -58,7 +58,7 @@ test('create → refresh → native mutation → refreshed workspace never recom
   const recordHtml = await record.text();
   assert.match(recordHtml, new RegExp(`href="/workspaces/${id}"`));
   // Submit buttons are outside their forms but natively associated via form=.
-  const formIds = [...recordHtml.matchAll(/<form id="([^"]+)"/g)].map(m => m[1]);
+  const formIds = [...recordHtml.matchAll(/<form id="(block-[^"]+)"/g)].map(m => m[1]);
   const submitIds = [...recordHtml.matchAll(/type="submit" form="([^"]+)"/g)].map(m => m[1]);
   assert.ok(formIds.length > 0);
   assert.deepEqual(formIds, submitIds);

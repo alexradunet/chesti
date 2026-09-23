@@ -35,7 +35,7 @@ export function seedIssues(): Issue[] {
 
 export function issueResource(issue: Issue): Resource {
   const href = `/issues/${issue.id}`;
-  const action = (id: string, title: string, fields: Action['fields'] = []): Action => ({ id, title, href: `${href}/${id}`, method: 'post', fields });
+  const action = (id: string, title: string, fields: Action['fields'] = []): Action => ({ id, title, href: `${href}/${id}`, method: 'post', fields, requiresConfirmation: id === 'close' });
   const actions = issue.status === 'closed'
     ? [action('reopen', 'Reopen issue')]
     : [

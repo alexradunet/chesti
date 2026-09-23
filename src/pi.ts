@@ -18,7 +18,7 @@ Do not invent facts, paths, HTML, fields, actions, or JavaScript. Finish after p
 
 // No standard discovery: personal extensions, shell tools, context files,
 // skills and settings must not leak into an embedded application session.
-export function isolatedResources(): ResourceLoader {
+export function isolatedResources(prompt = systemPrompt): ResourceLoader {
   const extensions = { extensions: [], errors: [], runtime: createExtensionRuntime() };
   return {
     getExtensions: () => extensions,
@@ -26,7 +26,7 @@ export function isolatedResources(): ResourceLoader {
     getPrompts: () => ({ prompts: [], diagnostics: [] }),
     getThemes: () => ({ themes: [], diagnostics: [] }),
     getAgentsFiles: () => ({ agentsFiles: [] }),
-    getSystemPrompt: () => systemPrompt,
+    getSystemPrompt: () => prompt,
     getSystemPromptSource: () => undefined,
     getAppendSystemPrompt: () => [],
     getAppendSystemPromptSources: () => [],

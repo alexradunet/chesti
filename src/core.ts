@@ -16,6 +16,7 @@ export interface Action {
   href: string;
   method: 'post';
   fields: Field[];
+  requiresConfirmation?: boolean;
 }
 export interface Resource {
   href: string;

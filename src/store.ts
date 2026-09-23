@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from '
 import { dirname } from 'node:path';
 import { seedIssues, type Issue } from './issues.js';
 import type { ViewPlan } from './core.js';
+import type { SessionEntry } from '@earendil-works/pi-coding-agent';
 
 export interface Composition {
   plan: ViewPlan;
@@ -12,7 +13,49 @@ export interface Composition {
   inspected: string[];
   elapsedMs: number;
 }
-export interface Workspace extends Composition { id: string; task: string; created: string }
+export interface Receipt {
+  id: string;
+  source: 'pi' | 'form' | 'demo';
+  turnId?: string;
+  resource: string;
+  action: string;
+  fields: Record<string, string>;
+  version: number;
+  status: 'applied' | 'pending' | 'failed' | 'cancelled';
+  message: string;
+  errorStatus?: number;
+  created: string;
+}
+export interface ChatTurn {
+  id: string;
+  message: string;
+  engine: 'pi' | 'demo';
+  selected: string[];
+  visible: string[];
+  focus: string;
+  response: string;
+  status: 'running' | 'done' | 'failed' | 'stopped';
+  notice?: string;
+  created: string;
+}
+export interface Conversation {
+  engine: 'pi' | 'demo';
+  turns: ChatTurn[];
+  receipts: Receipt[];
+  entries: SessionEntry[];
+}
+export interface Workspace extends Composition {
+  id: string; task: string; created: string;
+  revision: number;
+  previousPlan?: ViewPlan;
+  previousComposition?: Composition;
+  conversation: Conversation;
+}
+function initializeWorkspace(workspace: Workspace): Workspace {
+  workspace.revision ??= 1;
+  workspace.conversation ??= { engine: workspace.engine === 'demo' ? 'demo' : 'pi', turns: [], receipts: [], entries: [] };
+  return workspace;
+}
 export interface Visitor {
   id: string;
   csrf: string;
@@ -27,8 +70,16 @@ export class Store {
   constructor(private file?: string) {
     if (file && existsSync(file)) {
       const data = JSON.parse(readFileSync(file, 'utf8'));
-      if (data.version !== 1 || !Array.isArray(data.visitors)) throw new Error('Unsupported Taskdesk store. Back up the file before resetting it.');
+      if (![1, 2].includes(data.version) || !Array.isArray(data.visitors)) throw new Error('Unsupported Taskdesk store. Back up the file before resetting it.');
       this.visitors = data.visitors;
+      for (const visitor of this.visitors) for (const workspace of visitor.workspaces) {
+        initializeWorkspace(workspace);
+        for (const turn of workspace.conversation.turns) if (turn.status === 'running') {
+          turn.status = 'stopped';
+          turn.notice = 'Server restarted. This turn was not resumed. Applied actions remain in the receipts.';
+        }
+      }
+      this.save();
     }
   }
   get(id: string | undefined) { return this.visitors.find(v => v.id === id); }
@@ -40,7 +91,7 @@ export class Store {
     return visitor;
   }
   workspace(visitor: Visitor, task: string, composition: Composition): Workspace {
-    const workspace = { ...composition, id: randomUUID(), task, created: new Date().toISOString() };
+    const workspace = initializeWorkspace({ ...composition, id: randomUUID(), task, created: new Date().toISOString() } as Workspace);
     visitor.workspaces.push(workspace);
     this.save();
     return workspace;
@@ -49,7 +100,7 @@ export class Store {
     if (!this.file) return;
     mkdirSync(dirname(this.file), { recursive: true, mode: 0o700 });
     const temporary = `${this.file}.tmp`;
-    writeFileSync(temporary, JSON.stringify({ version: 1, visitors: this.visitors }, null, 2), { mode: 0o600 });
+    writeFileSync(temporary, JSON.stringify({ version: 2, visitors: this.visitors }, null, 2), { mode: 0o600 });
     renameSync(temporary, this.file);
   }
 }
