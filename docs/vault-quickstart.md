@@ -1,74 +1,81 @@
-# Markdown vault quick start
+# SQLite apps and Markdown interchange
 
-The application now activates explicitly approved definitions and safely writes real Markdown records. The CLI remains read-only.
+Taskdesk runs on Bun. SQLite is the only live authority; Markdown remains the format for journal/note bodies and portable app exports.
 
 ## Open Today
 
 ```sh
-npm install
-npm start
+bun install --frozen-lockfile
+bun start
 ```
 
-Open **http://127.0.0.1:3000/today**. First startup copies the fictional sample into `.data/vault`; source examples and personal data are untouched. To choose your own vault explicitly:
+Open **http://127.0.0.1:3000/**. Today reuses the browser's saved conversation. The original issue desk remains at `/issues/new`.
+
+First startup creates `.data/taskdesk.sqlite` and imports `.data/vault` when present, otherwise the fictional `examples/life-vault`. Existing `.data/state.json` browser state and the vault's `.lifeapps/runtime.json` grants/receipts are imported once. Original files are not modified. No personal directory is discovered automatically.
+
+To choose a different database and initial Markdown source:
 
 ```sh
-VAULT_ROOT=/absolute/path/to/vault PI_MODEL=openai-codex/gpt-5.5 npm start
+DATABASE_PATH=/absolute/path/to/taskdesk.sqlite \
+VAULT_ROOT=/absolute/path/to/vault \
+PI_MODEL=openai-codex/gpt-5.5 bun start
 ```
 
-1. Open **App review**, inspect the exact definition source, select permissions, and approve. Approve Wiki, Tasks, Calendar and Journal for the connected sample. Read and create/update permissions are separate; ordinary PARA notes additionally need Wiki's `notes:read`.
-2. Return to Today. Its conversation and layout have a persistent workspace URL.
-3. Say **“Create a task to finish the homepage tomorrow.”** Demo supports this grammar without credentials. Select Pi for open-ended requests; choose a model supported by your account through `PI_MODEL`.
-4. Open the task to schedule a timed session using Start, End and an explicit IANA timezone. A deadline can also be changed through **Set a date** on Today. Calendar → Tomorrow shows the projections without creating duplicate event files.
-5. Complete the task. Add its `[[vault/relative/path]]` to the free-form journal, or ask Pi to link the completed task while preserving existing writing. **Link in journal** on unfinished tasks inserts a draft link; saving is explicit.
-6. Refresh or restart. Records, grants, receipts and conversation persist. Opening Today never creates a journal automatically.
+`VAULT_ROOT` is only used when initializing app records. Once initialized, editing or removing the import directory does not change the database. A custom database still imports the repository's legacy browser state if present; use a separate checkout without `.data/state.json` for a completely fresh browser store.
 
-Keep backups of the whole vault, including `.lifeapps/runtime.json`, plus `.data/state.json` for conversations. The vault is shared across local browser sessions. Use one app server per vault. External record changes are picked up on the next read and stale forms are rejected; external definition changes suspend the affected app until reapproved. Invalid readable records are omitted from actions and reported in Today's validation notice.
+1. Click **Approve all 4 apps** to enable the sample's Wiki, Tasks, Calendar and Journal permissions, including ordinary-note reading. Use **App review** for narrower grants. Approval binds exact displayed revisions; later changes require approval again.
+2. Say **“Create a task to finish the homepage tomorrow.”** Demo supports this grammar without credentials. Select Pi for open-ended requests.
+3. Open the task to schedule a timed session with an explicit timezone, or use **Set a date** on Today.
+4. Complete it. **Link in journal** inserts a wiki link into a draft; **Save journal** commits it explicitly. Opening Today never creates a journal automatically.
+5. Refresh or restart. Records, grants, receipts and conversation persist in SQLite. Native links/forms also work without JavaScript.
 
-Writes are bounded, revision-checked and journaled, but this is not a sandbox against a hostile concurrent filesystem writer. There is no migration engine or conversational app builder yet.
+The agent can discover and update a journal without requiring the user to navigate to or select it first. Every action still requires a fresh direct inspection and the same server validation as browser forms.
 
-## Check the sample
+## Import and export
 
-From the repository root, after installing project dependencies:
-
-```sh
-bun scripts/lifeapps.ts check examples/life-vault
-```
-
-Or, using the project's existing Node setup:
+Validate a Markdown source without writing or approving anything:
 
 ```sh
-npm run lifeapps -- check examples/life-vault
-```
-
-Expected: **13 Markdown files, four valid app candidates, no errors or warnings**.
-
-## Machine-readable report
-
-```sh
+bun run lifeapps check examples/life-vault
 bun scripts/lifeapps.ts check examples/life-vault --json
+bun run lifeapps schema
 ```
 
-For clean JSON under Node, bypass the package runner's banner:
+The unmodified sample has **13 Markdown files, four valid definitions, no errors or warnings**.
+
+Explicitly seed an empty app database:
 
 ```sh
-node --import tsx scripts/lifeapps.ts check examples/life-vault --json
+bun run lifeapps import /path/to/vault --db /path/to/taskdesk.sqlite
 ```
 
-Exit codes: **0** valid (warnings allowed), **1** validation errors, **2** incorrect usage/internal failure. Invalid or missing vault paths return validation errors, not successful empty reports.
+Import fails closed on invalid/incomplete sources, unsafe links, or visible non-Markdown assets. It never silently skips an attachment. Hidden paths other than `.apps` are excluded; the legacy authority file is read separately. Subsequent import of the same root is a no-op; a different source cannot replace an initialized app database.
 
-## Inspect the contract
+Export app definitions, records, approvals and runtime receipts to a **new** directory:
 
 ```sh
-bun scripts/lifeapps.ts schema
-bun scripts/lifeapps.ts --help
+bun run lifeapps export /path/to/new-export --db .data/taskdesk.sqlite
+bun run lifeapps check /path/to/new-export
 ```
 
-The schema command exports JSON Schema for definition shape checks. The shared validator adds semantic checks such as unknown fields, calendar mappings, valid dates, duplicate IDs and journal dates, and typed-reference integrity.
+Existing destinations are rejected, not merged or overwritten. Export does not include browser sandboxes, compositions, conversations or SDK history; back up the SQLite database for a complete backup.
 
-## Experiment safely
+## Change an app definition
 
-Copy `examples/life-vault/` somewhere disposable, preserving the hidden `.apps/` directory. Change a task's status to `finished` or its deadline to `2026-02-30`, then check that copy. The report identifies the file, field and source location. Checking never changes the file.
+Edit a copy of an exported `.apps/*.md` file, then explicitly install the revision:
 
-You do not need to connect your real LifeOS data. All sample content is fictional.
+```sh
+bun run lifeapps definition /path/to/Tasks.md --path .apps/Tasks.md --db .data/taskdesk.sqlite
+```
 
-For the exact supported grammar, safety limits and deferred features, see [the app-definition contract](app-definition-v1.md).
+The runtime validates the new definition and retains revision history. Changed definitions revoke their grants. Review and approve the new revision in the browser before using it. Changing a type's schema version does not automatically migrate existing records; incompatible records are reported and cannot be mutated through their old actions.
+
+## Backups and safety
+
+Use one app server per database. App records and grants are shared across browser sessions; the local browser cookie isolates conversations and issue sandboxes, not app data. This is loopback-only, not a multi-user service.
+
+Record mutations, runtime receipts and conversation receipts commit together. Stale revisions fail instead of overwriting changes. Source Markdown files are never a second live writer.
+
+Use a SQLite-aware backup, or stop all database connections before copying the database and any remaining `-wal`/`-shm` sidecars. Do not copy only the main file while WAL writes are active. Keep the original Markdown/JSON inputs until you have verified your migration and backup. Restore a database only with the server stopped.
+
+Run `bun run lifeapps --help` for command syntax. `check` exits **0** for valid input (warnings allowed), **1** for validation errors, and **2** for usage/internal failures. Interchange commands return **2** on failure. See [the app contract](app-definition-v1.md) for field, relationship, revision and approval rules.

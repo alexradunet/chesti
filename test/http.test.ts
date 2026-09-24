@@ -1,6 +1,5 @@
 import { test, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
-import { get as httpGet } from 'node:http';
 import { createApp } from '../src/server.js';
 import { Store } from '../src/store.js';
 import { demoComposition, type Composer } from '../src/composer.js';
@@ -9,12 +8,9 @@ import type { Resource } from '../src/core.js';
 async function app(t: TestContext, composer?: Composer) {
   let compositions = 0;
   const server = createApp({ store: new Store(), mode: 'demo', composer: composer ?? (async (task, resolve) => { compositions++; return demoComposition(task, resolve); }) });
-  await new Promise<void>(done => server.listen(0, '127.0.0.1', done));
-  t.after(() => new Promise<void>((done, reject) => { server.close(error => error ? reject(error) : done()); server.closeAllConnections(); }));
-  const address = server.address();
-  assert.ok(address && typeof address !== 'string');
-  const base = `http://127.0.0.1:${address.port}`;
-  const home = await fetch(base);
+  t.after(() => server.stop(true));
+  const base = server.url.origin;
+  const home = await fetch(`${base}/issues/new`);
   const cookie = home.headers.get('set-cookie')!.split(';')[0]!;
   const markup = await home.text();
   const csrf = /name="csrf" value="([^"]+)"/.exec(markup)![1]!;
@@ -107,7 +103,7 @@ test('CSRF, cross-origin, invalid fields and foreign workspace are rejected', as
   const stranger = await fetch(a.base + path);
   assert.equal(stranger.status, 404);
   const strangerCookie = stranger.headers.get('set-cookie')!.split(';')[0]!;
-  const strangerHome = await (await fetch(a.base, { headers: { Cookie: strangerCookie } })).text();
+  const strangerHome = await (await fetch(`${a.base}/issues/new`, { headers: { Cookie: strangerCookie } })).text();
   const strangerCsrf = /name="csrf" value="([^"]+)"/.exec(strangerHome)![1]!;
   const foreign = await fetch(a.base + '/issues/ISS-101/close', {
     method: 'POST', headers: { Cookie: strangerCookie }, body: new URLSearchParams({ csrf: strangerCsrf, version: '1', workspace: path.split('/').at(-1)! }),
@@ -120,17 +116,23 @@ test('invalid methods, paths, hosts, body types, duplicates and oversized bodies
   assert.equal((await a.get('/issues?scope=not-a-scope')).status, 404);
   assert.equal((await a.get('/issues/ISS-101/close')).status, 404);
   assert.equal((await a.get('/.data/state.json')).status, 404);
-  const badHostStatus = await new Promise<number | undefined>((resolve, reject) => {
-    httpGet(a.base, { headers: { Host: 'evil.example' } }, response => {
-      response.resume();
-      resolve(response.statusCode);
-    }).on('error', reject);
-  });
-  assert.equal(badHostStatus, 403);
+  assert.equal((await a.get('/', { Host: 'evil.example' })).status, 403);
   assert.equal((await fetch(a.base + '/issues', { method: 'DELETE' })).status, 405);
   assert.equal((await fetch(a.base + '/workspaces', { method: 'POST', headers: { Cookie: a.cookie, 'Content-Type': 'application/json' }, body: '{}' })).status, 415);
   assert.equal((await fetch(a.base + '/workspaces', { method: 'POST', headers: { Cookie: a.cookie, 'Content-Type': 'application/x-www-form-urlencoded' }, body: `csrf=${a.csrf}&task=a&task=b&engine=demo` })).status, 422);
   assert.equal((await a.post('/workspaces', { engine: 'demo', task: 'x'.repeat(9000) })).status, 413);
+  const chunked = await fetch(a.base + '/workspaces', {
+    method: 'POST', headers: { Cookie: a.cookie, 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(`csrf=${a.csrf}&engine=demo&task=`));
+        controller.enqueue(new TextEncoder().encode('x'.repeat(9000)));
+        controller.close();
+      },
+    }),
+  });
+  assert.equal(chunked.status, 413);
+  assert.match(chunked.headers.get('content-security-policy')!, /default-src 'none'/);
   assert.equal(a.count(), 0);
 });
 

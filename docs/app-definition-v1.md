@@ -1,6 +1,6 @@
-# Markdown app contract — draft v0.1
+# Personal-app contract and Markdown interchange — v0.1
 
-This is the implemented definition, validation and execution contract. The read-only CLI validates candidates; the application separately approves exact revisions and grants, executes declared record operations, and presents Today through the existing conversation/browser boundary. Migrations, file watchers and conversational app creation are not implemented.
+This is the implemented definition, validation and execution contract. Bun serves JSX-rendered hypermedia; SQLite owns app records, approvals and receipts. The CLI validates Markdown interchange, imports/exports app data and explicitly updates definitions. Automatic record-schema migrations and conversational app creation are not implemented.
 
 ## Quick start
 
@@ -12,22 +12,17 @@ bun scripts/lifeapps.ts check examples/life-vault --json
 bun scripts/lifeapps.ts schema
 ```
 
-The existing Node setup works too:
-
-```sh
-npm run lifeapps -- check examples/life-vault
-node --import tsx scripts/lifeapps.ts check examples/life-vault --json
-```
+Run the application with `bun start`. SQLite replaces live Markdown/JSON persistence; the definition grammar below remains the interchange contract.
 
 See [the short guide](vault-quickstart.md) and the real definitions in [`examples/life-vault/.apps/`](../examples/life-vault/.apps/).
 
 ## What is authoritative
 
-- Documents are UTF-8 Markdown files. The reader retains their complete original source, body and a SHA-256 content revision. It never serializes a document back to disk.
-- App definitions are Markdown files under `.apps/`. Frontmatter holds the contract; the body is explanatory prose, not executable rules.
-- A valid definition is an **eligible candidate**, not a permission grant. The browser review page binds selected capabilities to its path and SHA-256 revision. External changes suspend the app pending review; the agent cannot approve it.
-- No search database is created. Each resolution reads a fresh disk snapshot. Private runtime state stores approvals and receipts, not a replacement for the Markdown documents.
-- The scanner requires an explicit root containing a real `.apps/` directory. An empty `.apps/` directory is permitted for a notes-only vault. It does not search home directories, installed LifeOS data or ancestor directories for a vault.
+- SQLite stores structured app definitions/revision history, approvals/grants, records, typed-reference edges and mutation receipts. Browser state shares the same database.
+- Records have stable IDs, validated JSON custom fields and Markdown bodies. Paths are retained as interchange/wiki-link aliases, not live filesystem locations. Preserved source text retains formatting for export.
+- Definitions import from Markdown under `.apps/`. Frontmatter holds the contract; the body is explanatory prose, not executable rules.
+- A valid definition is an **eligible candidate**, not a permission grant. Browser review binds selected capabilities to an exact revision. Explicit definition updates revoke old grants; changing the original import files has no runtime effect. The agent cannot approve definitions.
+- `readVault` remains a bounded read-only interchange scanner. It requires an explicit root with a real `.apps/` directory, permits an empty `.apps/` for notes-only input, and never discovers personal paths.
 
 ## Source format
 
@@ -75,7 +70,7 @@ actions:
     set: {status: done}
 ```
 
-The document's qualified type is `<app-id>.<local-type>`, such as `tasks.task`. Storage is a **creation location hint**, not a membership boundary or filesystem permission. Existing typed records can be in Projects, Archives or any visible vault folder. Default folders must be relative and cannot include dot segments, hidden folders, backslashes or reserved path characters.
+The document's qualified type is `<app-id>.<local-type>`, such as `tasks.task`. Storage is an **export path hint**, not a membership boundary or filesystem permission. Existing typed records can retain Projects, Archives or other visible-folder aliases. Default folders must be relative and cannot include dot segments, hidden folders, backslashes or reserved path characters.
 
 ### Fields
 
@@ -173,7 +168,7 @@ Errors invalidate the report. Warnings permit a successful check. Invalid parsed
 
 Limits are 10,000 directory entries, 1 MiB per Markdown file, 32 MiB total Markdown and depth 32. Hidden paths are skipped except `.apps`; `node_modules` is skipped. Symlinks are reported, never intentionally followed. Normal files are opened read-only, with no-follow/nonblocking flags; containment, identity, size and change metadata are checked. Incomplete scans fail rather than report success.
 
-The runtime adds no-follow path checks, rejects hard-linked targets, validates two fresh vault scans, and checks record/definition hashes immediately before publication. Updates use atomic rename; creation uses no-clobber publication. This remains **single-process**, not a sandbox against a hostile process racing directory swaps or the final check-to-rename window. A whole-vault snapshot is not transactional across concurrent external writers.
+Import additionally rejects unexpected hardlinks and visible non-Markdown assets, verifies source identity/content before committing, and leaves the inputs untouched. Export creates a new directory exclusively. Interchange is not a sandbox against a hostile process racing filesystem changes. Live mutations use synchronous SQLite transactions; there is no record-file publication journal or external-file watcher. Run one application server per database.
 
 ## Library entry points
 
@@ -182,24 +177,29 @@ The runtime adds no-follow path checks, rejects hard-linked targets, validates t
 - `validateRecord(file, types)` — one document against a provided type registry.
 - `validateRecordRelationships(documents)` — ID, uniqueness and typed-reference checks.
 - `readVault(root, limits?)` — bounded scan and complete validation snapshot.
-- `runCli(args)` — deterministic CLI result without process-global effects.
-- `VaultRuntime(root, stateFile?)` — review/approve exact definitions, approved snapshots, declared mutations and durable receipts.
+- `snapshotFromFiles(root, files, ...)` — shared definition, record and relationship validation for database/interchange snapshots.
+- `runCli(args)` — command result with stdout/stderr/exit status; only explicit interchange commands write.
+- `VaultRuntime(db, { importRoot? })` — SQLite-backed reviews, approvals, snapshots, declared mutations and durable receipts.
+- `runtime.importRoot(root)` / `exportTo(newDirectory)` — once-only import and exclusive Markdown export.
+- `runtime.updateDefinition(path, source)` — validated revision history with previous grants revoked.
 - `vaultResolver(runtime)` / `mutationFor(...)` — common resource discovery and typed action conversion for browser forms and conversation.
 
 The CLI, HTTP handlers and Pi tools reuse the same parser and validators. Pi only receives `inspect`, `act`, and `present`; it cannot choose an arbitrary filename or call the approval route. Forms and tools both enter `VaultRuntime.execute` through persisted action receipts.
 
 ## Approval, revisions and receipts
 
-`read:<qualified-type>`, `create:<qualified-type>` and `update:<qualified-type>` are separately selected grants. Wiki can additionally offer `notes:read` for ordinary notes throughout the visible vault. Review shows exact source and individual unchecked permissions. Reapproving with fewer permissions removes the others.
+`read:<qualified-type>`, `create:<qualified-type>` and `update:<qualified-type>` are separately selected grants. Wiki can additionally offer `notes:read` for ordinary notes throughout the visible vault. Review shows exact source and individual permissions, initially unchecked; active grants are selected on subsequent visits. Reapproving with fewer permissions removes the others.
 
-The default authority file is `<vault>/.lifeapps/runtime.json`, outside the visible scan. It contains accepted definition path/revision/grants, idempotent request fingerprints/results, and at most one pending publication journal. An optional explicit authority path must also be outside the visible scan. The configured vault/grants are shared by local browser sessions; this is not multi-user access control.
+Today and App review also offer explicit one-click **Approve all apps**. The form submits the displayed valid definitions with their exact revisions and all offered grants, including ordinary-note access where declared. `VaultRuntime.approve` validates the entire batch before persisting any grants. A stale revision, invalid definition or undeclared capability rejects the whole batch. Invalid candidates are excluded from the rendered batch; later arrivals and definition edits are never automatically approved. This route uses the same browser CSRF/origin checks as individual approval and remains unavailable to Pi.
+
+SQLite is authoritative for accepted definition revisions/grants and idempotent request fingerprints/results. Startup imports legacy `<vault>/.lifeapps/runtime.json` once alongside Markdown records, then imports `.data/state.json` browser history. A legacy pending publication is recognized only if its target content matches the expected hash; no filesystem write is replayed. App records/grants are shared across local browser sessions; this is not multi-user access control.
 
 Create requests bind the definition revision. Updates bind the record content hash; browser/tool requests additionally bind the definition revision so a stale confirmation cannot execute changed fixed values after reapproval. Action IDs and caller fields must be advertised and declared. Repeated runtime request IDs replay the same receipt; changed inputs under the same ID fail.
 
-Untouched YAML tokens (including comments, unknown metadata and CRLF/BOM) and Markdown are retained. An explicit body replacement replaces only the body. Staging and authority writes are fsynced; receipt recovery compares the published file's content hash and never replays a write over later external edits. The conversation store records intent before calling the vault runtime and reconciles interrupted receipts on restart.
+Untouched YAML tokens (including comments, unknown metadata and CRLF/BOM) and Markdown are retained in the formatting cache for export. An explicit body replacement replaces only the body. All live record and runtime-receipt writes are transactional; the browser execution boundary commits the conversation receipt in that same transaction. In-memory receipt changes are restored if persistence fails.
 
-State is bounded to 16 MiB and 10,000 mutation receipts; capacity exhaustion rejects new writes. Back up authority state with the Markdown files rather than deleting it to clear capacity: deleting it also removes grants and receipt history. Invalid approved-readable records are not exposed as actionable resources; their diagnostics remain visible in Today.
+Runtime mutation receipts are bounded to 10,000; capacity exhaustion rejects new writes. Imported legacy authority is bounded to 16 MiB. Back up the complete SQLite database, using a SQLite-aware backup or stopping all connections before copying it and any remaining WAL sidecars. Markdown export includes app data/grants/receipts but not browser conversations. Invalid approved-readable records are not exposed as actionable resources; their diagnostics remain visible in Today.
 
 ## Still to build
 
-Migrations, filesystem watching, multi-process coordination, richer calendar layouts and Pi-driven app creation. Newly generated definitions will remain candidates until the same explicit approval boundary is used.
+Automatic record-schema evolution, multi-process application coordination, richer calendar layouts and Pi-driven app creation. New definitions remain candidates until the same explicit approval boundary is used. Bidirectional filesystem synchronization is intentionally absent.

@@ -261,6 +261,11 @@ button:disabled, select:disabled { cursor: default; opacity: .55; }
 .today-journal textarea[name="body"] { min-height: 310px; font-size: .91rem; line-height: 1.8; }
 .today-journal .resource-action > button { background: var(--accent); border-color: var(--accent); color: var(--surface); }
 .review-notice { background: var(--tint); border-color: var(--rule); font-size: .85rem; }
+.quick-approval { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; margin-block: 20px; }
+.quick-approval > div { flex: 1 1 320px; }
+.quick-approval h2 { margin-bottom: 8px; font-size: 1.2rem; }
+.quick-approval p { margin-bottom: 8px; }
+.quick-approval p:last-child { margin-bottom: 0; }
 .day-schedule { padding: 0; list-style: none; margin-bottom: 18px; }
 .day-schedule li { display: grid; grid-template-columns: 95px minmax(0, 1fr) 20px; gap: 10px; padding: 13px 0; border-top: 1px solid var(--rule); }
 .day-schedule .pick { grid-column: 3; grid-row: 1; margin: 0; }

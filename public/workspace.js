@@ -247,7 +247,7 @@ if (desk) {
     if (!link || !desk.contains(link) || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     const url = new URL(link.href);
     if (url.origin !== location.origin) return;
-    const sameWorkspace = url.pathname === base || (desk.classList.contains('today-workbench') && url.pathname === '/today') || ((url.pathname === '/issues' || /^\/issues\/ISS-\d+$/.test(url.pathname) || (url.pathname.startsWith('/vault') && !['/vault/apps', '/vault/approve', '/vault/act'].includes(url.pathname))) && url.searchParams.get('workspace') === desk.dataset.workspace);
+    const sameWorkspace = url.pathname === base || (desk.classList.contains('today-workbench') && url.pathname === '/') || ((url.pathname === '/issues' || /^\/issues\/ISS-\d+$/.test(url.pathname) || (url.pathname.startsWith('/vault') && !['/vault/apps', '/vault/approve', '/vault/act'].includes(url.pathname))) && url.searchParams.get('workspace') === desk.dataset.workspace);
     if (!sameWorkspace) return;
     event.preventDefault();
     void navigate(url.href);

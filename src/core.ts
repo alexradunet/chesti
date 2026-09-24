@@ -66,10 +66,10 @@ export function validatePlan(input: unknown, resolve: Resolve, inspected: Set<st
   return structuredClone(input);
 }
 
-// A small hypermedia traversal boundary: only the entry point is known upfront.
-// Embedded items are discoverable, but must be inspected before presentation.
-export function createExplorer(resolve: Resolve, entry = '/issues') {
-  const discovered = new Set([entry]);
+// The entry point and server-supplied view resources are known upfront.
+// Discovery permits inspection, never presentation or mutation without a fresh read.
+export function createExplorer(resolve: Resolve, entry = '/issues', known: readonly string[] = []) {
+  const discovered = new Set([entry, ...known]);
   const inspected = new Set<string>();
   return {
     inspected,

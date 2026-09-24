@@ -32,18 +32,28 @@ function resultMessage(receipt: Receipt): string {
 
 // Both browser forms and the agent pass through this exact mutation boundary.
 // Persist the state and receipt together before reporting success. No awaited work
-// occurs between version validation, mutation and the atomic store rename.
+// occurs between version validation, mutation and the SQLite commit.
 export function executeReceipt(store: Store, visitor: Visitor, receipt: Receipt): Receipt {
   if (receipt.vaultRequest) {
     if (!store.vault) throw new AppError(404, 'No vault is configured.');
-    receipt.executionStarted = true;
-    store.save(); // Persist intent before the independently durable vault transaction.
-    const result = store.vault.execute(receipt.vaultRequest);
-    receipt.status = result.status;
-    receipt.message = result.message;
-    receipt.errorStatus = result.errorStatus;
-    store.save();
-    return receipt;
+    if (store.vault.db !== store.db) throw new Error('Actions and conversations must share one database.');
+    const previous = structuredClone(receipt);
+    try {
+      return store.db.transaction(() => {
+        receipt.executionStarted = true;
+        const result = store.vault!.execute(receipt.vaultRequest!);
+        receipt.status = result.status;
+        receipt.message = result.message;
+        receipt.errorStatus = result.errorStatus;
+        store.save();
+        return receipt;
+      })();
+    } catch (error) {
+      delete receipt.executionStarted;
+      delete receipt.errorStatus;
+      Object.assign(receipt, previous);
+      throw error;
+    }
   }
   const before = structuredClone(visitor.issues);
   const previous = structuredClone(receipt);
@@ -98,7 +108,9 @@ function compositionOf(workspace: Workspace): Composition {
 
 export function createTurnContext(store: Store, visitor: Visitor, workspace: Workspace, turn: ChatTurn, signal: AbortSignal, emit: (event: ChatEvent) => void) {
   const resolve = workspaceResolver(visitor, store);
-  const explorer = createExplorer(resolve, workspace.kind === 'today' ? '/vault' : '/issues');
+  // These URLs came from the validated, server-resolved view, not model input.
+  const known = [...turn.visible, ...workspace.plan.blocks.map(block => block.resource), ...(turn.focus ? [turn.focus] : [])];
+  const explorer = createExplorer(resolve, workspace.kind === 'today' ? '/vault' : '/issues', known);
   const snapshots = new Map<string, Resource>();
   const startRevision = workspace.revision;
   let calls = 0;

@@ -88,6 +88,12 @@ export function readVault(root: string, options: ReadOptions = {}): VaultSnapsho
     }
   } catch { issue('.', 'VAULT_ROOT', 'Vault directory does not exist or cannot be read.'); }
 
+  return snapshotFromFiles(snapshot.root, parsed, allFiles, scanDiagnostics);
+}
+
+/** Validate imported or database-backed files with the same interchange contract. */
+export function snapshotFromFiles(root: string, parsed: MarkdownFile[], allFiles: Iterable<string> = parsed.map(file => file.path), scanDiagnostics: Diagnostic[] = []): VaultSnapshot {
+  const snapshot: VaultSnapshot = { root, apps: [], documents: [], report: { contract: 'lifeapps/check-v1', valid: false, counts: { files: 0, apps: 0, validApps: 0, records: 0, notes: 0, errors: 0, warnings: 0 }, diagnostics: [] } };
   snapshot.apps = parsed.filter(file => file.path.startsWith('.apps/')).map(validateDefinition);
   const appIds = new Map<string, AppCandidate[]>();
   for (const app of snapshot.apps) {

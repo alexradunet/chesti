@@ -7,6 +7,7 @@ import { createExplorer, validatePlan, escapeHtml } from '../src/core.js';
 import { seedIssues, issueResolver, applyAction } from '../src/issues.js';
 import { demoComposition } from '../src/composer.js';
 import { Store } from '../src/store.js';
+import { openDatabase } from '../src/database.js';
 import { renderPlan } from '../src/render.js';
 
 function fixture() {
@@ -123,16 +124,18 @@ test('authoritative and model text is escaped, not executable markup', () => {
 test('browser sandboxes and accepted view plans survive a store restart', () => {
   const directory = mkdtempSync(join(tmpdir(), 'taskdesk-'));
   try {
-    const path = join(directory, 'state.json');
-    const store = new Store(path);
+    const path = join(directory, 'taskdesk.sqlite');
+    const store = new Store(openDatabase(path));
     const first = store.create();
     const second = store.create();
     const workspace = store.workspace(first, 'triage', demoComposition('triage', issueResolver(first.issues)));
     applyAction(first.issues, 'ISS-101', 'close', new URLSearchParams({ version: '1' }));
     store.save();
-    const reloaded = new Store(path);
+    store.db.close();
+    const reloaded = new Store(openDatabase(path));
     assert.equal(reloaded.get(first.id)!.issues[0]!.status, 'closed');
     assert.equal(reloaded.get(second.id)!.issues[0]!.status, 'open');
     assert.deepEqual(reloaded.get(first.id)!.workspaces[0], workspace);
+    reloaded.db.close();
   } finally { rmSync(directory, { recursive: true, force: true }); }
 });

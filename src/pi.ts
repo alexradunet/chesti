@@ -45,8 +45,9 @@ export async function composeWithPi(task: string, resolve: Resolve): Promise<Com
   });
   const available = await runtime.getAvailable(undefined, { signal: deadline });
   const requested = process.env.PI_MODEL;
-  const model = requested ? available.find(m => `${m.provider}/${m.id}` === requested) : available[0];
-  if (!model) throw new Error(requested ? 'PI_MODEL is unavailable or unauthenticated.' : 'No authenticated Pi model available.');
+  // Leave the default to the SDK, not the catalog's arbitrary first entry.
+  const model = requested ? available.find(m => `${m.provider}/${m.id}` === requested) : undefined;
+  if (requested && !model) throw new Error('PI_MODEL is unavailable or unauthenticated.');
 
   const explorer = createExplorer(resolve);
   let plan: ViewPlan | undefined;
@@ -89,9 +90,11 @@ export async function composeWithPi(task: string, resolve: Resolve): Promise<Com
   deadline.addEventListener('abort', abort, { once: true });
   try {
     deadline.throwIfAborted();
+    if (!session.model) throw new Error('No authenticated Pi model available.');
     await session.prompt(`Assemble a workspace for this task:\n${task}`, { expandPromptTemplates: false });
-    if (!plan) throw new Error('Pi did not submit a valid view before stopping.');
-    return { plan, engine: 'pi', note: 'Composed by Pi. Data and actions are resolved fresh by the server.', model: `${model.provider}/${model.id}`, inspected: [...explorer.inspected], elapsedMs: Date.now() - started };
+    const last = session.messages.at(-1);
+    if (!plan) throw new Error(last?.role === 'assistant' && last.errorMessage || 'Pi did not submit a valid view before stopping.');
+    return { plan, engine: 'pi', note: 'Composed by Pi. Data and actions are resolved fresh by the server.', model: `${session.model.provider}/${session.model.id}`, inspected: [...explorer.inspected], elapsedMs: Date.now() - started };
   } finally {
     unsubscribe();
     deadline.removeEventListener('abort', abort);

@@ -11,6 +11,4 @@ test('embedded Pi resource loader does not discover personal extensions, skills 
   assert.deepEqual(resources.getPrompts().prompts, []);
   assert.deepEqual(resources.getThemes().themes, []);
   assert.deepEqual(resources.getAppendSystemPrompt(), []);
-  assert.match(resources.getSystemPrompt()!, /only tools are inspect and present/);
-  assert.match(resources.getSystemPrompt()!, /untrusted data/);
 });

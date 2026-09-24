@@ -6,20 +6,16 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createApp } from '../src/server.js';
 import { Store } from '../src/store.js';
+import { openDatabase } from '../src/database.js';
 
 const directory = mkdtempSync(join(tmpdir(), 'taskdesk-pi-smoke-'));
-const file = join(directory, 'state.json');
-let store = new Store(file);
+const file = join(directory, 'taskdesk.sqlite');
+let db = openDatabase(file);
+let store = new Store(db);
 let server = createApp({ store, mode: 'demo' });
-async function listen() {
-  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
-  const address = server.address(); assert.ok(address && typeof address !== 'string');
-  return `http://127.0.0.1:${address.port}`;
-}
-async function close() { await new Promise<void>(resolve => { server.close(() => resolve()); server.closeAllConnections(); }); }
-let base = await listen();
+let base = server.url.origin;
 try {
-  const home = await fetch(base);
+  const home = await fetch(`${base}/issues/new`);
   const cookie = home.headers.get('set-cookie')!.split(';')[0]!;
   const csrf = /name="csrf" value="([^"]+)"/.exec(await home.text())![1]!;
   const post = (path: string, values: Record<string, string>) => fetch(base + path, { method: 'POST', headers: { Cookie: cookie, Origin: base }, body: new URLSearchParams({ csrf, ...values }), redirect: 'manual' });
@@ -44,10 +40,12 @@ try {
   assert.ok(getWorkspace().conversation.entries.length > 0);
   const issuesAfter = structuredClone(store.get(visitorId)!.issues);
   // A new HTTP server AND a new store/session restore; no live agent is reused.
-  await close();
-  store = new Store(file);
+  await server.stop(true);
+  db.close();
+  db = openDatabase(file);
+  store = new Store(db);
   server = createApp({ store, mode: 'demo' });
-  base = await listen();
+  base = server.url.origin;
   await turn('Which two issues did you just assign, and to whom? Do not change the layout or data.');
   assert.match(getWorkspace().conversation.turns.at(-1)!.response, /ISS-101/);
   assert.match(getWorkspace().conversation.turns.at(-1)!.response, /ISS-105/);
@@ -59,6 +57,7 @@ try {
   assert.equal(getWorkspace().conversation.receipts.length, 2);
   console.log('PASS: real Pi assignments, restart/context restoration, conversation-only reply, and layout composition.');
 } finally {
-  await close();
+  await server.stop(true);
+  db.close();
   rmSync(directory, { recursive: true, force: true });
 }

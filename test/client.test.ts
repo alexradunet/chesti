@@ -16,17 +16,15 @@ async function waitFor(check: () => boolean, message: string) {
 }
 async function setup(t: TestContext, chatRunner?: ChatRunner) {
   const server = createApp({ store: new Store(), mode: 'demo', chatRunner });
-  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
-  const address = server.address(); assert.ok(address && typeof address !== 'string');
-  const origin = `http://127.0.0.1:${address.port}`;
-  const home = await fetch(origin);
+  const origin = server.url.origin;
+  const home = await fetch(`${origin}/issues/new`);
   const cookie = home.headers.get('set-cookie')!.split(';')[0]!;
   const csrf = /name="csrf" value="([^"]+)"/.exec(await home.text())![1]!;
   const create = await fetch(origin + '/workspaces', { method: 'POST', headers: { Cookie: cookie }, body: new URLSearchParams({ csrf, task: 'triage', engine: 'demo' }), redirect: 'manual' });
   const path = create.headers.get('location')!;
   const page = await fetch(origin + path, { headers: { Cookie: cookie } });
   const dom = new JSDOM(await page.text(), { url: origin + path, runScripts: 'outside-only' });
-  t.after(async () => { dom.window.close(); await new Promise<void>(resolve => { server.close(() => resolve()); server.closeAllConnections(); }); });
+  t.after(async () => { dom.window.close(); await server.stop(true); });
   const { window } = dom;
   const errors: string[] = [];
   window.addEventListener('error', event => errors.push(event.message));

@@ -8,11 +8,9 @@ import type { ChatRunner } from '../src/conversation.js';
 async function setup(t: TestContext, chatRunner?: ChatRunner, task = 'triage') {
   const store = new Store();
   const server = createApp({ store, mode: 'demo', chatRunner });
-  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
-  t.after(() => new Promise<void>(resolve => { server.close(() => resolve()); server.closeAllConnections(); }));
-  const address = server.address(); assert.ok(address && typeof address !== 'string');
-  const origin = `http://127.0.0.1:${address.port}`;
-  const home = await fetch(origin);
+  t.after(() => server.stop(true));
+  const origin = server.url.origin;
+  const home = await fetch(`${origin}/issues/new`);
   const cookie = home.headers.get('set-cookie')!.split(';')[0]!;
   const csrf = /name="csrf" value="([^"]+)"/.exec(await home.text())![1]!;
   const post = (path: string, fields: Record<string, string> | URLSearchParams, headers: Record<string, string> = {}) => {
@@ -84,6 +82,8 @@ test('SSE publishes text and authoritative receipts; failures do not run a demo 
   });
   const response = await f.send('Assign both issues to me', { engine: 'pi' }, true);
   assert.equal(response.status, 200);
+  assert.match(response.headers.get('content-security-policy')!, /default-src 'none'/);
+  assert.equal(response.headers.get('cache-control'), 'no-store');
   const stream = await response.text();
   assert.match(stream, /"type":"text"/);
   assert.match(stream, /"type":"receipt"/);
@@ -115,6 +115,32 @@ test('busy turn rejects overlap; stop prevents subsequent actions and retains ea
   assert.equal(state.busy, false);
 });
 
+test('canceling the response stream stops the turn and persists its final text and applied receipts', { timeout: 5000 }, async t => {
+  const disconnected = Promise.withResolvers<void>();
+  const f = await setup(t, async c => {
+    c.inspect('/issues'); c.inspect('/issues/ISS-101');
+    c.act('/issues/ISS-101', 'assign', { owner: 'me' });
+    c.text('Assignment saved before disconnect.');
+    if (c.signal.aborted) disconnected.resolve();
+    else c.signal.addEventListener('abort', () => disconnected.resolve(), { once: true });
+    await disconnected.promise;
+    c.signal.throwIfAborted();
+  });
+  const response = await f.send('Assign ISS-101 to me', {}, true);
+  const reader = response.body!.getReader();
+  await reader.read();
+  await reader.cancel();
+  await disconnected.promise;
+  const state = await (await f.get(`${f.path}/state`)).json() as { busy: boolean };
+  assert.equal(state.busy, false, 'Disconnect must release the active turn');
+  const restored = new Store(f.store.db).get(f.visitor.id)!;
+  const conversation = restored.workspaces[0]!.conversation;
+  assert.equal(conversation.turns[0]!.status, 'stopped');
+  assert.equal(conversation.turns[0]!.response, 'Assignment saved before disconnect.');
+  assert.equal(conversation.receipts[0]!.status, 'applied');
+  assert.equal(restored.issues.find(issue => issue.id === 'ISS-101')!.owner, 'alex');
+});
+
 test('pending confirmation requires CSRF, workspace ownership and original version', async t => {
   const f = await setup(t);
   await f.send('Close ISS-101');
@@ -123,7 +149,7 @@ test('pending confirmation requires CSRF, workspace ownership and original versi
   assert.equal(f.visitor.issues[0]!.status, 'open');
   const route = `${f.path}/receipts/${receipt.id}`;
   assert.equal((await f.post(route, { decision: 'confirm', csrf: 'forged' })).status, 403);
-  const stranger = await fetch(f.origin); const strangerCookie = stranger.headers.get('set-cookie')!.split(';')[0]!;
+  const stranger = await fetch(`${f.origin}/issues/new`); const strangerCookie = stranger.headers.get('set-cookie')!.split(';')[0]!;
   const strangerCsrf = /name="csrf" value="([^"]+)"/.exec(await stranger.text())![1]!;
   assert.equal((await fetch(f.origin + route, { method: 'POST', headers: { Cookie: strangerCookie }, body: new URLSearchParams({ decision: 'confirm', csrf: strangerCsrf }) })).status, 404);
   assert.equal((await f.post(route, { decision: 'confirm' })).status, 303);

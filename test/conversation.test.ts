@@ -1,13 +1,16 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { createTurnContext, decideReceipt, runDemoTurn, undoLayout, visibleResources } from '../src/conversation.js';
+import { createTurnContext, decideReceipt, executeReceipt, runDemoTurn, undoLayout, visibleResources } from '../src/conversation.js';
 import { demoComposition } from '../src/composer.js';
 import { applyAction, issueResolver } from '../src/issues.js';
-import { Store, type ChatTurn } from '../src/store.js';
+import { Store, type ChatTurn, type Receipt } from '../src/store.js';
+import { openDatabase } from '../src/database.js';
+import { VaultRuntime } from '../src/vault/runtime.js';
+import { fileURLToPath } from 'node:url';
 
 function setup(task = 'triage', store = new Store()) {
   const visitor = store.create();
@@ -55,6 +58,15 @@ test('act requires fresh explicit discovery, validates fields and cannot inject 
   assert.throws(() => context.inspect('https://evil.example'), /discovered/);
   assert.equal(visitor.issues[0]!.version, 1);
   assert.equal(workspace.conversation.receipts.length, 0);
+});
+
+test('visible records are inspectable directly but do not bypass fresh-read or discovery checks', () => {
+  const { context, visitor } = setup();
+  assert.throws(() => context.act('/issues/ISS-101', 'assign', { owner: 'me' }), /inspect/);
+  assert.throws(() => context.inspect('/issues/ISS-102'), /discovered/);
+  const record = context.inspect('/issues/ISS-101');
+  assert.equal(context.act(record.href, 'assign', { owner: 'me' }).status, 'applied');
+  assert.equal(visitor.issues.find(issue => issue.id === 'ISS-101')!.owner, 'alex');
 });
 
 test('retries replay the same server-generated receipt, including after re-inspection', () => {
@@ -157,28 +169,69 @@ test('save failure rolls back action and receipt in memory', () => {
 test('conversation, receipts and pending confirmations survive restart; in-flight work is never rerun', () => {
   const directory = mkdtempSync(join(tmpdir(), 'taskdesk-chat-'));
   try {
-    const path = join(directory, 'state.json');
-    const f = setup('triage', new Store(path));
+    const path = join(directory, 'taskdesk.sqlite');
+    const f = setup('triage', new Store(openDatabase(path)));
     f.context.inspect('/issues'); f.context.inspect('/issues/ISS-101');
     f.context.act('/issues/ISS-101', 'assign', { owner: 'me' });
     f.context.inspect('/issues/ISS-101');
     f.context.act('/issues/ISS-101', 'close', {});
     f.turn.response = 'One assignment completed.';
     f.store.save();
-    const reopened = new Store(path).get(f.visitor.id)!;
+    f.store.db.close();
+    const reopenedStore = new Store(openDatabase(path));
+    const reopened = reopenedStore.get(f.visitor.id)!;
     assert.equal(reopened.issues[0]!.owner, 'alex');
     assert.equal(reopened.issues[0]!.status, 'open');
     assert.equal(reopened.workspaces[0]!.conversation.turns[0]!.status, 'stopped');
     assert.equal(reopened.workspaces[0]!.conversation.receipts[1]!.status, 'pending');
     assert.equal(reopened.workspaces[0]!.conversation.turns[0]!.response, 'One assignment completed.');
-    const legacy = JSON.parse(readFileSync(path, 'utf8'));
-    legacy.version = 1;
-    delete legacy.visitors[0].workspaces[0].conversation;
-    delete legacy.visitors[0].workspaces[0].revision;
-    writeFileSync(path, JSON.stringify(legacy));
-    const migrated = new Store(path).get(f.visitor.id)!;
+    reopenedStore.db.close();
+    const legacyVisitor = structuredClone(f.visitor);
+    const legacyWorkspace = legacyVisitor.workspaces[0]! as Partial<typeof f.workspace>;
+    delete legacyWorkspace.conversation;
+    delete legacyWorkspace.revision;
+    const legacyPath = join(directory, 'state.json');
+    writeFileSync(legacyPath, JSON.stringify({ version: 1, visitors: [legacyVisitor] }));
+    const importedStore = new Store();
+    importedStore.importLegacy(legacyPath);
+    const migrated = importedStore.get(f.visitor.id)!;
     assert.equal(migrated.workspaces[0]!.revision, 1);
     assert.deepEqual(migrated.workspaces[0]!.conversation.turns, []);
     assert.equal(migrated.issues[0]!.owner, 'alex');
+    importedStore.db.close();
   } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
+test('a conversation save failure rolls back the app record and both receipts together', () => {
+  const store = new Store();
+  try {
+    const runtime = store.vault = new VaultRuntime(store.db, { importRoot: fileURLToPath(new URL('../examples/life-vault', import.meta.url)) });
+    runtime.approve(runtime.reviews().map(app => ({ app: app.id, revision: app.revision, permissions: app.permissions })));
+    const visitor = store.create();
+    const workspace = store.workspace(visitor, 'triage', demoComposition('triage', issueResolver(visitor.issues)));
+    const app = runtime.reviews().find(app => app.id === 'tasks')!;
+    const definition = runtime.snapshot().apps.find(app => app.definition?.id === 'tasks')!.definition!;
+    const action = Object.entries(definition.types.task!.actions).find(([, action]) => action.operation === 'record.create')![0];
+    const id = randomUUID();
+    const receipt: Receipt = {
+      id, source: 'form', resource: '/vault/types/tasks.task', action, fields: { title: 'Atomic receipt regression' },
+      version: app.revision, status: 'pending', message: '', created: new Date().toISOString(),
+      vaultRequest: { id, app: 'tasks', type: 'task', action, revision: app.revision, fields: { title: 'Atomic receipt regression' } },
+    };
+    workspace.conversation.receipts.push(receipt);
+    const save = store.save.bind(store);
+    store.save = () => { throw new Error('Disk full'); };
+    assert.throws(() => executeReceipt(store, visitor, receipt), /Disk full/);
+    assert.equal(runtime.receipt(id), undefined);
+    assert.equal(runtime.snapshot().documents.some(doc => doc.file.title === 'Atomic receipt regression'), false);
+    assert.equal(receipt.status, 'pending');
+    assert.equal(receipt.executionStarted, undefined);
+    store.save = save;
+    executeReceipt(store, visitor, receipt);
+    assert.equal(receipt.status, 'applied');
+    assert.equal(runtime.receipt(id)?.status, 'applied');
+    assert.equal(runtime.snapshot().documents.filter(doc => doc.file.title === 'Atomic receipt regression').length, 1);
+    const restored = new Store(store.db).get(visitor.id)!;
+    assert.equal(restored.workspaces[0]!.conversation.receipts[0]!.status, 'applied');
+  } finally { store.db.close(); }
 });

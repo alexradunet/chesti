@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { cpSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -9,26 +9,22 @@ import { Store } from '../src/store.js';
 import { VaultRuntime } from '../src/vault/runtime.js';
 import { localDate } from '../src/vault/resources.js';
 import type { Resource } from '../src/core.js';
-import { parseMarkdown } from '../src/vault/markdown.js';
+import { openDatabase } from '../src/database.js';
 import { JSDOM } from 'jsdom';
 import { EventEmitter, once } from 'node:events';
 
-test('Today conversation and forms write real Markdown and survive server restart', async t => {
+test('Today conversation and forms persist in SQLite without modifying imported Markdown', async t => {
   const directory = mkdtempSync(join(tmpdir(), 'today-http-'));
   const root = join(directory, 'vault');
   cpSync(new URL('../examples/life-vault', import.meta.url), root, { recursive: true });
-  const state = join(directory, 'state.json');
-  let runtime = new VaultRuntime(root);
-  let store = new Store(state);
+  const sourceFiles = Object.fromEntries([...new Bun.Glob('**/*').scanSync({ cwd: root, dot: true, onlyFiles: true })].map(path => [path, readFileSync(join(root, path), 'utf8')]));
+  const state = join(directory, 'taskdesk.sqlite');
+  let db = openDatabase(state);
+  let runtime = new VaultRuntime(db, { importRoot: root });
+  let store = new Store(db);
   let server = createApp({ store, vault: runtime, mode: 'demo' });
-  const listen = async () => {
-    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
-    const address = server.address(); assert.ok(address && typeof address !== 'string');
-    return `http://127.0.0.1:${address.port}`;
-  };
-  const close = () => new Promise<void>(resolve => { server.close(() => resolve()); server.closeAllConnections(); });
-  t.after(async () => { await close(); rmSync(directory, { recursive: true, force: true }); });
-  let origin = await listen();
+  t.after(async () => { await server.stop(true); db.close(); rmSync(directory, { recursive: true, force: true }); });
+  let origin = server.url.origin;
   const home = await fetch(origin);
   const cookie = home.headers.get('set-cookie')!.split(';')[0]!;
   const visitor = store.get(cookie.slice('taskdesk='.length))!;
@@ -38,21 +34,28 @@ test('Today conversation and forms write real Markdown and survive server restar
     return fetch(origin + path, { method: 'POST', headers: { Cookie: cookie, Origin: origin }, body, redirect: 'manual' });
   };
   const get = (path: string, json = false) => fetch(origin + path, { headers: { Cookie: cookie, ...(json ? { Accept: 'application/vnd.taskdesk.resource+json' } : {}) }, redirect: 'manual' });
-  assert.equal((await get('/today')).status, 303);
+  assert.equal(home.status, 200);
+  assert.equal((await get('/')).status, 200);
+  assert.equal(visitor.workspaces.length, 1, 'Home refresh reuses the persistent Today workspace');
   const workspace = visitor.workspaces.find(w => w.kind === 'today')!;
   const send = () => post(`/workspaces/${workspace.id}/messages`, { message: 'Create a task to finish the homepage tomorrow.', engine: 'demo', requestId: randomUUID(), revision: String(workspace.revision) });
   await send();
   assert.equal(runtime.snapshot().documents.length, 0, 'Unapproved vault contents are not exposed');
-  for (const review of runtime.reviews()) {
-    const fields = new URLSearchParams({ app: review.id, revision: review.revision });
-    for (const permission of review.permissions) fields.append('permissions', permission);
-    assert.equal((await post('/vault/approve', fields)).status, 303);
-  }
+  const reviewPage = new JSDOM(await (await get('/vault/apps')).text());
+  const approveAllForm = reviewPage.window.document.querySelector<HTMLFormElement>('form.quick-approval')!;
+  const approvalFields = new URLSearchParams();
+  for (const field of approveAllForm.querySelectorAll<HTMLInputElement>('input[name]')) approvalFields.append(field.name, field.value);
+  reviewPage.window.close();
+  const unauthorized = await fetch(origin + '/vault/approve', { method: 'POST', headers: { Cookie: cookie, Origin: origin }, body: new URLSearchParams({ ...Object.fromEntries(approvalFields), csrf: 'forged' }), redirect: 'manual' });
+  assert.equal(unauthorized.status, 403);
+  assert.equal(runtime.snapshot().documents.length, 0);
+  assert.equal((await post('/vault/approve', approvalFields)).status, 303);
   assert.equal((await send()).status, 303);
   const created = runtime.snapshot().documents.find(d => d.file.title === 'finish the homepage')!;
   assert.ok(created, workspace.conversation.turns.at(-1)?.response);
   const path = created.file.path;
-  assert.match(readFileSync(join(root, path), 'utf8'), new RegExp(`due: ['"]?${localDate(1)}`));
+  assert.equal(created.file.frontmatter.due, localDate(1));
+  assert.equal(existsSync(join(root, path)), false, 'New records live in SQLite, not the import source');
   const href = `/vault/records/${created.file.frontmatter.id}`;
   const record = async () => await (await get(href, true)).json() as Resource;
   const act = async (resource: Resource, action: string, fields: Record<string, string> = {}) => post('/vault/act', { workspace: workspace.id, resource: resource.href, action, version: String(resource.version), definitionRevision: resource.facts.DefinitionRevision!, ...fields });
@@ -79,13 +82,13 @@ test('Today conversation and forms write real Markdown and survive server restar
   observer.observe(window.document.querySelector('.workbench')!, { childList: true, subtree: true, characterData: true });
   scheduledInput.form!.requestSubmit(scheduledInput.form!.querySelector<HTMLButtonElement>('button')!);
   try { await finished; } finally { observer.disconnect(); window.close(); }
-  assert.deepEqual(parseMarkdown(path, readFileSync(join(root, path), 'utf8')).frontmatter.scheduled, scheduled);
+  assert.deepEqual(runtime.snapshot().documents.find(doc => doc.file.path === path)!.file.frontmatter.scheduled, scheduled);
   const calendar = await (await get(`/vault/calendar?date=${localDate(1)}`, true)).json() as Resource;
   assert.ok(calendar.items?.some(item => item.href === href), 'Scheduled task appears on calendar');
   assert.equal((await act(initial, 'complete')).status, 409, 'Stale form cannot overwrite scheduling');
   assert.equal((await act(await record(), 'complete')).status, 303);
-  const completed = readFileSync(join(root, path), 'utf8');
-  assert.equal(parseMarkdown(path, completed).frontmatter.status, 'done');
+  const completed = runtime.snapshot().documents.find(doc => doc.file.path === path)!.file;
+  assert.equal(completed.frontmatter.status, 'done');
   const journalType = await (await get('/vault/types/journal.entry', true)).json() as Resource;
   const body = `# ${localDate()}\n\nFinished the homepage.\n\n[[${path.replace(/\.md$/, '')}|Homepage task]]\n`;
   const existingJournal = runtime.snapshot().documents.find(d => d.file.frontmatter.type === 'journal.entry' && d.file.frontmatter.date === localDate());
@@ -93,17 +96,60 @@ test('Today conversation and forms write real Markdown and survive server restar
   assert.equal((await act(journalResource, existingJournal ? 'edit' : 'create', { title: localDate(), date: localDate(), body })).status, 303);
   const journal = runtime.snapshot().documents.find(d => d.file.frontmatter.type === 'journal.entry' && d.file.frontmatter.date === localDate())!;
   assert.equal(journal.file.body, body);
-  const journalBytes = readFileSync(join(root, journal.file.path), 'utf8');
+  const journalBytes = journal.file.source;
   const workspaceUrl = `/workspaces/${workspace.id}`;
   assert.match(await (await get(workspaceUrl)).text(), /Finished the homepage/);
-  await close();
-  runtime = new VaultRuntime(root); store = new Store(state);
-  server = createApp({ store, vault: runtime, mode: 'demo' }); origin = await listen();
-  assert.equal(readFileSync(join(root, path), 'utf8'), completed);
-  assert.equal(readFileSync(join(root, journal.file.path), 'utf8'), journalBytes);
+  await server.stop(true);
+  db.close();
+  db = openDatabase(state);
+  runtime = new VaultRuntime(db); store = new Store(db);
+  server = createApp({ store, vault: runtime, mode: 'demo' }); origin = server.url.origin;
+  assert.match(await (await get('/')).text(), /Finished the homepage/);
+  assert.equal(store.get(visitor.id)!.workspaces.length, 1, 'Home reopens the same workspace after restart');
+  const restoredDocuments = runtime.snapshot().documents;
+  assert.equal(restoredDocuments.find(doc => doc.file.path === path)!.file.source, completed.source);
+  assert.equal(restoredDocuments.find(doc => doc.file.path === journal.file.path)!.file.source, journalBytes);
+  assert.deepEqual([...new Bun.Glob('**/*').scanSync({ cwd: root, dot: true, onlyFiles: true })].sort(), Object.keys(sourceFiles).sort());
+  for (const [sourcePath, bytes] of Object.entries(sourceFiles)) assert.equal(readFileSync(join(root, sourcePath), 'utf8'), bytes);
   const restored = store.get(visitor.id)!.workspaces.find(w => w.id === workspace.id)!;
   assert.ok(restored.conversation.receipts.filter(r => r.status === 'applied').length >= 4);
   assert.match(await (await get(workspaceUrl)).text(), /Create a task to finish the homepage tomorrow/);
   const para = await (await get('/vault/para', true)).json() as Resource;
   assert.ok(para.items?.some(item => item.title), 'Approved PARA pages are navigable');
+});
+
+test('Pi can directly inspect a visible journal and append without user navigation', async t => {
+  const directory = mkdtempSync(join(tmpdir(), 'journal-navigation-'));
+  const root = join(directory, 'vault');
+  cpSync(new URL('../examples/life-vault', import.meta.url), root, { recursive: true });
+  const db = openDatabase(join(directory, 'taskdesk.sqlite'));
+  const runtime = new VaultRuntime(db, { importRoot: root });
+  runtime.approve(runtime.reviews().map(app => ({ app: app.id, revision: app.revision, permissions: app.permissions })));
+  const journal = runtime.snapshot().documents.find(doc => doc.file.frontmatter.type === 'journal.entry')!;
+  const before = readFileSync(join(root, journal.file.path), 'utf8');
+  const addition = '\nI started working on forgedance and taskdesk.\n';
+  const store = new Store(db);
+  const server = createApp({ store, vault: runtime, chatRunner: async context => {
+    const href = context.context.visible[0]!;
+    assert.throws(() => context.act(href, 'edit', { body: addition }), /inspect/);
+    const record = context.inspect(href);
+    const receipt = context.act(record.href, 'edit', { body: record.body! + addition });
+    assert.equal(receipt.status, 'applied');
+    context.text('Journal updated.');
+  } });
+  t.after(async () => { await server.stop(true); db.close(); rmSync(directory, { recursive: true, force: true }); });
+  const origin = server.url.origin;
+  const home = await fetch(origin);
+  const cookie = home.headers.get('set-cookie')!.split(';')[0]!;
+  const visitor = store.get(cookie.slice('taskdesk='.length))!;
+  const workspace = visitor.workspaces[0]!;
+  const response = await fetch(`${origin}/workspaces/${workspace.id}/messages`, {
+    method: 'POST', headers: { Cookie: cookie, Origin: origin }, redirect: 'manual',
+    body: new URLSearchParams({ csrf: visitor.csrf, message: 'Add to today journal that I started working on forgedance and taskdesk', engine: 'pi', requestId: randomUUID(), revision: String(workspace.revision), focus: '/vault/journal' }),
+  });
+  assert.equal(response.status, 303);
+  assert.equal(workspace.conversation.turns.at(-1)!.status, 'done');
+  assert.equal(runtime.snapshot().documents.find(doc => doc.file.path === journal.file.path)!.file.body, journal.file.body + addition);
+  assert.equal(readFileSync(join(root, journal.file.path), 'utf8'), before, 'The imported journal remains unchanged');
+  assert.equal(workspace.conversation.receipts.length, 1);
 });

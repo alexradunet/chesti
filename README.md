@@ -2,36 +2,36 @@
 
 A small experiment in **conversational, task-specific interfaces** using hypermedia, native HTML, and the Pi SDK.
 
-A persistent conversation sits beside a working **Today workspace** backed by Markdown files, or the original issue desk. Pi can inspect approved records, execute declared actions, and assemble the view. The server owns permissions, validation, writes and HTML.
+A persistent conversation sits beside a working **Today workspace** backed by SQLite, or the original issue desk. Pi can inspect approved records, execute declared actions, and assemble the view. The server owns permissions, validation, transactions and JSX-rendered HTML.
 
 **One agent, three capabilities: `inspect`, `act`, `present`.** No React, generated JavaScript, or model-owned application logic.
 
-## A working Markdown Today workspace
+## A working SQLite Today workspace
 
-Run `npm start`, open **http://127.0.0.1:3000/today**, then use **App review** to approve each definition revision and its individual permissions. Nothing is automatically activated.
+Run `bun start`, open **http://127.0.0.1:3000/**, then click **Approve all 4 apps** in Quick setup to enable the sample with all declared permissions, including ordinary-note access. Or use **App review** to inspect each definition and select individual permissions. Home opens the persistent Today workspace directly; nothing is automatically activated. Bulk approval applies only to the displayed valid definitions and exact revisions, not future apps or edits.
 
-The default vault is a writable copy of the fictional sample at `.data/vault`; `examples/life-vault` remains unchanged. Set `VAULT_ROOT=/absolute/path/to/vault` to use another vault containing `.apps/`. No personal vault is discovered automatically.
+The live database is `.data/taskdesk.sqlite` (`DATABASE_PATH` overrides it). First startup imports `.data/vault` if present, otherwise the fictional `examples/life-vault`; `VAULT_ROOT` selects a different initial import. Existing `.data/state.json` conversations and legacy vault approvals/receipts are imported once. Source files remain untouched. After import, SQLite is authoritative: editing old Markdown files does not update the app.
 
 Today contains today's events and scheduled work, unfinished tasks, an editable daily Markdown journal, PARA links, and the same persistent conversation sidebar. Calendar links open a dated agenda. Task forms support deadlines, explicitly zoned work sessions, and completion. “Link in journal” inserts a wiki link into the draft; **Save journal** commits it.
 
 Try **“Create a task to finish the homepage tomorrow.”** The credential-free demo supports this exact grammar; select Pi for open-ended requests. Both use `inspect`, `act`, and `present`, and the same validated mutation boundary as browser forms. Pi cannot approve apps or access arbitrary files.
 
-Definitions edited externally become pending review and their capabilities are suspended. Updates check content and definition revisions, validate prospective relationships/uniqueness, and preserve untouched YAML tokens, comments, and Markdown. Journaled writes and durable receipts survive restart without replaying interrupted edits over external changes.
+Explicit definition imports become pending review and revoke their previous grants. Updates check record and definition revisions, validate prospective relationships/uniqueness, and preserve untouched Markdown and YAML formatting for export. Record changes, durable runtime receipts and browser conversation receipts commit in one SQLite transaction.
 
-The read-only CLI remains available: `npm run lifeapps -- check examples/life-vault`. See the [quick start](docs/vault-quickstart.md) and [implemented app contract](docs/app-definition-v1.md). Migrations and conversational app creation remain outside this milestone.
+Markdown remains a content and interchange format. `bun run lifeapps check examples/life-vault` is read-only; explicit `import`, `export` and `definition` commands manage interchange. See the [quick start](docs/vault-quickstart.md) and [implemented app contract](docs/app-definition-v1.md). Automatic record-schema evolution and conversational app creation remain outside this iteration.
 
 ## Run
 
-Node **22.6+** (tested on Node 26), npm, and a current browser:
+Bun **1.4.2+** and a current browser:
 
 ```sh
-npm install
-npm run dev
+bun install --frozen-lockfile
+bun run dev
 ```
 
 Open **http://127.0.0.1:3000**. The server binds only to loopback.
 
-The default is a credential-free **Deterministic demo**. Create a triage workspace, then try the conversation:
+The default is a credential-free **Deterministic demo**. Home is Today; the original issue composer is a secondary destination at **http://127.0.0.1:3000/issues/new**. There, create a triage workspace and try the conversation:
 
 - “Assign both issues to me” → assigns the two visible issues to Alex, without changing the layout.
 - “Assign selected issues to me” → select issues using the workspace checkboxes first.
@@ -45,7 +45,7 @@ Demo conversation supports a deliberately small command grammar, not general lan
 Select **Pi SDK** in the conversation. To make Pi the initial composer too:
 
 ```sh
-COMPOSER=pi PI_MODEL=openai-codex/gpt-5.5 npm start
+COMPOSER=pi PI_MODEL=openai-codex/gpt-5.5 bun start
 ```
 
 `PI_MODEL` is an exact `provider/model-id` available to your Pi installation. Existing Pi authentication is reused; provider environment API keys also work through `ModelRuntime`. Personal extensions, coding tools, skills, prompt templates, settings and context files are not loaded.
@@ -54,14 +54,15 @@ COMPOSER=pi PI_MODEL=openai-codex/gpt-5.5 npm start
 | --- | --- | --- |
 | `PORT` | `3000` | Loopback HTTP port |
 | `COMPOSER` | `demo` | Initial composer choice: `demo` or `pi` |
-| `PI_MODEL` | Saved composition model, otherwise first authenticated model | Exact provider/model ID; initial composition has no saved model |
+| `PI_MODEL` | Saved composition/session model, otherwise the SDK's provider default | Exact provider/model ID; overrides restored selections |
 | `PI_AUTH_PATH` | Pi's normal auth file | Optional separate credentials |
 | `PI_MODELS_PATH` | Pi's normal models file | Optional custom model definitions |
-| `VAULT_ROOT` | `.data/vault` | Explicit Markdown vault; default is copied from fictional examples on first startup |
+| `DATABASE_PATH` | `.data/taskdesk.sqlite` | Single authoritative SQLite database |
+| `VAULT_ROOT` | Existing `.data/vault`, otherwise `examples/life-vault` | Initial Markdown import only; ignored once app records are initialized |
 
-There is no implicit `.env` loader. Export variables or prefix commands. The SDK is pinned to **0.86.1**.
+Bun loads `.env` files using its normal runtime behavior; exported environment variables take precedence. The Pi SDK is pinned to **0.86.1**.
 
-**Privacy:** Pi receives conversation history, workspace context, action receipts, and inspected approved vault/issue data. Credentials remain server-side and are not exposed through agent tools. Selecting Pi is opt-in. Set an exact supported `PI_MODEL` if the provider's first authenticated model is unavailable to your account; provider failures do not fall back to another executor.
+**Privacy:** Pi receives conversation history, workspace context, action receipts, and inspected approved vault/issue data. Credentials remain server-side and are not exposed through agent tools. Selecting Pi is opt-in. The SDK selects a provider default for new sessions rather than the catalog's first authenticated model: catalog membership does not guarantee account entitlement. Set an exact supported `PI_MODEL` to override an unavailable saved model; provider failures do not fall back to another executor. Provider error details are logged server-side, not exposed in the browser.
 
 ## What the next iteration adds
 
@@ -93,9 +94,9 @@ Pi: inspect → act                 HTML form POST
 Pi: present → validated view plan → saved composition
 ```
 
-Resources advertise links, facts and available actions. Closing an issue removes editing actions and exposes reopening. Pi cannot invent an endpoint or access an arbitrary URL: discovery begins at `/issues` and follows advertised links.
+Resources advertise links, facts and available actions. Closing an issue removes editing actions and exposes reopening. Pi cannot invent an endpoint or access an arbitrary URL: discovery starts at `/vault` or `/issues`, plus server-supplied visible, focus and layout resources, and follows advertised links. Pi navigates these resources itself; the user need not open or select a journal entry before requesting an update.
 
-Before `act`, Pi must explicitly inspect the issue in the **current turn**. The server binds the action to that inspected version and resolves its fields from the advertised action. The agent cannot supply credentials, a different principal, a confirmation flag, or override version metadata.
+Before `act`, Pi must explicitly inspect the target record in the **current turn**. Visibility or an embedded collection item permits discovery, not writing. The server binds the action to that inspected version and resolves its fields from the advertised action. The agent cannot supply credentials, a different principal, a confirmation flag, or override version metadata.
 
 For this local sandbox, **“me” is Alex**, the server-defined actor. This is not a real multi-user login system; the browser cookie isolates the seeded sandbox and acts as a local bearer credential.
 
@@ -150,25 +151,25 @@ Pi uses the same resolver in-process. Today starts discovery at `/vault`, which 
 
 ## Browser implementation
 
-Semantic server-rendered HTML, native links and forms, native input constraints, and `<details>`. CSS Grid, `:has()`, container queries and reduced-motion-aware cross-document transitions provide the layout. IBM Plex Sans is served locally. Markdown is rendered through a trusted CommonMark subset; raw HTML is escaped and images are not fetched.
+Server-side JSX (`hono/jsx`) renders semantic HTML, native links and forms, native input constraints, and `<details>`. Bun transpiles TSX directly; no React or hydration is used. CSS Grid, `:has()`, container queries and reduced-motion-aware cross-document transitions provide the layout. IBM Plex Sans is served locally. Markdown is rendered through a trusted CommonMark subset; raw HTML is escaped and images are not fetched.
 
 One **trusted, hand-written** `public/workspace.js` enhances conversation streaming, same-workspace navigation, form submission, selection and deferred workspace updates. Model prose is inserted as text, never parsed as HTML. HTML fragments only come from the escaping server renderer. CSP permits same-origin scripts/connections, not inline scripts or generated handlers.
 
-Without JavaScript, conversations and actions still work through normal POST/redirect/GET, but replies arrive at completion and navigation reloads the document. Unsupported View Transitions are ordinary navigation. There is no frontend framework or build pipeline.
+Without JavaScript, conversations and actions still work through normal POST/redirect/GET, but replies arrive at completion and navigation reloads the document. Unsupported View Transitions are ordinary navigation. There is no frontend framework or separate build pipeline. Bun runs the HTTP server, TypeScript, package installation and test runner; `tsc` remains the explicit type checker.
 
 ## Persistence and lifecycle
 
-`.data/state.json` stores browser sandboxes, issues, accepted compositions, conversation turns, SDK session entries and receipts. It is ignored by Git, uses restrictive file permissions, and is replaced with an atomic rename. Version-1 stores migrate in place without discarding issues or workspace URLs.
+`.data/taskdesk.sqlite` stores browser sandboxes, issues, compositions, turns, SDK session entries, receipts, app definitions and revision history, grants, structured records and reference edges. Dynamic fields and view plans use validated JSON; record bodies remain Markdown. Preserved source text is a formatting cache for lossless interchange, not a live filesystem store. The database is ignored by Git and uses restrictive file permissions, foreign keys, WAL and `synchronous=FULL`. Browser and app schemas have explicit version checks.
 
-Vault records live in ordinary `.md` files. `<vault>/.lifeapps/runtime.json` holds exact definition approvals, grants, idempotent action receipts and the interrupted-write journal; back it up with the vault. Authority state and staged records are fsynced before publication. Recovery recognizes already-published content rather than blindly replaying a write. The conversation store records intent before execution and reconciles its receipt from the vault journal on restart.
+Startup imports legacy data once without overwriting its source. The old `.lifeapps/runtime.json` journal is interpreted conservatively: an already-published content hash can be recognized, but an interrupted write is never replayed. Browser intents are reconciled with imported receipts. New actions commit their records and both receipts together; persistence failures roll back the transaction and in-memory receipt.
 
-The configured vault and its approvals are **shared by local browser sessions**; only conversations and the original issue sandboxes are browser-specific. This is not multi-user vault authorization.
+App records and approvals are **shared by local browser sessions**; conversations and original issue sandboxes remain browser-specific. This is not multi-user authorization.
 
 Each Pi turn restores an isolated in-memory SDK session from that workspace's saved entries, then disposes it after completion. No agent is kept running while idle. Application state is independent of the transcript. A turn that was running at server restart is marked stopped; it is never automatically rerun. Pending confirmations and completed receipts survive restarts.
 
 Limits: initial composition has a 45-second deadline and 12 tool attempts; conversation turns have 60 seconds and 24 tool attempts, without provider retries. One turn per workspace, up to four concurrent conversations. A sandbox holds at most 50 workspaces; conversations stop at 100 turns or roughly 1 MB of SDK history. Start a new workspace at that point; automatic compaction is deliberately absent.
 
-This is **single-process and loopback-only**. It includes CSRF/origin/host checks, field/capability allowlists, revision checks, symlink/hardlink rejection and HTML escaping. Portable filesystem APIs cannot eliminate a hostile external process swapping directories or changing files in the final check-to-rename window. Use one app writer, keep backups, and do not expose it publicly. Vault receipts are bounded to 10,000 entries and authority state to 16 MiB; reaching capacity fails closed.
+This is **single-process and loopback-only**. It includes CSRF/origin/host checks, body limits, capability allowlists, revision checks and HTML escaping. Interchange rejects unsafe/incomplete/invalid sources and visible non-Markdown assets instead of silently dropping them. Runtime receipts remain bounded to 10,000 entries. Stop the app before replacing/restoring its database. For a complete backup, use a SQLite-aware backup or stop all connections and copy the database with any remaining `-wal`/`-shm` sidecars; copying only a live WAL database file can lose committed data. Markdown export includes app data/grants/receipts, **not** browser conversations.
 
 ## Files
 
@@ -180,14 +181,15 @@ src/pi.ts            Isolated initial Pi composer and resource loader
 src/pi-chat.ts       Multi-turn Pi adapter: inspect + act + present
 src/chat-http.ts     Conversation HTTP/SSE, cancellation and replay handling
 src/composer.ts      Initial composition selection and read-only fallback
-src/render.ts        Trusted HTML renderer, sidebar and workspace fragments
-src/server.ts        HTTP, form handling and request protections
-src/store.ts         Local persistence and migration
+src/render.tsx       Trusted server JSX, sidebar and workspace fragments
+src/server.ts        Native Bun HTTP, form handling and request protections
+src/database.ts      Private SQLite connection, WAL and foreign-key setup
+src/store.ts         Relational browser persistence and legacy import
 public/style.css     Shared visual system and responsive conversation rail
 public/workspace.js  Small trusted enhancement client; no generated code
 scripts/smoke-pi.ts   Opt-in real-provider, multi-turn/restart smoke test
-scripts/lifeapps.ts   Read-only vault check and JSON Schema export
-src/vault/           Parsing, validation, approval, safe writes, resources and Today UI
+scripts/lifeapps.ts   Markdown check/schema, SQLite import/export and definition updates
+src/vault/           Validation, SQLite runtime/interchange, resources and Today JSX
 examples/life-vault/  Fictional, connected Markdown app examples
 docs/                Vault quick start and implemented contract
 test/                Core, HTTP, DOM-client, vault and Pi isolation tests
@@ -196,19 +198,18 @@ test/                Core, HTTP, DOM-client, vault and Pi isolation tests
 ## Verification
 
 ```sh
-npm run check
-npm test
-node --check public/workspace.js
+bun run check
+bun test
 ```
 
-The **117 credential-free tests** cover the original conversation/UI behavior, reader/CLI validation, approval/grant enforcement, external definition changes, lossless edits, stale revisions, prospective uniqueness/references, path hazards, durable receipt recovery after actual child-process interruptions, and the requested conversation → Markdown → browser scheduling → completion → journal → restart flow. The enhanced form test exercises the real client against the HTTP server.
+The **126 credential-free tests** cover resource traversal, shared action validation, streaming/Stop/disconnect/replay, browser dirty-form behavior, JSX escaping, grants and atomic bulk approval, imported formatting, stale revisions, uniqueness/references, transactional record/receipt rollback, restart recovery and Markdown interchange. The enhanced form tests exercise the real client against the Bun HTTP server.
 
 Optional live-provider test (consumes your configured model quota; uses a temporary sandbox, not your working issues):
 
 ```sh
-PI_MODEL=openai-codex/gpt-5.5 npm run smoke:pi
+PI_MODEL=openai-codex/gpt-5.5 bun run smoke:pi
 ```
 
-Passed with `openai-codex/gpt-5.5`: assigned ISS-101 and ISS-105, restarted the server/store, recalled the assignment without changing anything, then recomposed the workspace without further issue mutations.
+Passed under Bun 1.4.2 with `openai-codex/gpt-5.5`: assigned ISS-101 and ISS-105, restarted the server/store, recalled the assignment without changing anything, then recomposed the workspace without further issue mutations.
 
-**Today browser smoke passed** in Chromium at desktop and 390px widths. In a disposable vault, explicit app approvals enabled live Pi (`openai-codex/gpt-5.5`) task creation; native forms scheduled/completed the task; Pi appended its wiki link to the existing journal; native journal editing, PARA navigation, today's event creation, refresh and server restart preserved the files and conversation. The default-discovered `gpt-5.3-codex-spark` was rejected by the account, so this smoke explicitly selected the supported model. No cross-browser claim is made.
+**Today browser smoke passed** in Chromium at desktop and 390px widths against a disposable SQLite database: explicit approvals, streamed demo task creation, native completion, journal creation/editing, unsaved-draft protection, server restart with restored conversation/data, and JavaScript-disabled form submission. Markdown export validated and reimported successfully. No cross-browser claim is made.
