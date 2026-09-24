@@ -1,81 +1,82 @@
-# SQLite apps and Markdown interchange
+# Object workspace quick start
 
-Taskdesk runs on Bun. SQLite is the only live authority; Markdown remains the format for journal/note bodies and portable app exports.
+The historical filename is retained for existing documentation links. The current application is an object workspace, not an app-owned Today dashboard.
 
-## Open Today
+## Start
 
 ```sh
 bun install --frozen-lockfile
 bun start
 ```
 
-Open **http://127.0.0.1:3000/**. Today reuses the browser's saved conversation. The original issue desk remains at `/issues/new`.
-
-First startup creates `.data/taskdesk.sqlite` and imports `.data/vault` when present, otherwise the fictional `examples/life-vault`. Existing `.data/state.json` browser state and the vault's `.lifeapps/runtime.json` grants/receipts are imported once. Original files are not modified. No personal directory is discovered automatically.
-
-To choose a different database and initial Markdown source:
+Open **http://127.0.0.1:3000/**. A new database contains Page and no seeded objects. To use another database or an explicit authenticated model:
 
 ```sh
-DATABASE_PATH=/absolute/path/to/taskdesk.sqlite \
-VAULT_ROOT=/absolute/path/to/vault \
+DATABASE_PATH=/absolute/path/to/workspace.sqlite \
 PI_MODEL=openai-codex/gpt-5.5 bun start
 ```
 
-`VAULT_ROOT` is only used when initializing app records. Once initialized, editing or removing the import directory does not change the database. A custom database still imports the repository's legacy browser state if present; use a separate checkout without `.data/state.json` for a completely fresh browser store.
+Model availability depends on your Pi credentials. Object editing and saved views work without model access; generating or refining a view does not. Generation failures leave existing views and objects unchanged.
 
-1. Click **Approve all 4 apps** to enable the sample's Wiki, Tasks, Calendar and Journal permissions, including ordinary-note reading. Use **App review** for narrower grants. Approval binds exact displayed revisions; later changes require approval again.
-2. Say **“Create a task to finish the homepage tomorrow.”** Demo supports this grammar without credentials. Select Pi for open-ended requests.
-3. Open the task to schedule a timed session with an explicit timezone, or use **Set a date** on Today.
-4. Complete it. **Link in journal** inserts a wiki link into a draft; **Save journal** commits it explicitly. Opening Today never creates a journal automatically.
-5. Refresh or restart. Records, grants, receipts and conversation persist in SQLite. Native links/forms also work without JavaScript.
+## Create shared data
 
-The agent can discover and update a journal without requiring the user to navigate to or select it first. Every action still requires a fresh direct inspection and the same server validation as browser forms.
+1. Open **Manage types** in the left sidebar, enter `Task`, and create it.
+2. Add a property named `Due` with kind `date`. Optionally add `Done` with kind `boolean`.
+3. Create `Meeting`. Attach `Due` using **Reuse a shared property**. This shares its identity, not merely its label.
+4. Open **New content**, choose Task, and save a task with a date and some writing. Create another task without a date and a Meeting with a date.
+5. Insert an object link using the writing toolbar. Open the linked object to see its backlink.
 
-## Import and export
+Types and properties can be renamed. Existing objects keep their identity and properties when changing type; references targeting the old type must be resolved before an incompatible type change. Trash retains data and can be restored. Existing references survive trash, but new references to trashed objects are rejected.
 
-Validate a Markdown source without writing or approving anything:
+## Generate views, do not configure them manually
+
+Open **Views → Create view**. In the right-hand View assistant, ask:
+
+> Create an editable calendar showing all Task and Meeting objects using Due. Keep undated objects visible as unscheduled.
+
+The model sees your prompt, schema metadata, up to 12 prior conversation prompts, and the previous view specification when refining—not object titles or writing unless you put them in your prompt. Review the draft in the main area and choose **Publish view**. Open **Edit Due** on a row to reschedule the original object. Rename Due to Scheduled in Manage types: the saved view still works because bindings use property IDs.
+
+Continue in the assistant to refine its latest result, or use **Refine with AI** to explicitly start a thread about the view you are looking at. For example:
+
+> Keep the calendar and add an editable Task board grouped by Done, plus a table showing the scheduled dates.
+
+Refinement creates another draft. Neither generation nor publication changes objects. Deleting either view leaves the shared data and the other view intact.
+
+A reference-based view can ask for an input object, such as a Project. Without selecting that input it shows no records; it does not fall back to an unfiltered collection.
+
+## Navigate without losing the conversation
+
+The left sidebar stays available while the assistant is open on desktop. **Calendar** lists calendar-containing saved views; **Tasks** shows objects from an existing Task or Tasks type. Object-type links browse that type. Use **Pin view** to add a saved view to your sidebar.
+
+Close/reopen the assistant or navigate to another object: the active conversation and unsent prompt stay in the current browser tab. The **Working on** chip identifies the refinement target; browsing does not change it. **Create view** or **New conversation** starts fresh. Successful turns survive server restarts in SQLite; the active-thread pointer lives in browser tab storage.
+
+Drag the panel divider or use its arrow keys to resize on desktop. On smaller screens, AI opens as a drawer; on mobile, navigation does too. Escape closes the open panel. If AI finishes while your editor has unsaved changes, save those changes before following its preview link.
+
+## Forms and conflicts
+
+The enhanced editor supports headings, emphasis, code, lists, undo/redo, and object mentions. Without JavaScript, native forms edit Markdown. Save is explicit. A failed enhanced submission retains the draft. Revision conflicts reject stale saves instead of overwriting a newer change; reload and reconcile the draft before retrying.
+
+Native links and forms, CSRF protection, and the same server-side validation remain authoritative. Only published views that explicitly expose calendar-date or board-group editing have inline write controls.
+
+## Back up and migrate
+
+Use SQLite's backup operation for a running database:
 
 ```sh
-bun run lifeapps check examples/life-vault
-bun scripts/lifeapps.ts check examples/life-vault --json
-bun run lifeapps schema
+sqlite3 .data/taskdesk.sqlite ".backup '/absolute/path/to/backup.sqlite'"
 ```
 
-The unmodified sample has **13 Markdown files, four valid definitions, no errors or warnings**.
+Alternatively stop the server and back up the database together with any `-wal`/`-shm` files. Do not copy only the main file while a writer is active.
 
-Explicitly seed an empty app database:
+Startup migrates existing legacy **SQLite** records transactionally. Original vault tables/files are retained, and the migration runs once. No app approval is required to see the owner's migrated objects. Legacy `/vault` mutations and app review are removed; legacy runtime/CLI access to migrated databases is rejected.
+
+For a pre-SQLite directory, first prepare a new database with the legacy adapter, then open it in the current server:
 
 ```sh
-bun run lifeapps import /path/to/vault --db /path/to/taskdesk.sqlite
+bun run lifeapps import /absolute/path/to/legacy-directory --db /absolute/path/to/new-workspace.sqlite
+DATABASE_PATH=/absolute/path/to/new-workspace.sqlite bun start
 ```
 
-Import fails closed on invalid/incomplete sources, unsafe links, or visible non-Markdown assets. It never silently skips an attachment. Hidden paths other than `.apps` are excluded; the legacy authority file is read separately. Subsequent import of the same root is a no-op; a different source cannot replace an initialized app database.
+Do not run the legacy export tool on a migrated workspace: its archived records are no longer the current objects. Back up the SQLite database instead. Editing old Markdown files or changing `VAULT_ROOT` does not change live objects.
 
-Export app definitions, records, approvals and runtime receipts to a **new** directory:
-
-```sh
-bun run lifeapps export /path/to/new-export --db .data/taskdesk.sqlite
-bun run lifeapps check /path/to/new-export
-```
-
-Existing destinations are rejected, not merged or overwritten. Export does not include browser sandboxes, compositions, conversations or SDK history; back up the SQLite database for a complete backup.
-
-## Change an app definition
-
-Edit a copy of an exported `.apps/*.md` file, then explicitly install the revision:
-
-```sh
-bun run lifeapps definition /path/to/Tasks.md --path .apps/Tasks.md --db .data/taskdesk.sqlite
-```
-
-The runtime validates the new definition and retains revision history. Changed definitions revoke their grants. Review and approve the new revision in the browser before using it. Changing a type's schema version does not automatically migrate existing records; incompatible records are reported and cannot be mutated through their old actions.
-
-## Backups and safety
-
-Use one app server per database. App records and grants are shared across browser sessions; the local browser cookie isolates conversations and issue sandboxes, not app data. This is loopback-only, not a multi-user service.
-
-Record mutations, runtime receipts and conversation receipts commit together. Stale revisions fail instead of overwriting changes. Source Markdown files are never a second live writer.
-
-Use a SQLite-aware backup, or stop all database connections before copying the database and any remaining `-wal`/`-shm` sidecars. Do not copy only the main file while WAL writes are active. Keep the original Markdown/JSON inputs until you have verified your migration and backup. Restore a database only with the server stopped.
-
-Run `bun run lifeapps --help` for command syntax. `check` exits **0** for valid input (warnings allowed), **1** for validation errors, and **2** for usage/internal failures. Interchange commands return **2** on failure. See [the app contract](app-definition-v1.md) for field, relationship, revision and approval rules.
+See the [object/view contract](app-definition-v1.md) for storage, query, and command constraints.

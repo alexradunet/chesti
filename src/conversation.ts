@@ -9,7 +9,7 @@ export function workspaceResolver(visitor: Visitor, store?: Store) {
   const issues = issueResolver(visitor.issues);
   return (href: string) => {
     if (!href.startsWith('/vault')) return issues(href);
-    if (!store?.vault) throw new AppError(404, 'No vault is configured.');
+    if (!store?.vault) throw new AppError(404, 'No app database is configured.');
     return vaultResolver(store.vault)(href);
   };
 }
@@ -35,7 +35,7 @@ function resultMessage(receipt: Receipt): string {
 // occurs between version validation, mutation and the SQLite commit.
 export function executeReceipt(store: Store, visitor: Visitor, receipt: Receipt): Receipt {
   if (receipt.vaultRequest) {
-    if (!store.vault) throw new AppError(404, 'No vault is configured.');
+    if (!store.vault) throw new AppError(404, 'No app database is configured.');
     if (store.vault.db !== store.db) throw new Error('Actions and conversations must share one database.');
     const previous = structuredClone(receipt);
     try {

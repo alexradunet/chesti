@@ -15,8 +15,8 @@ export function page(title: string, body: string, interactive = false): string {
       <title>{title} · Taskdesk</title><link rel="stylesheet" href="/style.css" /><meta name="color-scheme" content="light" /></head>
     <body class={interactive ? 'workbench-page' : undefined}>
       <a class="skip" href={interactive ? '#canvas' : '#main'}>Skip to content</a>
-      <header class="masthead"><a class="brand" href="/" aria-label="Taskdesk home"><span class="mark" aria-hidden="true">T/</span> taskdesk<span class="edition">YOUR DAILY WORKSPACE</span></a>
-        <nav aria-label="Main"><a href="/">Today</a><a href="/vault/apps">App review</a><a href="/issues/new">Issue desk</a><a href="/issues">Issue register <span aria-hidden="true">↗</span></a></nav></header>
+      <header class="masthead"><a class="brand" href="/" aria-label="Taskdesk home"><span class="mark" aria-hidden="true">T/</span> taskdesk<span class="edition">OBJECT WORKSPACE</span></a>
+        <nav aria-label="Main"><a href="/">Objects</a><a href="/types">Types</a><a href="/views">AI views</a><a href="/issues/new">Issue desk</a></nav></header>
       <main id="main" tabindex={-1}>{raw(body)}</main>
       <footer><span>Your work, one focused view at a time.</span><span>LOCAL SANDBOX / ALEX</span></footer>
       {interactive && <script type="module" src="/workspace.js"></script>}
@@ -40,7 +40,7 @@ export function issueHome(visitor: Visitor, mode: 'demo' | 'pi'): string {
   const unassigned = visitor.issues.filter(i => i.status !== 'closed' && i.owner === 'unassigned').length;
   return page('Issue desk', (<>
     <section class="intro"><div><p class="eyebrow">ISSUE DESK / SAVED WORKSPACES</p>
-      <h1>A view for<br /><em>your issue work.</em></h1><p class="lead">Compose a focused workspace from the issue register.<br />Your Markdown content and daily journal are in <a href="/">Today</a>.</p></div>
+      <h1>A view for<br /><em>your issue work.</em></h1><p class="lead">Compose a focused workspace from the issue register.<br />Your notes, tasks and daily journal are in <a href="/">Today</a>.</p></div>
       <aside class="register-stamp"><strong>{String(open).padStart(2, '0')}</strong><span>OPEN ISSUES</span><p>{unassigned} waiting for an owner</p></aside></section>
     <section class="start-grid"><div><TaskForm visitor={visitor} mode={mode} />
       <div class="examples"><span class="eyebrow">TRY A TASK</span>{['Help me triage unassigned issues', 'What should I work on next?'].map(task => <form method="post" action="/workspaces"><Hidden name="csrf" value={visitor.csrf} /><Hidden name="engine" value={mode} /><button class="text-button" name="task" value={task}>{task} <span aria-hidden="true">→</span></button></form>)}</div></div>
@@ -58,7 +58,7 @@ function Collection({ resource, view, workspace }: { resource: Resource; view: s
   if (resource.href.startsWith('/vault')) {
     const create = resource.links.filter(link => link.rel === 'create');
     const columns = [...new Set(items.flatMap(item => Object.keys(item.facts)))].filter(key => !['ID', 'Revision', 'DefinitionRevision', 'Path', 'Calendar sort', 'Calendar value', 'Calendar end', 'Calendar field'].includes(key)).slice(0, 6);
-    const heading = <><div class="section-heading"><div><p class="eyebrow">VAULT / {items.length} RECORDS</p><h2>{resource.title}</h2></div></div><p class="section-description">{resource.description}</p>{create.length > 0 && <nav class="create-links" aria-label="Create records">{create.map(link => <a class="button-link" href={resourceLink(link.href, workspace)}>{link.title} +</a>)}</nav>}</>;
+    const heading = <><div class="section-heading"><div><p class="eyebrow">APPS / {items.length} RECORDS</p><h2>{resource.title}</h2></div></div><p class="section-description">{resource.description}</p>{create.length > 0 && <nav class="create-links" aria-label="Create records">{create.map(link => <a class="button-link" href={resourceLink(link.href, workspace)}>{link.title} +</a>)}</nav>}</>;
     if (!items.length) return <>{heading}<p class="empty fine">No approved records match this collection.</p></>;
     if (resource.facts.Presentation === 'calendar') {
       const days = new Map<string, Resource[]>();
@@ -235,5 +235,5 @@ export function resourcePage(resource: Resource, visitor: Visitor, workspace?: W
 }
 
 export function errorPage(status: number, message: string): string {
-  return page('Unable to complete request', (<section class="error"><p class="eyebrow">REQUEST / {status}</p><h1>Let’s try that again.</h1><p class="lead">{message}</p><a href="/">Back to Today →</a><p><a href="/issues/new">Open the issue desk</a></p></section>).toString());
+  return page('Unable to complete request', (<section class="error"><p class="eyebrow">REQUEST / {status}</p><h1>Unable to complete request</h1><p class="lead">{message}</p><a href="/">Back to objects</a></section>).toString());
 }

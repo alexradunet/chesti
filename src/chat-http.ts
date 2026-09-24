@@ -3,7 +3,6 @@ import { createTurnContext, decideReceipt, runDemoTurn, undoLayout, visibleResou
 import type { ChatEvent, ChatRunner } from './conversation.js';
 import { runPiTurn } from './pi-chat.js';
 import { conversationPanel, workspaceCanvas, resourceCanvas } from './render.js';
-import { todayCanvas } from './vault/today.js';
 import type { ChatTurn, Store, Visitor } from './store.js';
 
 const eventHeaders = { 'Content-Type': 'text/event-stream; charset=utf-8', 'X-Accel-Buffering': 'no' };
@@ -16,12 +15,13 @@ export function createConversationRoutes(store: Store, runner?: ChatRunner) {
     if (!match) return;
     const workspace = visitor.workspaces.find(w => w.id === match[1]);
     if (!workspace) throw new AppError(404, 'Workspace not found in this browser sandbox.');
+    if (workspace.kind === 'today') throw new AppError(410, 'App-owned workspaces have been replaced by objects and AI-generated views. Open home to use your migrated records.');
     const target = match[2];
     if (req.method === 'GET') {
       if (target !== 'state') throw new AppError(405, 'Submit a form for this operation.');
       const focus = url.searchParams.get('focus') ?? '';
       const resolve = workspaceResolver(visitor, store);
-      const canvas = focus ? resourceCanvas(resolve(focus), visitor, workspace) : workspace.kind === 'today' && store.vault ? todayCanvas(workspace, visitor, store.vault) : workspaceCanvas(workspace, visitor, resolve);
+      const canvas = focus ? resourceCanvas(resolve(focus), visitor, workspace) : workspaceCanvas(workspace, visitor, resolve);
       return Response.json({ conversation: conversationPanel(workspace, visitor, focus), canvas, revision: workspace.revision, busy: active.has(workspace.id) });
     }
     if (!fields || target === 'state') throw new AppError(405, 'Use the appropriate link or form.');

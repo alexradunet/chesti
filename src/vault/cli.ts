@@ -5,7 +5,7 @@ import { readImportFile } from './interchange.js';
 import { appJsonSchema } from './schema.js';
 import { readVault } from './reader.js';
 
-const HELP = `lifeapps — SQLite vault and Markdown interchange
+const HELP = `lifeapps — SQLite app storage tools
 
 Usage:
   lifeapps check [vault-root] [--json]
@@ -20,6 +20,9 @@ Examples:
   bun scripts/lifeapps.ts check examples/life-vault
   bun scripts/lifeapps.ts check examples/life-vault --json
   bun scripts/lifeapps.ts schema
+
+SQLite is the application's authoritative storage. The file-oriented commands
+below are optional migration/interchange tools, not live storage.
 
 check: Validate all app candidates, documents and relationships in a vault.
        Defaults to the current directory; a .apps directory is required.

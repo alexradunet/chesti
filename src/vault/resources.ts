@@ -16,7 +16,7 @@ const label = (name: string) => name.replace(/([a-z])([A-Z])/g, '$1 $2').replace
 const stringValue = (value: unknown): string => value === undefined ? '' : typeof value === 'string' ? value : JSON.stringify(value);
 const hrefFor = (doc: VaultDocument) => doc.kind === 'record' ? `/vault/records/${doc.file.frontmatter.id}` : `/vault/notes?path=${encodeURIComponent(doc.file.path)}`;
 const nav: Link[] = [
-  { rel: 'home', href: '/vault', title: 'Vault' }, { rel: 'today', href: '/vault/today', title: 'Today' },
+  { rel: 'home', href: '/vault', title: 'Apps' }, { rel: 'today', href: '/vault/today', title: 'Today' },
   { rel: 'collection', href: '/vault/tasks', title: 'Tasks' }, { rel: 'collection', href: '/vault/calendar', title: 'Calendar' },
   { rel: 'collection', href: '/vault/journal', title: 'Journal' }, { rel: 'collection', href: '/vault/para', title: 'PARA' },
 ];
@@ -38,14 +38,14 @@ function formField(name: string, definition: FieldDefinition, value: unknown, do
   const options = definition.type === 'enum' && 'values' in definition ? definition.values.map(value => ({ value, label: value }))
     : definition.type === 'reference' && 'target' in definition ? documents.filter(doc => doc.file.frontmatter.type === definition.target).map(doc => ({ value: String(doc.file.frontmatter.id), label: doc.file.title })) : [];
   if (options.length && !definition.required) options.unshift({ value: '', label: 'None' });
-  return { name, label: name === 'body' ? 'Markdown' : `${label(name)}${definition.type === 'datetime' ? ' (ISO date-time with timezone)' : definition.type === 'reference' && !options.length ? ' (record UUID)' : ''}`, value: stringValue(value), options, input, valueType: definition.type, required: name === 'title' ? creating : Boolean(definition.required) };
+  return { name, label: name === 'body' ? 'Content' : `${label(name)}${definition.type === 'datetime' ? ' (ISO date-time with timezone)' : definition.type === 'reference' && !options.length ? ' (record UUID)' : ''}`, value: stringValue(value), options, input, valueType: definition.type, required: name === 'title' ? creating : Boolean(definition.required) };
 }
 
 /** Every resolution is a fresh approved snapshot, never the unreviewed reader output. */
 export function vaultResolver(runtime: VaultRuntime): Resolve {
   return href => {
     const url = new URL(href, 'http://vault.local');
-    if (url.origin !== 'http://vault.local' || !url.pathname.startsWith('/vault')) throw new AppError(404, 'Vault resource not found.');
+    if (url.origin !== 'http://vault.local' || !url.pathname.startsWith('/vault')) throw new AppError(404, 'App resource not found.');
     const path = url.pathname;
     const snapshot = runtime.snapshot();
     const reviews = new Map(runtime.reviews().filter(review => review.status === 'active').map(review => [review.id, review]));
@@ -84,7 +84,7 @@ export function vaultResolver(runtime: VaultRuntime): Resolve {
       const facts: Record<string, string> = { ID: String(doc.file.frontmatter.id ?? doc.file.path), Type: qualified, Path: doc.file.path, Revision: doc.file.revision };
       if (app) facts.DefinitionRevision = app.file.revision;
       for (const [name] of Object.entries(doc.type?.fields ?? {})) if (Object.hasOwn(doc.file.frontmatter, name)) facts[name] = stringValue(doc.file.frontmatter[name]);
-      return { href: hrefFor(doc), kind: 'record', title: doc.file.title, description: doc.kind === 'note' ? 'Ordinary Markdown note · read only' : `${app?.definition?.name ?? qualified} · ${doc.file.path}`,
+      return { href: hrefFor(doc), kind: 'record', title: doc.file.title, description: doc.kind === 'note' ? 'Note · read only' : `${app?.definition?.name ?? qualified} · saved record`,
         facts, body: doc.file.body, version: doc.file.revision,
         links: [...nav, ...(app ? [{ rel: 'type', href: `/vault/types/${qualified}`, title: `New ${typeName}` }] : []), ...wikiLinks(doc)],
         actions: app && doc.type ? actionResources(app, typeName, doc.type, doc) : [] };
@@ -92,7 +92,7 @@ export function vaultResolver(runtime: VaultRuntime): Resolve {
     const typeResource = (app: AppCandidate, name: string): Resource => {
       const qualified = `${app.definition!.id}.${name}`;
       const type = app.definition!.types[name]!;
-      return { href: `/vault/types/${qualified}`, kind: 'record', title: `New ${name}`, description: `Create a ${qualified} document in ${type.storage.defaultFolder}. Only explicitly approved actions are available.`,
+      return { href: `/vault/types/${qualified}`, kind: 'record', title: `New ${name}`, description: `Create a ${qualified} record in SQLite. Only explicitly approved actions are available.`,
         facts: { Type: qualified, Revision: app.file.revision, DefinitionRevision: app.file.revision, Folder: type.storage.defaultFolder, ...(type.rules ? { Rules: type.rules.map(rule => `Exactly one of: ${rule.fields.join(', ')}`).join('; ') } : {}) },
         version: app.file.revision, links: nav, actions: actionResources(app, name, type) };
     };
@@ -165,7 +165,7 @@ export function vaultResolver(runtime: VaultRuntime): Resolve {
         const day = `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}-${String(next.getDate()).padStart(2, '0')}`;
         return { rel: 'day', href: `/vault/calendar?date=${day}`, title: `${offset < 0 ? '←' : '→'} ${day}` };
       });
-      return { href, kind: 'collection', title: date ? `Calendar · ${date}` : 'Upcoming calendar', description: 'Events, deadlines, and scheduled work from your Markdown files. Times use the server’s local timezone.', facts: { Date: date ?? localDate(), Count: String(items.length), Presentation: 'calendar' }, items, actions: [], links: [...nav, ...adjacent, ...typeLinks(apps.filter(app => app.definition!.id === 'calendar'))] };
+      return { href, kind: 'collection', title: date ? `Calendar · ${date}` : 'Upcoming calendar', description: 'Events, deadlines, and scheduled work from your saved records. Times use the server’s local timezone.', facts: { Date: date ?? localDate(), Count: String(items.length), Presentation: 'calendar' }, items, actions: [], links: [...nav, ...adjacent, ...typeLinks(apps.filter(app => app.definition!.id === 'calendar'))] };
     };
     if (path === '/vault') {
       const links = apps.flatMap(app => [
@@ -173,7 +173,7 @@ export function vaultResolver(runtime: VaultRuntime): Resolve {
         ...Object.keys(app.definition!.types).map(name => ({ rel: 'type', href: `/vault/types/${app.definition!.id}.${name}`, title: `${app.definition!.name} · ${name}` })),
         ...Object.keys(app.definition!.views).map(name => ({ rel: 'view', href: `/vault/views/${app.definition!.id}/${name}`, title: `${app.definition!.name} · ${label(name)}` })),
       ]);
-      const resource = collection('/vault', 'Your vault', 'Only approved definitions and readable, valid Markdown documents are exposed here. App review is a separate browser-only screen.', documents, links);
+      const resource = collection('/vault', 'Your apps', 'Approved app definitions and readable records from your SQLite database. App review is a separate browser-only screen.', documents, links);
       resource.facts.Errors = String(snapshot.report.counts.errors);
       resource.facts.Warnings = String(snapshot.report.counts.warnings);
       resource.facts.Diagnostics = snapshot.report.diagnostics.map(issue => `${issue.severity} · ${issue.code} · ${issue.file}:${issue.line}:${issue.column} — ${issue.message}`).join('\n');
@@ -187,7 +187,7 @@ export function vaultResolver(runtime: VaultRuntime): Resolve {
     }
     if (path === '/vault/tasks') return appCollection('tasks', 'Unfinished tasks');
     if (path === '/vault/journal') return appCollection('journal', 'Daily journal');
-    if (path === '/vault/para') return collection(href, 'PARA', 'Projects, Areas, Resources, and Archives are folders, not additional metadata. Only approved readable documents appear.', documents.filter(doc => /^(Projects|Areas|Resources|Archives)\//.test(doc.file.path)), typeLinks(apps.filter(app => app.definition!.id === 'wiki')));
+    if (path === '/vault/para') return collection(href, 'PARA', 'Projects, Areas, Resources, and Archives group your saved records by their organizational aliases. Only approved readable records appear.', documents.filter(doc => /^(Projects|Areas|Resources|Archives)\//.test(doc.file.path)), typeLinks(apps.filter(app => app.definition!.id === 'wiki')));
     const match = /^\/vault\/(collections|views)\/([a-z][a-z0-9-]*)\/([a-z][a-zA-Z0-9_]*)$/.exec(path);
     if (match) {
       const app = apps.find(app => app.definition!.id === match[2]);
@@ -207,17 +207,17 @@ export function vaultResolver(runtime: VaultRuntime): Resolve {
     }
     const doc = documents.find(doc => path.startsWith('/vault/records/') ? doc.kind === 'record' && String(doc.file.frontmatter.id).toLowerCase() === path.slice('/vault/records/'.length).toLowerCase() : path === '/vault/notes' && doc.kind === 'note' && doc.file.path === url.searchParams.get('path'));
     if (doc) return record(doc);
-    throw new AppError(404, 'Approved readable vault resource not found.');
+    throw new AppError(404, 'Approved readable app resource not found.');
   };
 }
 
 /** Convert only advertised fields; the runtime independently checks schema and permissions. */
 export function mutationFor(resource: Resource, actionId: string, fields: Record<string, string>, id: string): VaultMutation {
   const action = resource.actions.find(action => action.id === actionId && action.href === '/vault/act');
-  if (!action) throw new AppError(409, 'This vault action is no longer available.');
+  if (!action) throw new AppError(409, 'This app action is no longer available.');
   const qualified = resource.facts.Type;
   const parts = qualified?.split('.');
-  if (!parts || parts.length !== 2 || !parts[0] || !parts[1] || resource.version === undefined) throw new AppError(422, 'This is not an actionable vault resource.');
+  if (!parts || parts.length !== 2 || !parts[0] || !parts[1] || resource.version === undefined) throw new AppError(422, 'This is not an actionable app resource.');
   const updating = resource.href.startsWith('/vault/records/');
   const result: Record<string, unknown> = {};
   for (const key of Object.keys(fields)) if (!action.fields.some(field => field.name === key)) throw new AppError(422, `Unexpected action field: ${key}.`);

@@ -50,9 +50,13 @@ function receiptResult(row: ReceiptRow): VaultMutationResult {
     ...(row.revision === null ? {} : { revision: row.revision }), ...(row.error_status === null ? {} : { errorStatus: row.error_status }) };
 }
 
-/** SQLite is the only live authority. Nested transactions participate in the caller's commit. */
+/** Legacy import/interchange runtime; never opens a migrated object workspace. */
 export class VaultRuntime {
   constructor(readonly db: Database, options: { importRoot?: string } = {}) {
+    const objects = db.query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'object_metadata'").get();
+    if (objects && db.query("SELECT 1 FROM object_metadata WHERE key = 'schema_version'").get()) {
+      throw new AppError(409, 'This database is now an object workspace. Legacy app commands cannot read or modify its archived records.');
+    }
     initializeVault(db);
     if (options.importRoot !== undefined) this.importRoot(options.importRoot);
   }

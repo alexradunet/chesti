@@ -81,7 +81,7 @@ export class Store {
         if (!receipt.vaultRequest || !receipt.executionStarted || receipt.status !== 'pending') continue;
         const result = this.vault.receipt(receipt.id);
         receipt.status = result?.status ?? 'failed';
-        receipt.message = result?.message ?? 'Interrupted before the vault write. No automatic retry was made.';
+        receipt.message = result?.message ?? 'Interrupted before the record transaction. No automatic retry was made.';
         receipt.errorStatus = result?.errorStatus;
       }
     }

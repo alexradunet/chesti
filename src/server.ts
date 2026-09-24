@@ -1,5 +1,4 @@
 import { randomUUID, timingSafeEqual } from 'node:crypto';
-import { existsSync } from 'node:fs';
 import { resolve as resolvePath } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { AppError, validatePlan } from './core.js';
@@ -13,9 +12,9 @@ import { openDatabase } from './database.js';
 import { errorPage, issueHome, resourcePage, workspacePage } from './render.js';
 import { Store } from './store.js';
 import type { Receipt, Visitor, Workspace } from './store.js';
-import { VaultRuntime } from './vault/runtime.js';
-import { mutationFor } from './vault/resources.js';
-import { approvalPage, todayPage } from './vault/today.js';
+import { ObjectRuntime } from './objects/runtime.js';
+import { createObjectRoutes } from './objects/http.js';
+import type { ViewGenerator } from './objects/model.js';
 
 const securityHeaders = {
   'Content-Security-Policy': "default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'self'; font-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'; object-src 'none'",
@@ -55,7 +54,7 @@ async function formBody(req: Request, limit = 8192): Promise<URLSearchParams> {
   }
   const fields = new URLSearchParams(Buffer.concat(chunks, size).toString('utf8'));
   for (const key of fields.keys()) {
-    if (!['selected', 'permissions'].includes(key) && fields.getAll(key).length !== 1) throw new AppError(422, 'Repeated form field.');
+    if (!['selected', 'permissions'].includes(key) && !/^p:[a-f0-9-]{36}$/.test(key) && fields.getAll(key).length !== 1) throw new AppError(422, 'Repeated form field.');
   }
   return fields;
 }
@@ -82,26 +81,18 @@ function withHeaders(response: Response, headers: Headers): Response {
   return response;
 }
 
-export function createApp(options: { store?: Store; mode?: 'demo' | 'pi'; composer?: Composer; chatRunner?: ChatRunner; vault?: VaultRuntime; port?: number } = {}): Bun.Server<undefined> {
-  const db = options.store?.db ?? options.vault?.db ?? openDatabase(process.env.DATABASE_PATH ?? resolvePath('.data/taskdesk.sqlite'));
+export function createApp(options: { store?: Store; mode?: 'demo' | 'pi'; composer?: Composer; chatRunner?: ChatRunner; objects?: ObjectRuntime; viewGenerator?: ViewGenerator; port?: number } = {}): Bun.Server<undefined> {
+  const db = options.store?.db ?? options.objects?.db ?? openDatabase(process.env.DATABASE_PATH ?? resolvePath('.data/taskdesk.sqlite'));
   const store = options.store ?? new Store(db);
+  const objects = options.objects ?? new ObjectRuntime(db);
+  if (objects.db !== db) throw new Error('Objects and browser state must share one database connection.');
+  const objectRoutes = createObjectRoutes(objects, options.viewGenerator);
   const mode = options.mode ?? (process.env.COMPOSER === 'pi' ? 'pi' : 'demo');
-  db.transaction(() => {
-    if (options.vault) store.vault = options.vault;
-    else if (!options.store) {
-      store.vault = new VaultRuntime(db);
-      if (!store.vault.root) {
-        const importRoot = process.env.VAULT_ROOT ?? (existsSync(resolvePath('.data/vault')) ? resolvePath('.data/vault') : fileURLToPath(new URL('../examples/life-vault', import.meta.url)));
-        store.vault.importRoot(importRoot);
-      }
-    }
-    if (store.vault && store.vault.db !== db) throw new Error('Store and vault must share one database connection.');
-    if (!options.store) store.importLegacy(resolvePath('.data/state.json'));
-    store.reconcileVaultReceipts();
-  })();
+  let objectClient: Promise<Bun.BuildOutput> | undefined;
   const css = Bun.file(new URL('../public/style.css', import.meta.url));
   const font = Bun.file(new URL('../node_modules/@fontsource-variable/ibm-plex-sans/files/ibm-plex-sans-latin-wght-normal.woff2', import.meta.url));
   const client = Bun.file(new URL('../public/workspace.js', import.meta.url));
+  const objectCss = Bun.file(new URL('../public/objects.css', import.meta.url));
   const conversationRoutes = createConversationRoutes(store, options.chatRunner);
   let composing = false;
   const handle = async (req: Request, server: Bun.Server<undefined>, headers: Headers): Promise<Response> => {
@@ -114,6 +105,17 @@ export function createApp(options: { store?: Store; mode?: 'demo' | 'pi'; compos
       headers.set('Allow', 'GET, POST');
       throw new AppError(405, 'Use a link or a form.');
     }
+    if (req.method === 'GET' && url.pathname === '/objects.css') return new Response(objectCss, { headers: { 'Content-Type': 'text/css; charset=utf-8' } });
+    if (req.method === 'GET' && url.pathname === '/objects-client.js') {
+      objectClient ??= Bun.build({ entrypoints: [fileURLToPath(new URL('./objects/client.ts', import.meta.url))], target: 'browser', minify: true });
+      const build = await objectClient;
+      if (!build.success || !build.outputs[0]) {
+        objectClient = undefined;
+        console.error('Object editor bundle failed:', build.logs);
+        throw new AppError(500, 'The writing editor could not load. The native editor is still available.');
+      }
+      return new Response(build.outputs[0], { headers: { 'Content-Type': 'text/javascript; charset=utf-8' } });
+    }
     if (req.method === 'GET' && (url.pathname === '/style.css' || url.pathname === '/fonts/plex.woff2' || url.pathname === '/workspace.js')) {
       const stylesheet = url.pathname === '/style.css';
       const javascript = url.pathname === '/workspace.js';
@@ -125,47 +127,12 @@ export function createApp(options: { store?: Store; mode?: 'demo' | 'pi'; compos
       const origin = req.headers.get('origin');
       if (origin && origin !== `http://${host}`) throw new AppError(403, 'Cross-origin submissions are not allowed.');
       if (req.headers.get('sec-fetch-site') === 'cross-site') throw new AppError(403, 'Cross-site submissions are not allowed.');
-      const fields = await formBody(req, ['/vault/act', '/vault/approve'].includes(url.pathname) ? 262_144 : url.pathname.endsWith('/messages') ? 32_768 : 8192);
+      const fields = await formBody(req, url.pathname.startsWith('/objects/') ? 1_048_576 : url.pathname.endsWith('/messages') || url.pathname === '/views/generate' ? 32_768 : 8192);
       if (!sameToken(fields.get('csrf'), visitor.csrf)) throw new AppError(403, 'Invalid form token. Reload the page and try again.');
+      const objectResponse = await objectRoutes(req, url, visitor, fields);
+      if (objectResponse) return objectResponse;
       const conversation = await conversationRoutes(req, url, visitor, fields);
       if (conversation) return conversation;
-      if (url.pathname === '/vault/approve') {
-        if (!store.vault) throw new AppError(404, 'No vault is configured.');
-        const bulk = fields.has('approvals');
-        const allowed = bulk ? ['csrf', 'approvals'] : ['csrf', 'app', 'revision', 'permissions'];
-        if ([...fields.keys()].some(k => !allowed.includes(k))) throw new AppError(422, 'Unexpected approval field.');
-        let approvals: unknown;
-        if (bulk) {
-          try { approvals = JSON.parse(fields.get('approvals')!); }
-          catch { throw new AppError(422, 'Malformed app approvals.'); }
-        } else approvals = [{ app: fields.get('app') ?? '', revision: fields.get('revision') ?? '', permissions: fields.getAll('permissions') }];
-        store.vault.approve(approvals);
-        return redirect('/');
-      }
-      if (url.pathname === '/vault/act') {
-        if (!store.vault) throw new AppError(404, 'No vault is configured.');
-        const workspace = workspaceFor(visitor, fields.get('workspace'));
-        if (!workspace) throw new AppError(422, 'Vault actions require a persistent workspace.');
-        const resource = workspaceResolver(visitor, store)(fields.get('resource') ?? '');
-        if (!resource.href.startsWith('/vault/')) throw new AppError(403, 'Not a vault resource.');
-        const action = fields.get('action') ?? '';
-        const input = Object.fromEntries([...fields].filter(([key]) => !['csrf', 'workspace', 'resource', 'action', 'version', 'definitionRevision'].includes(key)));
-        const receipt: Receipt = { id: randomUUID(), source: 'form', resource: resource.href, action, fields: input, version: fields.get('version') ?? '', status: 'pending', message: '', created: new Date().toISOString() };
-        workspace.conversation.receipts.push(receipt);
-        try {
-          receipt.vaultRequest = mutationFor({ ...resource, version: receipt.version }, action, input, receipt.id);
-          receipt.vaultRequest.definitionRevision = fields.get('definitionRevision') ?? '';
-          executeReceipt(store, visitor, receipt);
-        } catch (error) {
-          if (!(error instanceof AppError) || receipt.executionStarted) throw error;
-          receipt.status = 'failed';
-          receipt.message = error.message;
-          receipt.errorStatus = error.status;
-          store.save();
-        }
-        if (receipt.status === 'failed') throw new AppError(receipt.errorStatus ?? 409, receipt.message);
-        return redirect(`/workspaces/${workspace.id}`);
-      }
       if (url.pathname === '/workspaces') {
         if ([...fields.keys()].some(k => !['csrf', 'task', 'engine'].includes(k))) throw new AppError(422, 'Unexpected form field.');
         const task = fields.get('task')?.trim() ?? '';
@@ -201,43 +168,17 @@ export function createApp(options: { store?: Store; mode?: 'demo' | 'pi'; compos
       visitor = store.create();
       headers.set('Set-Cookie', `taskdesk=${visitor.id}; Path=/; HttpOnly; SameSite=Strict; Max-Age=2592000`);
     }
+    const objectResponse = await objectRoutes(req, url, visitor);
+    if (objectResponse) return objectResponse;
     const resolver = workspaceResolver(visitor, store);
     const conversation = await conversationRoutes(req, url, visitor);
     if (conversation) return conversation;
-    if (url.pathname === '/') {
-      if (!store.vault) throw new AppError(404, 'No vault is configured. Set VAULT_ROOT when starting the server.');
-      let workspace = visitor.workspaces.find(w => w.kind === 'today');
-      if (!workspace) {
-        workspace = store.workspace(visitor, 'Plan today, finish useful work, and keep a journal.', {
-          plan: { title: 'Today', layout: 'stack', blocks: ['/vault/today', '/vault/tasks', '/vault/journal', '/vault/para'].map(resource => ({ resource, view: 'list' })) },
-          engine: 'demo', note: 'A persistent workspace over approved vault resources.', inspected: [], elapsedMs: 0,
-        });
-        workspace.kind = 'today';
-        workspace.conversation.engine = mode;
-        store.save();
-      }
-      return html(todayPage(workspace, visitor, store.vault));
-    }
-    if (url.pathname === '/vault/apps') {
-      if (!store.vault) throw new AppError(404, 'No vault is configured.');
-      return html(approvalPage(visitor, store.vault));
-    }
-    if (url.pathname === '/vault' || url.pathname.startsWith('/vault/')) {
-      if (!store.vault) throw new AppError(404, 'No vault is configured.');
-      const workspace = workspaceFor(visitor, url.searchParams.get('workspace')) ?? visitor.workspaces.find(w => w.kind === 'today');
-      const resourceUrl = new URL(url);
-      resourceUrl.searchParams.delete('workspace');
-      resourceUrl.searchParams.delete('saved');
-      const resource = resolver(resourceUrl.pathname + resourceUrl.search);
-      return req.headers.get('accept')?.includes('application/vnd.taskdesk.resource+json')
-        ? Response.json(resource, { headers: { 'Content-Type': 'application/vnd.taskdesk.resource+json; charset=utf-8' } })
-        : html(resourcePage(resource, visitor, workspace));
-    }
     if (url.pathname === '/issues/new') return html(issueHome(visitor, mode));
     const workspaceMatch = /^\/workspaces\/([a-f0-9-]{36})$/.exec(url.pathname);
     if (workspaceMatch) {
       const workspace = workspaceFor(visitor, workspaceMatch[1]!)!;
-      return html(workspace.kind === 'today' && store.vault ? todayPage(workspace, visitor, store.vault) : workspacePage(workspace, visitor, resolver));
+      if (workspace.kind === 'today') throw new AppError(410, 'This app-owned workspace has been replaced by the object workspace. Your records are available from home.');
+      return html(workspacePage(workspace, visitor, resolver));
     }
     if (url.pathname === '/issues' || /^\/issues\/ISS-\d+$/.test(url.pathname)) {
       const workspace = workspaceFor(visitor, url.searchParams.get('workspace'));
@@ -260,7 +201,15 @@ export function createApp(options: { store?: Store; mode?: 'demo' | 'pi'; compos
     async fetch(req, server) {
       const headers = new Headers(securityHeaders);
       try { return withHeaders(await handle(req, server, headers), headers); }
-      catch (error) { return withHeaders(failure(error), headers); }
+      catch (error) {
+        const path = new URL(req.url).pathname;
+        if (req.headers.get('accept')?.includes('application/json') && (path === '/views/generate' || path.startsWith('/views/conversations/'))) {
+          const known = error instanceof AppError;
+          if (!known) console.error('Request failed:', error);
+          return withHeaders(Response.json({ error: known ? error.message : 'An unexpected error occurred. See the local server log.' }, { status: known ? error.status : 500 }), headers);
+        }
+        return withHeaders(failure(error), headers);
+      }
     },
     error(error) { return withHeaders(failure(error), new Headers(securityHeaders)); },
   });
@@ -270,5 +219,5 @@ if (import.meta.main) {
   const port = Number(process.env.PORT ?? 3000);
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('PORT must be between 1 and 65535.');
   const server = createApp({ port });
-  console.log(`Taskdesk → ${server.url} (${process.env.COMPOSER === 'pi' ? 'Pi' : 'demo'} default)`);
+  console.log(`Taskdesk → ${server.url} (objects · AI-authored views)`);
 }
