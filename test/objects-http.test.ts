@@ -27,6 +27,120 @@ async function setup(t: TestContext, generator: ViewGenerator) {
   return { objects, views: new ViewService(objects), post, get, origin, visitor, visitors };
 }
 
+// Read the native editor's returned values, including HTML escaping and the
+// initial textarea newline that browsers discard during HTML parsing.
+function nativeObjectFields(markup: string): Record<string, string> {
+  const fields: Record<string, string> = {};
+  const entities: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', '#39': "'" };
+  const decode = (value: string) => value.replace(/&(amp|lt|gt|quot|#39);/g, (_, entity: string) => entities[entity]!);
+  const form = /<form\b[^>]*data-object-editor[^>]*>([\s\S]*?)<\/form>/.exec(markup)?.[1] ?? '';
+  for (const input of form.matchAll(/<input\b[^>]*name="([^"]+)"[^>]*value="([^"]*)"[^>]*>/g)) fields[input[1]!] = decode(input[2]!);
+  const textarea = /<textarea\b[^>]*name="body"[^>]*>([\s\S]*?)<\/textarea>/.exec(form);
+  if (textarea) fields.body = decode(textarea[1]!.replace(/^\n/, ''));
+  return fields;
+}
+
+test('HTTP saves exact Markdown source and omitted updates preserve writing', async t => {
+  const f = await setup(t, async () => { throw new Error('Not used'); });
+  const body = '\n# A heading\n\n7. First  \n8. Second\n\n```md\n**literal**\n```\n\n**Bold** and <script>alert("no")</script>\n';
+  const created = await f.post('/objects/create', { title: 'Source', body });
+  assert.equal(created.status, 303);
+  const path = created.headers.get('location')!.split('?')[0]!;
+  const id = path.split('/').at(-1)!;
+  const record = f.objects.getObject(id);
+  assert.equal(record.body, body);
+  const markup = await (await f.get(path)).text();
+  assert.equal(nativeObjectFields(markup).body, body);
+  assert.ok(markup.includes('<strong>Bold</strong>'));
+  assert.ok(!markup.includes('<script>alert'));
+  const updatedBody = `${body}\n[Ordinary link](https://example.com)\n\n`;
+  assert.equal((await f.post(`${path}/update`, { title: record.title, revision: String(record.revision), body: updatedBody })).status, 303);
+  const updated = f.objects.getObject(id);
+  assert.equal(updated.body, updatedBody);
+  assert.equal((await f.post(`${path}/update`, { title: 'Renamed only', revision: String(updated.revision) })).status, 303);
+  assert.equal(f.objects.getObject(id).body, updatedBody);
+});
+
+test('HTTP rejects obsolete document payloads without creating or changing objects', async t => {
+  const f = await setup(t, async () => { throw new Error('Not used'); });
+  const document = JSON.stringify({ type: 'doc', content: [{ type: 'paragraph' }] });
+  assert.equal((await f.post('/objects/create', { title: 'Old format', document })).status, 422);
+  assert.deepEqual(f.objects.listObjects(), []);
+  const created = await f.post('/objects/create', { title: 'Keep', body: 'Keep **source**.' });
+  const path = created.headers.get('location')!.split('?')[0]!;
+  const saved = f.objects.getObject(path.split('/').at(-1)!);
+  assert.equal((await f.post(`${path}/update`, { title: 'Overwrite', revision: String(saved.revision), body: 'Replacement', document })).status, 422);
+  assert.deepEqual(f.objects.getObject(saved.id), saved);
+});
+
+test('Markdown object links create document-level backlinks and unsafe content stays inert', async t => {
+  const f = await setup(t, async () => { throw new Error('Not used'); });
+  const targetResponse = await f.post('/objects/create', { title: 'Target' });
+  const targetPath = targetResponse.headers.get('location')!.split('?')[0]!;
+  const targetId = targetPath.split('/').at(-1)!;
+  const body = `[Target](${targetPath}) and [again](${targetPath})\n\n[bad](javascript:alert)\n\n<img src=x onerror=alert(1)>`;
+  const sourceResponse = await f.post('/objects/create', { title: 'Source', body });
+  assert.equal(sourceResponse.status, 303);
+  const sourcePath = sourceResponse.headers.get('location')!.split('?')[0]!;
+  const sourceId = sourcePath.split('/').at(-1)!;
+  assert.deepEqual(f.objects.backlinks(targetId), [{ object: f.objects.getObject(sourceId) }]);
+  const sourceMarkup = await (await f.get(sourcePath)).text();
+  const renderedLinks: string[] = [];
+  let executableElements = 0;
+  new HTMLRewriter()
+    .on('.markdown-content a', { element(element) { renderedLinks.push(element.getAttribute('href') ?? ''); } })
+    .on('.markdown-content img, .markdown-content script', { element() { executableElements++; } })
+    .transform(sourceMarkup);
+  assert.deepEqual(renderedLinks, [targetPath, targetPath]);
+  assert.equal(executableElements, 0);
+  const backlinks: string[] = [];
+  new HTMLRewriter().on('.backlinks a', { element(element) { backlinks.push(element.getAttribute('href')!); } }).transform(await (await f.get(targetPath)).text());
+  assert.deepEqual(backlinks, [sourcePath]);
+});
+
+test('rejected native writes preserve title and Markdown without replacing saved content or stale revisions', async t => {
+  const f = await setup(t, async () => { throw new Error('Not used'); });
+  let type = f.objects.createType('Measured');
+  type = f.objects.addProperty(type.id, type.revision, { label: 'Count', kind: 'number' });
+  const propertyId = type.propertyIds[0]!;
+  const requestId = randomUUID();
+  const title = 'Draft "title" & <notes>';
+  const body = '\n## Unsaved\n\nKeep **spacing**.  \n<script>not executable</script>\n';
+  const rejected = await f.post('/objects/create', { requestId, typeId: type.id, title, body, [`p:${propertyId}`]: 'not a number' });
+  assert.equal(rejected.status, 422);
+  const createDraft = nativeObjectFields(await rejected.text());
+  assert.equal(createDraft.title, title);
+  assert.equal(createDraft.body, body);
+  assert.equal(createDraft.requestId, requestId);
+  assert.deepEqual(f.objects.listObjects(), []);
+  const saved = f.objects.createObject({ typeId: type.id, title: 'Saved title', body: '**Saved writing**', properties: {} });
+  const latest = f.objects.updateObject(saved.id, saved.revision, { ...saved, title: 'Concurrent edit' });
+  const fields = { title, body, revision: String(saved.revision) };
+  const conflict = await f.post(`/objects/${saved.id}/update`, fields);
+  assert.equal(conflict.status, 409);
+  const conflictMarkup = await conflict.text();
+  const conflictDraft = nativeObjectFields(conflictMarkup);
+  assert.equal(conflictDraft.title, title);
+  assert.equal(conflictDraft.body, body);
+  assert.equal(conflictDraft.revision, String(saved.revision));
+  assert.ok(conflictMarkup.includes('<strong>Saved writing</strong>'));
+  assert.ok(!conflictMarkup.includes('<h2>Unsaved</h2>'));
+  assert.equal((await f.post(`/objects/${saved.id}/update`, { title: conflictDraft.title!, body: conflictDraft.body!, revision: conflictDraft.revision! })).status, 409);
+  const invalid = await f.post(`/objects/${saved.id}/update`, { ...fields, revision: String(latest.revision), [`p:${propertyId}`]: 'invalid' });
+  assert.equal(invalid.status, 422);
+  const invalidDraft = nativeObjectFields(await invalid.text());
+  assert.equal(invalidDraft.title, title);
+  assert.equal(invalidDraft.body, body);
+  const oversizedBody = 'x'.repeat(256 * 1024 + 1);
+  const oversized = await f.post(`/objects/${saved.id}/update`, { ...fields, revision: String(latest.revision), body: oversizedBody });
+  assert.equal(oversized.status, 422);
+  const oversizedDraft = nativeObjectFields(await oversized.text());
+  assert.equal(oversizedDraft.title, title);
+  assert.equal(oversizedDraft.body, oversizedBody);
+  assert.equal(oversizedDraft.revision, String(latest.revision));
+  assert.deepEqual(f.objects.getObject(saved.id), latest);
+});
+
 test('native object forms and an AI-authored calendar share data without regeneration', async t => {
   let calls = 0;
   const f = await setup(t, async (_prompt, catalog) => {

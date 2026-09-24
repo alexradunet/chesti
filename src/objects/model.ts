@@ -25,19 +25,12 @@ export interface ObjectType {
   revision: number;
 }
 export type PropertyValue = string | number | boolean | string[] | { start: string; end: string; timeZone?: string };
-export interface DocumentNode {
-  type: string;
-  attrs?: Record<string, unknown>;
-  content?: DocumentNode[];
-  marks?: { type: string; attrs?: Record<string, unknown> }[];
-  text?: string;
-}
 export interface ObjectRecord {
   id: string;
   typeId: string;
   title: string;
   properties: Record<string, PropertyValue>;
-  document: DocumentNode;
+  body: string;
   revision: number;
   createdAt: string;
   updatedAt: string;
@@ -48,7 +41,7 @@ export interface ObjectWrite {
   typeId: string;
   title: string;
   properties: Record<string, PropertyValue>;
-  document: DocumentNode;
+  body: string;
 }
 export interface ObjectListOptions { typeId?: string; search?: string; trashed?: boolean; limit?: number; offset?: number }
 
@@ -107,7 +100,7 @@ export interface ViewConversation {
   turns: ViewConversationTurn[];
 }
 
-export interface Backlink { object: ObjectRecord; propertyId?: string; blockId?: string }
+export interface Backlink { object: ObjectRecord; propertyId?: string }
 export interface ObjectPageModel {
   csrf: string;
   path: string;
@@ -117,6 +110,7 @@ export interface ObjectPageModel {
   views: SavedView[];
   objects: ObjectRecord[];
   object?: ObjectRecord;
+  objectDraft?: { title: string; body: string; revision?: string; requestId?: string; typeId?: string; properties?: Record<string, PropertyValue> };
   objectType?: ObjectType;
   evaluatedView?: EvaluatedView;
   backlinks?: Backlink[];

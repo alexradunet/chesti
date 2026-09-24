@@ -32,7 +32,7 @@ Bun loads `.env` files normally. Use one server per database. This is a local si
 ## Use it
 
 1. **Manage types:** create Task and Meeting. Give Task a Date property, then attach that same property to Meeting with **Use an existing property**. Type cards show their fields; setup explains each property format and identifies shared labels before renaming.
-2. **New content:** choose a type, enter a title, and add optional details and rich writing. Switching types in the enhanced creation form preserves title, writing, and property drafts for switching back; only the selected type’s properties are saved. Choose **Create object** to save. Page works without custom properties. Object links produce backlinks; trash is reversible.
+2. **New content:** choose a type, enter a title, and add optional details and Markdown writing. Edit the source directly; saved writing has a rendered reading view. Switching types in the enhanced creation form preserves title, writing, and property drafts for switching back; only the selected type’s properties are saved. Choose **Create object** to save. Page works without custom properties. Standard `[label](/objects/UUID)` links produce backlinks; trash is reversible.
 3. **Views → Create view:** describe the view in the right-hand assistant, for example: “Show Task and Meeting in an editable calendar using their date property. Include unscheduled objects.”
 4. Review the generated draft in the main area, then publish. Continue the conversation to refine the latest result; **Refine with AI** explicitly starts a conversation about the selected view. Each refinement creates a separate draft.
 5. Edit a bound date or board group through an explicitly editable published view. The command updates the original object. Deleting the view leaves the objects and other views intact.
@@ -51,19 +51,22 @@ See the [quick start](docs/quickstart.md) and [object/view contract](docs/object
 
 ## Storage
 
-SQLite stores canonical objects, structured documents, shared property definitions, types, saved views, view conversations, revisions, and derived backlinks. ProseMirror edits structured writing; server-rendered forms also work without JavaScript through a Markdown fallback. Images remain text placeholders and are not fetched.
+SQLite stores canonical objects, Markdown bodies, shared property definitions, types, saved views, view conversations, revisions, and derived backlinks. The same plain Markdown textarea works with and without JavaScript. Source is stored as submitted, without a rich-text parse/serialize round trip. Bun renders saved writing; raw HTML remains text, unsafe link targets are not clickable, and images remain inert text placeholders.
 
 The object workspace is the only supported application. Startup initializes a fresh object database or opens an existing one; it does not import or migrate historical issue/vault data. Existing object data and visitor-owned view conversations remain usable. Unrelated tables and files are left untouched, not converted or deleted. Back up SQLite before upgrading; see the quick start.
 
+Object schema version 2 stores writing as Markdown. Existing version-1 object databases upgrade transactionally on startup, converting structured writing and revision snapshots while preserving object IDs, revisions, references, and creation receipts. Unknown or unsupported data aborts the upgrade rather than dropping writing. Back up before the first start after upgrading. This is a change to the current object format, not a return of the removed vault import system.
+
 ## Implementation
 
-Bun supplies the HTTP server, SQLite driver, browser bundler, file responses, cookie handling, hashing, and test runner. Hono supplies trusted JSX rendering, not routing. ProseMirror owns the shared editor/document schema and Markdown round trip; Bun's Markdown renderer is not a replacement for that structured editing pipeline.
+Bun supplies the HTTP server, SQLite driver, browser bundler, Markdown parser/renderer, HTML rewriting, file responses, cookie handling, hashing, and test runner. Hono supplies trusted JSX rendering, not routing. There is no rich-text editor runtime or editor-specific document format in new writes.
 
 - `src/server.ts`, `src/visitors.ts`: secured local HTTP and persistent visitor identity/CSRF state.
 - `src/objects/model.ts`: shared types and closed declarative view schema.
 - `src/objects/runtime.ts`: canonical objects, property validation, revisions, commands, and backlinks.
 - `src/objects/values.ts`: dependency-light scalar and temporal validation.
-- `src/objects/document.ts`: bounded structured documents and safe rich links.
+- `src/objects/markdown.ts`: bounded Markdown source, safe Bun rendering, search text, and link extraction.
+- `src/objects/upgrade-markdown.ts`: transactional upgrade of existing structured object writing.
 - `src/objects/views.ts`: persistent view lifecycle, prepared bounded queries, and scoped commands.
 - `src/objects/conversations.ts`: visitor-owned view threads and atomic draft/turn persistence.
 - `src/objects/generator.ts`: isolated metadata-only Pi generation and validated submission.

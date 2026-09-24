@@ -23,7 +23,8 @@ Read `README.md` for setup and current boundaries. Read `docs/object-contract.md
 - `src/objects/runtime.ts`: canonical object/type/property commands, revisions, and backlinks.
 - `src/objects/views.ts`: view validation, lifecycle, bounded SQL queries, and scoped commands.
 - `src/objects/conversations.ts`, `generator.ts`: view conversations and isolated Pi generation.
-- `src/objects/document.ts`, `values.ts`: structured writing and scalar/temporal validation.
+- `src/objects/markdown.ts`, `values.ts`: bounded Markdown writing and scalar/temporal validation.
+- `src/objects/upgrade-markdown.ts`: one-time transactional upgrade of the current object writing format.
 - `src/objects/http.ts`, `render.tsx`, `client.ts`, `public/objects.css`: HTTP parsing, trusted rendering, browser enhancement, and styling.
 - `src/pi.ts`: resource isolation for the embedded view generator.
 - `test/objects-*.test.ts`, `test/http.test.ts`, `test/pi.test.ts`: domain, HTTP/security, and model-isolation contracts.
@@ -31,8 +32,8 @@ Read `README.md` for setup and current boundaries. Read `docs/object-contract.md
 ## Architecture and implementation
 
 - Keep the current one-process Bun + SQLite architecture, strict TypeScript, Hono JSX rendering, and native browser APIs unless a concrete requirement justifies changing them.
-- Prefer Bun's built-in server, SQLite, bundler, file, cookie, hashing, and test APIs where they reduce code or dependencies. Do not replace a maintained library with a custom adapter merely to use more Bun APIs.
-- Retain ProseMirror's schema-aware Markdown parser/serializer for structured editing. Bun's Markdown HTML/custom-string/React rendering APIs do not replace the browser editor or its document round trip; reevaluate only for a concrete simpler use case.
+- Prefer Bun's built-in server, SQLite, bundler, Markdown, HTMLRewriter, file, cookie, hashing, and test APIs where they reduce code or dependencies. Do not replace a maintained library with a custom adapter merely to use more Bun APIs.
+- Writing is Markdown-first: store the submitted source and use a native textarea. Do not reintroduce rich-text editor dependencies or an editor-specific JSON authority. Use the shared safe Markdown renderer, never raw user HTML; saved reading is not an unsaved live preview.
 - Keep HTTP input parsing at the boundary, domain rules in the existing runtime/services, and rendering separate from mutations. Native forms, browser enhancements, and view actions must use the same domain commands.
 - Use `src/objects/model.ts` as the active schema/type authority. Reuse existing validation rather than inventing another representation or duplicating business rules in the browser.
 - Keep submitted drafts separate from saved records: rejected writes must retain user input without bypassing revision checks. Explicit request context takes precedence over stored browser state; derive display values instead of maintaining competing copies.
@@ -49,7 +50,7 @@ Read `README.md` for setup and current boundaries. Read `docs/object-contract.md
 - SQLite is the sole live authority. Objects own data; views reference it. Deleting or refining a view must not delete, copy, or silently mutate objects.
 - Preserve stable identities, revision conflict checks, creation idempotency, transactional revision/backlink updates, and atomic draft/conversation writes.
 - Model output is untrusted declarative data. Validate it before persistence and render only trusted components. Never execute generated HTML, JavaScript, SQL, or arbitrary tools.
-- Preserve existing canonical data and fail on unsupported database schema versions. Do not add legacy conversion code or delete unrelated tables/files on startup.
+- Preserve existing canonical data and fail on unsupported database schema versions. Current-format upgrades must be transactional and fail rather than drop unrecognized content. Do not reintroduce historical issue/vault conversion or delete unrelated tables/files on startup.
 - View generation receives the intended schema metadata and user-supplied prompt context, not automatic access to object contents, files, shell, personal agent instructions, or extensions. This file governs repository development, not the embedded model's resource discovery.
 - Keep generation bounded and failures explicit. Do not fabricate fallback views or success. Structural view compatibility does not grant write permission; commands must check their current publication, capability, revision, and scope.
 - Keep loopback binding, host/origin/CSRF protections, safe document links, prepared SQL values, and input/query bounds. Visitor cookies isolate conversations, not access to shared objects; this is not a multi-user authentication system.

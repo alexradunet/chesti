@@ -189,27 +189,18 @@
 .object-shell .range-inputs label { flex: 1 1 140px; }
 .object-shell .range-field small { display: block; margin-top: .6rem; }
 .object-shell .writing { margin-top: 2rem; }
-.object-shell .editor-toolbar { display: flex; gap: .35rem; flex-wrap: wrap; align-items: center; border: 1px solid var(--line); background: var(--wash); border-radius: 6px 6px 0 0; padding: .6rem; }
-.object-shell .editor-toolbar button { font-size: .8rem; min-height: 2.1rem; padding: .3rem .5rem; }
-.object-shell .mention-picker { flex-direction: row; align-items: center; font-size: .8rem; font-weight: 400; flex: 1 1 220px; }
-.object-shell .mention-picker select { flex: 1; max-width: 260px; min-height: 2.1rem; font-size: .8rem; padding: .3rem .4rem; }
-.object-shell .document-editor { border: 1px solid var(--line); border-top: none; border-radius: 0 0 6px 6px; }
-.object-shell .ProseMirror { position: relative; white-space: pre-wrap; overflow-wrap: break-word; min-height: 340px; padding: 1.4rem 1.6rem; outline: none; }
-.object-shell .ProseMirror:focus-visible { box-shadow: inset 0 0 0 2px #789c86; outline: none; }
-.object-shell .ProseMirror .ProseMirror-selectednode { outline: 2px solid #789c86; }
-.object-shell .ProseMirror .ProseMirror-gapcursor { display: none; pointer-events: none; position: absolute; margin: 0; }
-.object-shell .ProseMirror .ProseMirror-gapcursor::after { content: ""; display: block; position: absolute; top: -2px; width: 20px; border-top: 1px solid black; }
-.object-shell .ProseMirror-hideselection *::selection { background: transparent; }
-.object-shell .ProseMirror li { position: relative; }
-.object-shell .ProseMirror li > p { margin: .25rem 0; }
-.object-shell .document-content { padding: 1rem 0; }
-.object-shell .document-content h1, .object-shell .ProseMirror h1 { font-size: 1.6rem; }
-.object-shell .document-content h2, .object-shell .ProseMirror h2 { font-size: 1.35rem; margin-top: 1.5rem; }
-.object-shell .document-content pre, .object-shell .ProseMirror pre { background: var(--wash); padding: 1rem; border-radius: 5px; overflow-x: auto; white-space: pre-wrap; }
-.object-shell .document-content blockquote, .object-shell .ProseMirror blockquote { border-left: 3px solid var(--line); margin-left: 0; padding-left: 1rem; color: var(--muted); }
-.object-shell .document-content code, .object-shell .ProseMirror code { background: var(--wash); border-radius: 3px; padding: .1rem .2rem; font-size: .9em; }
-.object-shell .document-image { color: var(--muted); font-style: italic; }
-.object-shell .document-preview { margin-top: .75rem; font-size: .9rem; }
+.object-shell .markdown-source { min-height: 340px; padding: 1rem 1.2rem; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: .94rem; line-height: 1.7; tab-size: 2; }
+.object-shell .object-link-tools { display: flex; align-items: flex-end; flex-wrap: wrap; gap: .7rem; margin: 1rem 0; }
+.object-shell .object-link-tools label { flex: 1 1 220px; max-width: 400px; font-size: .8rem; }
+.object-shell .markdown-content { padding: 1rem 0; }
+.object-shell .markdown-content h1 { font-size: 1.6rem; }
+.object-shell .markdown-content h2 { font-size: 1.35rem; margin-top: 1.5rem; }
+.object-shell .markdown-content pre { background: var(--wash); padding: 1rem; border-radius: 5px; overflow-x: auto; white-space: pre-wrap; }
+.object-shell .markdown-content blockquote { border-left: 3px solid var(--line); margin-left: 0; padding-left: 1rem; color: var(--muted); }
+.object-shell .markdown-content code { background: var(--wash); border-radius: 3px; padding: .1rem .2rem; font-size: .9em; }
+.object-shell .markdown-content li > p { margin: .25rem 0; }
+.object-shell .markdown-content table { display: block; overflow-x: auto; }
+.object-shell .markdown-preview { margin-top: .75rem; font-size: .9rem; }
 .object-shell .save-bar { position: sticky; bottom: 0; display: flex; align-items: center; gap: 1rem; background: var(--paper); border-top: 1px solid var(--line); padding: 1rem 0; margin-top: 1.5rem; z-index: 2; }
 .object-shell .save-bar .form-state { margin: 0; }
 .object-shell .backlinks { border-top: 1px solid var(--line); padding-top: 1.5rem; }
@@ -304,7 +295,6 @@
   .object-shell .view-list > li { flex-wrap: wrap; gap: .75rem; }
   .object-shell .view-list > li > div { flex-basis: calc(100% - 50px); }
   .object-shell .calendar-day { grid-template-columns: minmax(0, 1fr); gap: .5rem; }
-  .object-shell .ProseMirror { padding: 1rem; }
   .object-shell .save-bar { flex-wrap: wrap; gap: .5rem 1rem; }
 }
 @media (max-width: 760px) {

@@ -4,10 +4,10 @@ The implementation schema is `src/objects/model.ts`; SQLite is the sole live aut
 
 ## Data model
 
-- **Object:** stable UUID, type ID, independent title, property values keyed by property ID, structured document, revision, timestamps, and trash flag.
+- **Object:** stable UUID, type ID, independent title, property values keyed by property ID, Markdown body, revision, timestamps, and trash flag.
 - **Type:** stable UUID, name, ordered recommended property IDs, and revision. No inheritance. Objects may retain registered properties outside their current type.
 - **Property:** stable UUID, label, kind, revision, and kind-specific metadata. Reusing a property shares its ID; creating another property with the same label does not.
-- **Document:** validated ProseMirror JSON with stable block IDs, bounded size/depth, safe links, and object-link atoms. Object/property references and document mentions produce derived backlinks with provenance.
+- **Writing:** Markdown source stored without reformatting, bounded to 256 KiB of UTF-8. Parsed local Markdown links produce one writing backlink per source/target pair; property backlinks retain their property identity. Code examples, images, and raw HTML do not create backlinks. There are no editor-specific block IDs.
 - **View:** independent ID, revision, draft/published status, declarative spec, prompt, provider/model, timestamps, and immutable view revision history. Deletion records a tombstone and never deletes objects.
 - **View conversation:** visitor-owned successful prompt/result turns. Its latest result supplies the next refinement spec; navigating the workspace never retargets the conversation. Generated drafts and successful turns commit atomically.
 
@@ -29,7 +29,7 @@ Page is the initial writing type. Titles are independent of document headings. T
 
 A new reference property requires a target type; single/multiple shape is fixed at creation. References to trashed objects may be retained, not newly added. Invalid values reject the whole write.
 
-`updateObject` replaces properties and document at the expected revision. `patchProperties` merges a patch, with null removing a property. Stale revisions return conflict. Creation request IDs are idempotent for matching semantic content and reject different reuse. Prior object states are retained in revision snapshots.
+`updateObject` replaces properties and Markdown body at the expected revision. `patchProperties` merges a patch, with null removing a property. Stale revisions return conflict. Creation request IDs are idempotent for the same type, title, property values, and exact submitted Markdown, and reject different reuse. Prior object states are retained in revision snapshots.
 
 ## Structural view compatibility
 
@@ -74,14 +74,14 @@ The browser only submits prompts and lifecycle/actions, never an arbitrary spec.
 
 `ObjectRuntime` initializes versioned object tables transactionally. Newer unknown schema versions are refused. Canonical object writes, revision snapshots, and derived edges commit together. Foreign keys, WAL, and full synchronous durability are configured by `openDatabase`.
 
-The object workspace is the only supported data model. Startup does not migrate historical issue/vault data or scan directories. Existing object tables and visitor identities retain their formats; unrelated historical tables/files are neither read nor deleted. Visitor identity and CSRF state are stored directly in `browser_visitors`, without issue fixtures or a separate workspace store.
+The object workspace is the only supported data model. Schema version 2 stores `body` and derived `body_text` instead of structured document JSON. Version-1 object databases upgrade transactionally: supported writing and historical snapshots convert to Markdown, writing backlinks are rebuilt at object level, and creation receipts retain their original creation content rather than the current edited content. IDs, object revisions, timestamps, views, and visitor identities remain unchanged. Unsupported structures abort the entire upgrade. Startup does not import historical issue/vault data, scan directories, or delete unrelated tables/files. Visitor identity and CSRF state are stored directly in `browser_visitors`.
 
 The HTTP surface is `/`, `/calendar`, `/tasks`, `/types`, `/objects`, `/properties`, and `/views`. `/calendar` lists calendar-containing saved views; `/tasks` browses an existing Task or Tasks type without creating one. `/views/generate` accepts a prompt and either a previous view ID or a conversation ID, never both. Enhanced clients request JSON; native clients receive a redirect. `/views/conversations/:id` returns successful turns only to their visitor cookie. There are no issue-workspace or vault routes.
 
 ## UI and limits
 
-Native server-rendered forms are the baseline. Progressive enhancement supplies save feedback, dirty-form protection, generation progress, and ProseMirror editing. A no-JavaScript Markdown fallback preserves object-link targets. Rich images render as text placeholders; unsafe links and malformed/deep documents reject.
+Native server-rendered forms are the baseline. Writing uses a Markdown textarea both with and without JavaScript; the HTTP contract accepts `body`, not editor JSON. Progressive enhancement supplies save feedback, dirty-form protection, generation progress, and an object-link insertion helper. Saved writing renders through Bun Markdown with raw HTML disabled and link/image rewriting: safe http/https/mailto/local-object links remain clickable, unsafe targets become text, and images become inert placeholders. The reading view shows saved content, not an unsaved live preview.
 
 The desktop shell separates persistent left navigation, main content, and a collapsible/resizable right view assistant. Generated previews render in the main area. Smaller screens use AI and navigation drawers with keyboard focus containment and Escape dismissal. An active conversation and unsent prompt remain in browser tab storage across navigation and panel closing; successful turns remain in SQLite. Pinning and panel width are local browser preferences, not view definitions. Generation completion does not navigate away from unsaved object edits. Deleting a conversation’s latest view blocks further refinement with a clear error rather than silently choosing another target.
 
-Object browse pages contain 50 records, with bounded literal search. Pickers contain at most 200 candidates plus existing selections when needed. Documents are limited to 256 KiB, 10,000 nodes, and depth 32. The service is loopback-only and single-owner: cookies isolate conversation histories, not shared objects or saved views. CSRF and origin/host checks are not a substitute for multi-user authentication.
+Object browse pages contain 50 records, with bounded literal search. Pickers contain at most 200 candidates plus existing selections when needed. Markdown bodies are limited to 256 KiB of UTF-8. The service is loopback-only and single-owner: cookies isolate conversation histories, not shared objects or saved views. CSRF and origin/host checks are not a substitute for multi-user authentication.

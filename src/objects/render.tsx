@@ -1,6 +1,7 @@
 import type { JSX } from 'hono/jsx/jsx-runtime';
-import { documentToMarkdown, safeLink } from './document.js';
-import type { DocumentNode, EvaluatedBlock, ObjectPageModel, ObjectRecord, PropertyDefinition, PropertyValue, SavedView, ViewRow } from './model.js';
+import { raw } from 'hono/html';
+import { renderMarkdown } from './markdown.js';
+import type { EvaluatedBlock, ObjectPageModel, ObjectRecord, PropertyDefinition, PropertyValue, SavedView, ViewRow } from './model.js';
 
 const Hidden = ({ name, value }: { name: string; value: string | number }) => <input type="hidden" name={name} value={value} />;
 const Token = ({ model }: { model: ObjectPageModel }) => <Hidden name="csrf" value={model.csrf} />;
@@ -98,45 +99,6 @@ function Value({ model, propertyId, value }: { model: ObjectPageModel; propertyI
   return <span>{typeof value === 'boolean' ? value ? 'Yes' : 'No' : Array.isArray(value) ? value.join(', ') : String(value)}</span>;
 }
 
-/** Only application-owned node renderers produce HTML; document text and attributes remain escaped. */
-function DocumentPreview({ node }: { node: DocumentNode }): JSX.Element {
-  const children = node.content?.map(child => <DocumentPreview node={child} />);
-  const blockId = typeof node.attrs?.blockId === 'string' ? node.attrs.blockId : undefined;
-  if (node.type === 'text') {
-    let content: JSX.Element = <>{node.text ?? ''}</>;
-    for (const mark of node.marks ?? []) {
-      if (mark.type === 'strong') content = <strong>{content}</strong>;
-      else if (mark.type === 'em') content = <em>{content}</em>;
-      else if (mark.type === 'code') content = <code>{content}</code>;
-      else if (mark.type === 'link' && safeLink(mark.attrs?.href)) content = <a href={String(mark.attrs!.href)} rel="noreferrer">{content}</a>;
-    }
-    return content;
-  }
-  switch (node.type) {
-    case 'doc': return <>{children}</>;
-    case 'paragraph': return <p id={blockId}>{children}</p>;
-    case 'heading': {
-      const level = Number(node.attrs?.level);
-      if (level === 1) return <h1 id={blockId}>{children}</h1>;
-      if (level === 2) return <h2 id={blockId}>{children}</h2>;
-      if (level === 3) return <h3 id={blockId}>{children}</h3>;
-      if (level === 4) return <h4 id={blockId}>{children}</h4>;
-      if (level === 5) return <h5 id={blockId}>{children}</h5>;
-      return <h6 id={blockId}>{children}</h6>;
-    }
-    case 'blockquote': return <blockquote id={blockId}>{children}</blockquote>;
-    case 'bullet_list': return <ul id={blockId}>{children}</ul>;
-    case 'ordered_list': return <ol id={blockId} start={Number(node.attrs?.order) || 1}>{children}</ol>;
-    case 'list_item': return <li id={blockId}>{children}</li>;
-    case 'code_block': return <pre id={blockId}><code>{children}</code></pre>;
-    case 'horizontal_rule': return <hr id={blockId} />;
-    case 'hard_break': return <br />;
-    case 'image': return <span class="document-image">[Image: {String(node.attrs?.alt || node.attrs?.src || '')}]</span>;
-    case 'object_link': return <a href={objectUrl(String(node.attrs?.objectId))}>{String(node.attrs?.label || 'Linked object')}</a>;
-    default: return <>{children}</>;
-  }
-}
-
 function Objects({ model }: { model: ObjectPageModel }) {
   if (model.section === 'tasks' && !model.selectedTypeId) return <><div class="page-heading"><div><h1>Tasks</h1><p class="muted">A focused place for the work you want to do.</p></div></div><section class="empty setup-empty"><Icon name="tasks" /><h2>Start with a task type</h2><p>This workspace does not have a type named “Task” or “Tasks” yet. Create one in Manage types, then add objects to see them here.</p><a class="button" href="/types">Manage types</a></section><p class="fine">The view assistant can organize existing objects. It does not create types or tasks for you.</p></>;
   const query = (offset: number, trash = model.trashed) => `${model.section === 'tasks' ? '/tasks' : '/'}?${new URLSearchParams({ ...(model.selectedTypeId && model.section !== 'tasks' ? { type: model.selectedTypeId } : {}), ...(model.search ? { q: model.search } : {}), ...(trash ? { trash: '1' } : {}), offset: String(offset) })}`;
@@ -180,24 +142,26 @@ function TypeEditor({ model }: { model: ObjectPageModel }) {
 
 function ObjectEditor({ model }: { model: ObjectPageModel }) {
   const record = model.object;
-  const type = record ? model.catalog.types.find(item => item.id === record.typeId) : model.objectType ?? model.catalog.types.find(item => item.id === model.selectedTypeId) ?? model.catalog.types[0];
+  const draft = model.objectDraft;
+  const type = model.catalog.types.find(item => item.id === draft?.typeId) ?? (record ? model.catalog.types.find(item => item.id === record.typeId) : model.objectType ?? model.catalog.types.find(item => item.id === model.selectedTypeId) ?? model.catalog.types[0]);
   if (!type) return <p>Create a <a href="/types">type</a> before creating an object.</p>;
   const propertyIds = record ? [...new Set([...type.propertyIds, ...Object.keys(record.properties)])] : [...new Set(model.catalog.types.flatMap(item => item.propertyIds))];
-  const document = record?.document ?? { type: 'doc', content: [{ type: 'paragraph' }] };
+  const body = draft?.body ?? record?.body ?? '';
   const mentions = model.objects.filter(item => !item.trashed).map(item => ({ id: item.id, title: titleOf(item), type: typeName(model, item.typeId) }));
   return <><a class="back-link" data-object-back="" href={`/?type=${type.id}`}>← {type.name} objects</a><div class="page-heading"><div><span class="eyebrow">{record ? type.name : 'Create something new'}</span><h1>{record ? 'Edit object' : 'New object'}</h1>{!record && <p class="muted">Choose a type, give it a title, and make it yours.</p>}</div>{record?.trashed && <span class="tag">In trash</span>}</div>
     {!record && <form class="object-type-picker" method="get" action="/objects/new"><label>Object type<select name="type" data-new-type="">{model.catalog.types.map(item => <option value={item.id} selected={item.id === type.id}>{item.name}</option>)}</select></label><button class="native-only" type="submit">Use type</button><a href="/types#create-type">Create a new type</a><p class="fine js-only">Switch types without losing your title or writing. Only the selected type’s properties are saved.</p></form>}
-    <form class="object-editor" method="post" action={record ? `/objects/${record.id}/update` : '/objects/create'} data-enhance="" data-object-editor=""><Token model={model} />{record ? <Hidden name="revision" value={record.revision} /> : <Hidden name="requestId" value={crypto.randomUUID()} />}
-      <label class="title-field">Title<input name="title" value={record?.title ?? ''} required maxlength={500} autocomplete="off" placeholder="Give this object a name…" /></label>
+    <form class="object-editor" method="post" action={record ? `/objects/${record.id}/update` : '/objects/create'} data-enhance="" data-object-editor="" data-draft={draft ? 'true' : undefined}><Token model={model} />{record ? <Hidden name="revision" value={draft?.revision ?? record.revision} /> : <Hidden name="requestId" value={draft?.requestId ?? crypto.randomUUID()} />}
+      <label class="title-field">Title<input name="title" value={draft?.title ?? record?.title ?? ''} required maxlength={500} autocomplete="off" placeholder="Give this object a name…" /></label>
       {record ? <label>Type<select name="typeId">{model.catalog.types.map(item => <option value={item.id} selected={item.id === type.id}>{item.name}</option>)}</select><small>Existing properties stay with this object when its type changes. Save to see the new type’s properties.</small></label> : <Hidden name="typeId" value={type.id} />}
-      <details class="properties" open><summary>Details <span class="tag" data-property-count="">{record ? propertyIds.length : type.propertyIds.length}</span><span class="fine">Optional</span></summary><p class="fine" data-properties-empty="" hidden={record ? propertyIds.length > 0 : type.propertyIds.length > 0}>Just a title and writing for now. You can add properties in type setup later.</p><div class="property-grid">{propertyIds.map(id => { const property = propertyOf(model, id); return property && <fieldset class="object-property" data-type-ids={record ? undefined : model.catalog.types.filter(item => item.propertyIds.includes(id)).map(item => item.id).join(' ')} hidden={!record && !type.propertyIds.includes(id)} disabled={!record && !type.propertyIds.includes(id)}><legend class="sr-only">{property.label}</legend><PropertyControl model={model} property={property} value={record?.properties[id]} /></fieldset>; })}</div></details>
-      <section class="writing"><div class="writing-heading"><h2 id="writing-label">Writing</h2><span class="fine">Notes, ideas, and everything in between. Optional.</span></div><div class="editor-toolbar" data-editor-toolbar="" hidden role="toolbar" aria-label="Writing tools">{[['bold', 'Bold'], ['italic', 'Italic'], ['code', 'Code'], ['heading', 'Heading'], ['paragraph', 'Paragraph'], ['bullet', 'Bullets'], ['ordered', 'Numbered'], ['undo', 'Undo'], ['redo', 'Redo']].map(([command, label]) => <button type="button" data-command={command}>{label}</button>)}<label class="mention-picker">Link object<select data-mention-picker="" aria-label="Object to link"><option value="">Choose an object</option>{mentions.map(item => <option value={item.id}>{item.title} · {item.type}</option>)}</select></label><button type="button" data-command="mention">Insert link</button></div>
-      <div class="document-editor" data-editor-mount="" data-document={JSON.stringify(document)} data-objects={JSON.stringify(mentions)} hidden></div><input type="hidden" name="document" value={JSON.stringify(document)} disabled data-document-field="" />
-      <label data-markdown-fallback="">Body (Markdown)<textarea name="body" rows={16}>{documentToMarkdown(document)}</textarea></label>
-      {record && <details class="document-preview" data-document-preview=""><summary>Read saved writing</summary><div class="document-content"><DocumentPreview node={record.document} /></div></details>}
+      <details class="properties" open><summary>Details <span class="tag" data-property-count="">{record ? propertyIds.length : type.propertyIds.length}</span><span class="fine">Optional</span></summary><p class="fine" data-properties-empty="" hidden={record ? propertyIds.length > 0 : type.propertyIds.length > 0}>Just a title and writing for now. You can add properties in type setup later.</p><div class="property-grid">{propertyIds.map(id => { const property = propertyOf(model, id); return property && <fieldset class="object-property" data-type-ids={record ? undefined : model.catalog.types.filter(item => item.propertyIds.includes(id)).map(item => item.id).join(' ')} hidden={!record && !type.propertyIds.includes(id)} disabled={!record && !type.propertyIds.includes(id)}><legend class="sr-only">{property.label}</legend><PropertyControl model={model} property={property} value={(draft?.properties ?? record?.properties)?.[id]} /></fieldset>; })}</div></details>
+      <section class="writing"><div class="writing-heading"><h2>Writing</h2><span class="fine">Notes, ideas, and everything in between. Optional.</span></div>
+      <label>Body (Markdown)<textarea class="markdown-source" name="body" rows={16} aria-describedby="markdown-help" spellcheck={true}>{`\n${body}`}</textarea></label>
+      <p class="fine" id="markdown-help">Use standard Markdown: # headings, **bold**, lists, and [label](https://example.com). Link an object with [label](/objects/OBJECT-ID). HTML is not rendered.</p>
+      <div class="object-link-tools js-only"><label>Link object<select data-object-link-picker="" aria-label="Object to link"><option value="">Choose an object</option>{mentions.map(item => <option value={item.id} data-label={item.title}>{item.title} · {item.type}</option>)}</select></label><button type="button" data-insert-object-link="">Insert link</button></div>
+      {record && <details class="markdown-preview"><summary>Read saved writing</summary><div class="markdown-content">{raw(renderMarkdown(record.body))}</div></details>}
       </section><div class="save-bar"><button type="submit" class="primary">{record ? 'Save changes' : 'Create object'}</button>{!record && <span class="fine">Nothing is saved until you create it.</span>}<State /></div>
     </form>
-    {record && <><section class="backlinks"><h2>Linked from</h2>{model.backlinks?.length ? <ul>{model.backlinks.map(link => <li><a href={`${objectUrl(link.object.id)}${link.blockId ? `#${encodeURIComponent(link.blockId)}` : ''}`}>{titleOf(link.object)}</a>{link.propertyId && <span class="muted"> via {propertyOf(model, link.propertyId)?.label ?? 'property'}</span>}</li>)}</ul> : <p class="muted">No other objects link here yet.</p>}</section><form class="trash-form" method="post" action={`/objects/${record.id}/${record.trashed ? 'restore' : 'trash'}`} data-enhance=""><Token model={model} /><Hidden name="revision" value={record.revision} /><button type="submit">{record.trashed ? 'Restore object' : 'Move to trash'}</button><State /></form></>}
+    {record && <><section class="backlinks"><h2>Linked from</h2>{model.backlinks?.length ? <ul>{model.backlinks.map(link => <li><a href={objectUrl(link.object.id)}>{titleOf(link.object)}</a>{link.propertyId && <span class="muted"> via {propertyOf(model, link.propertyId)?.label ?? 'property'}</span>}</li>)}</ul> : <p class="muted">No other objects link here yet.</p>}</section><form class="trash-form" method="post" action={`/objects/${record.id}/${record.trashed ? 'restore' : 'trash'}`} data-enhance=""><Token model={model} /><Hidden name="revision" value={record.revision} /><button type="submit">{record.trashed ? 'Restore object' : 'Move to trash'}</button><State /></form></>}
   </>;
 }
 

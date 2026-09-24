@@ -25,7 +25,7 @@ function fixture(t: TestContext) {
       return objects.getProperty(changed.propertyIds.at(-1)!);
     },
     object(type: ObjectType, title: string, properties: Record<string, PropertyValue> = {}) {
-      return objects.createObject({ typeId: type.id, title, properties, document: { type: 'doc', content: [{ type: 'paragraph' }] } });
+      return objects.createObject({ typeId: type.id, title, properties, body: '' });
     },
     reopen() {
       const connection = openDatabase(file);

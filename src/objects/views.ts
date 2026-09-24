@@ -12,7 +12,7 @@ interface ViewRowData {
   prompt: string; model: string; schema_json: string; created_at: string; updated_at: string; deleted: number;
 }
 interface ObjectRowData {
-  id: string; type_id: string; title: string; properties_json: string; document_json: string;
+  id: string; type_id: string; title: string; properties_json: string; body: string;
   revision: number; created_at: string; updated_at: string; trashed: number; source_index: number;
 }
 const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
@@ -124,7 +124,7 @@ function saved(row: ViewRowData): SavedView {
     prompt: row.prompt, model: row.model, createdAt: row.created_at, updatedAt: row.updated_at };
 }
 function objectRecord(row: ObjectRowData): ObjectRecord {
-  return { id: row.id, typeId: row.type_id, title: row.title, properties: JSON.parse(row.properties_json), document: JSON.parse(row.document_json),
+  return { id: row.id, typeId: row.type_id, title: row.title, properties: JSON.parse(row.properties_json), body: row.body,
     revision: row.revision, createdAt: row.created_at, updatedAt: row.updated_at, trashed: Boolean(row.trashed) };
 }
 // Only validated UUIDs enter these JSON paths; all comparison values are bound parameters.
@@ -248,7 +248,7 @@ export class ViewService {
           const order = source.orderBy;
           const property = order ? properties.get(order.propertyId)! : undefined;
           const sort = property ? comparable(property) : 'NULL';
-          return `SELECT o.id, o.type_id, o.title, o.properties_json, o.document_json, o.revision, o.created_at, o.updated_at, o.trashed,
+          return `SELECT o.id, o.type_id, o.title, o.properties_json, o.body, o.revision, o.created_at, o.updated_at, o.trashed,
             ${index} AS source_index, ${property ? `CASE WHEN ${emptyExpression(property)} THEN 1 ELSE 0 END` : '0'} AS sort_missing,
             ${order?.direction === 'ascending' ? sort : 'NULL'} AS sort_ascending,
             ${order?.direction === 'descending' ? sort : 'NULL'} AS sort_descending

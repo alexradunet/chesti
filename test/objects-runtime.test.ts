@@ -6,7 +6,6 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { AppError } from '../src/core.js';
 import { openDatabase } from '../src/database.js';
-import { documentFromMarkdown } from '../src/objects/document.js';
 import { PAGE_TYPE_ID } from '../src/objects/model.js';
 import type { ObjectWrite, PropertyValue } from '../src/objects/model.js';
 import { ObjectRuntime } from '../src/objects/runtime.js';
@@ -18,7 +17,7 @@ function fixture(t: TestContext) {
   return { db, runtime: new ObjectRuntime(db) };
 }
 function input(typeId = PAGE_TYPE_ID, title = 'Object', properties: Record<string, PropertyValue> = {}, markdown = ''): ObjectWrite {
-  return { typeId, title, properties, document: documentFromMarkdown(markdown) };
+  return { typeId, title, properties, body: markdown };
 }
 function status(code: number): (error: unknown) => boolean {
   return error => error instanceof AppError && error.status === code;
@@ -52,7 +51,7 @@ test('object revisions reject stale writes and preserve recoverable pre-change c
   const made = runtime.createObject(input(PAGE_TYPE_ID, 'Before', {}, '# Body\n\nKeep **formatting**.'));
   const renamed = runtime.updateObject(made.id, made.revision, { ...made, title: 'After' });
   assert.equal(renamed.id, made.id);
-  assert.deepEqual(renamed.document, made.document);
+  assert.equal(renamed.body, made.body);
   assert.throws(() => runtime.updateObject(made.id, made.revision, { ...made, title: 'Lost update' }), status(409));
   assert.throws(() => runtime.patchProperties(made.id, made.revision, {}), status(409));
   assert.throws(() => runtime.setTrashed(made.id, made.revision, true), status(409));
@@ -61,7 +60,7 @@ test('object revisions reject stale writes and preserve recoverable pre-change c
   const otherType = runtime.createType('Reading');
   const changed = runtime.updateObject(made.id, renamed.revision, { ...renamed, typeId: otherType.id });
   assert.equal(changed.id, made.id);
-  assert.deepEqual(changed.document, made.document);
+  assert.equal(changed.body, made.body);
   assert.equal(changed.createdAt, made.createdAt);
   assert.equal(runtime.getObject(made.id).title, 'After');
 });
@@ -76,13 +75,12 @@ test('typed references and mentions retain provenance through trash and restore 
   const references = page.propertyIds[0]!;
   page = runtime.addProperty(page.id, page.revision, { label: 'Comment', kind: 'text' });
   const comment = page.propertyIds[1]!;
-  const mention = documentFromMarkdown('People:');
-  mention.content![0]!.content!.push({ type: 'object_link', attrs: { objectId: person.id, label: person.title } });
-  const note = runtime.createObject({ ...input(page.id, 'Meeting', { [references]: [person.id, another.id] }), document: mention });
+  const mention = `People: [${person.title}](/objects/${person.id})\n\n[Again](/objects/${person.id})`;
+  const note = runtime.createObject({ ...input(page.id, 'Meeting', { [references]: [person.id, another.id] }), body: mention });
   const backlinks = runtime.backlinks(person.id);
   assert.equal(backlinks.length, 2);
-  assert.ok(backlinks.some(link => link.object.id === note.id && link.propertyId === references && link.blockId === undefined));
-  assert.ok(backlinks.some(link => link.object.id === note.id && link.blockId === note.document.content![0]!.attrs!.blockId && link.propertyId === undefined));
+  assert.ok(backlinks.some(link => link.object.id === note.id && link.propertyId === references));
+  assert.ok(backlinks.some(link => link.object.id === note.id && link.propertyId === undefined));
   assert.throws(() => runtime.patchProperties(note.id, note.revision, { [references]: person.id }), status(422));
   assert.throws(() => runtime.patchProperties(note.id, note.revision, { [references]: [person.id, person.id] }), status(422));
   assert.throws(() => runtime.patchProperties(note.id, note.revision, { [references]: [note.id] }), status(422));
@@ -92,7 +90,7 @@ test('typed references and mentions retain provenance through trash and restore 
   assert.deepEqual(edited.properties[references], [person.id, another.id]);
   assert.equal(runtime.backlinks(person.id).length, 2);
   assert.throws(() => runtime.createObject(input(page.id, 'New forbidden reference', { [references]: [person.id] })), status(422));
-  assert.throws(() => runtime.createObject({ ...input(page.id, 'New forbidden mention'), document: mention }), status(422));
+  assert.throws(() => runtime.createObject({ ...input(page.id, 'New forbidden mention'), body: mention }), status(422));
   assert.equal(runtime.listObjects().some(object => object.id === person.id), false);
   assert.deepEqual(runtime.listObjects({ trashed: true }).map(object => object.id), [person.id]);
   const restored = runtime.setTrashed(person.id, trashed.revision, false);
@@ -104,7 +102,7 @@ test('typed references and mentions retain provenance through trash and restore 
   assert.equal(runtime.backlinks(person.id).length, 1);
 });
 
-test('idempotent creation ignores generated block IDs but rejects mismatched requests', t => {
+test('idempotent creation fingerprints exact Markdown source and rejects mismatched requests', t => {
   const { runtime } = fixture(t);
   const requestId = crypto.randomUUID();
   const first = runtime.createObject(input(PAGE_TYPE_ID, 'Once', {}, 'A paragraph.'), requestId);
@@ -112,6 +110,7 @@ test('idempotent creation ignores generated block IDs but rejects mismatched req
   assert.equal(retry.id, first.id);
   assert.equal(runtime.listObjects().length, 1);
   assert.throws(() => runtime.createObject(input(PAGE_TYPE_ID, 'Different', {}, 'A paragraph.'), requestId), status(409));
+  assert.throws(() => runtime.createObject(input(PAGE_TYPE_ID, 'Once', {}, 'A paragraph.\n'), requestId), status(409));
   const trashed = runtime.setTrashed(first.id, first.revision, true);
   assert.deepEqual(runtime.createObject(input(PAGE_TYPE_ID, 'Once', {}, 'A paragraph.'), requestId), trashed);
 });
@@ -178,8 +177,8 @@ test('time ranges validate ordering, zone offsets and DST at both endpoints; all
 test('schema version guard does not modify newer object databases', t => {
   const { db, runtime } = fixture(t);
   const object = runtime.createObject(input());
-  db.query("UPDATE object_metadata SET value = '2' WHERE key = 'schema_version'").run();
+  db.query("UPDATE object_metadata SET value = '3' WHERE key = 'schema_version'").run();
   assert.throws(() => new ObjectRuntime(db), /Unsupported object database schema/);
   assert.deepEqual(runtime.getObject(object.id), object);
-  assert.equal(db.query<{ value: string }, []>("SELECT value FROM object_metadata WHERE key = 'schema_version'").get()!.value, '2');
+  assert.equal(db.query<{ value: string }, []>("SELECT value FROM object_metadata WHERE key = 'schema_version'").get()!.value, '3');
 });

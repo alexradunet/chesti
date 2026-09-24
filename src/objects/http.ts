@@ -1,7 +1,7 @@
 import { Value } from 'typebox/value';
 import { AppError } from '../core.js';
 import type { Visitor } from '../visitors.js';
-import { documentFromMarkdown, validateDocument } from './document.js';
+import { validateMarkdown } from './markdown.js';
 import { IdSchema, PAGE_TYPE_ID } from './model.js';
 import type { ObjectPageModel, ObjectRecord, ObjectWrite, PropertyDefinition, PropertyKind, PropertyValue, SavedView, ViewConversation, ViewGenerator } from './model.js';
 import type { ObjectRuntime } from './runtime.js';
@@ -77,11 +77,8 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
         const value = formValue(property, data, `p:${id}`);
         if (value === null) delete properties[id]; else properties[id] = value;
       }
-      let document;
-      try {
-        document = data.has('document') ? validateDocument(JSON.parse(data.get('document')!)) : data.has('body') ? documentFromMarkdown(data.get('body')!) : current?.document ?? documentFromMarkdown('');
-      } catch (error) { throw new AppError(422, error instanceof Error ? error.message : 'Invalid document.'); }
-      return { typeId: type.id, title: data.get('title') ?? '', properties, document };
+      const body = validateMarkdown(data.get('body') ?? current?.body ?? '');
+      return { typeId: type.id, title: data.get('title') ?? '', properties, body };
     };
     try {
       if (req.method === 'GET') {
@@ -176,9 +173,12 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
         return go(type ? `/types/${type.id}?saved=1` : '/types?saved=1');
       }
       if (url.pathname === '/objects/create') {
-        model.screen = 'new-object'; model.objectType = objects.getType(fields.get('typeId') ?? PAGE_TYPE_ID); model.objects = pickerObjects();
-        requireFields(fields, ['csrf', 'requestId', 'typeId', 'title', 'document', 'body'], true);
+        model.screen = 'new-object'; model.objects = pickerObjects();
+        model.objectDraft = { title: fields.get('title') ?? '', body: fields.get('body') ?? '', requestId: fields.get('requestId') ?? '', typeId: fields.get('typeId') ?? PAGE_TYPE_ID };
+        model.objectType = objects.getType(model.objectDraft.typeId!);
+        requireFields(fields, ['csrf', 'requestId', 'typeId', 'title', 'body'], true);
         const write = readWrite(fields);
+        model.objectDraft.properties = write.properties;
         const record = objects.createObject(write, fields.get('requestId') || undefined);
         return go(`/objects/${record.id}?saved=1`);
       }
@@ -186,10 +186,10 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
       if (objectMatch) {
         model.screen = 'object'; model.object = objects.getObject(objectMatch[1]!); model.objectType = objects.getType(model.object.typeId); model.objects = pickerObjects();
         if (objectMatch[2] === 'update') {
-          requireFields(fields, ['csrf', 'revision', 'typeId', 'title', 'document', 'body'], true);
+          model.objectDraft = { title: fields.get('title') ?? '', body: fields.get('body') ?? model.object.body, revision: fields.get('revision') ?? '', typeId: fields.get('typeId') ?? model.object.typeId };
+          requireFields(fields, ['csrf', 'revision', 'typeId', 'title', 'body'], true);
           const write = readWrite(fields, model.object);
-          // Native errors show the user's submitted draft too; enhanced forms never discard it.
-          model.object = { ...model.object, ...write };
+          model.objectDraft.properties = write.properties;
           objects.updateObject(objectMatch[1]!, revision(fields), write);
           return go(`/objects/${objectMatch[1]}?saved=1`);
         }

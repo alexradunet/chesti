@@ -24,7 +24,7 @@ Model availability depends on your Pi credentials. Object editing and saved view
 2. Add a property named `Due` with the **Date** format. Optionally add `Done` with the **Checkbox** format. Format descriptions explain what each field stores; Select and Object link reveal their required settings.
 3. Create `Meeting`. Attach `Due` using **Use an existing property**. This shares its identity, not merely its label. Property cards show their format and choices; **Rename property** identifies other types that share the label.
 4. Open **New content**, choose Task, enter a title, and optionally add a date and writing. Choose **Create object** to save. Create another task without a date and a Meeting with a date. In the enhanced creation form, switching types keeps your title, writing, and property drafts in the open page; switching back restores the fields. Only the selected type’s properties are submitted. Without JavaScript, select **Use type** before entering your draft.
-5. Insert an object link using the writing toolbar. Open the linked object to see its backlink.
+5. Write a normal Markdown link such as `[Project](/objects/UUID)`, or choose an object beside the writing field and select **Insert link**. Open the linked object to see its backlink.
 
 Types and properties can be renamed. Existing objects keep their identity and properties when changing type; references targeting the old type must be resolved before an incompatible type change. Trash retains data and can be restored. Existing references survive trash, but new references to trashed objects are rejected.
 
@@ -54,7 +54,7 @@ Drag the panel divider or use its arrow keys to resize on desktop. On smaller sc
 
 ## Forms and conflicts
 
-The enhanced editor supports headings, emphasis, code, lists, undo/redo, and object mentions. Without JavaScript, native forms edit Markdown. Save is explicit. A failed enhanced submission retains the draft. Revision conflicts reject stale saves instead of overwriting a newer change; reload and reconcile the draft before retrying.
+Writing is Markdown-first: edit plain source for headings, emphasis, code, lists, and links. The same textarea works without JavaScript. Save is explicit; **Read saved writing** renders the last saved content, not an unsaved live preview. Raw HTML is displayed as text, unsafe links are not clickable, and remote images are not loaded. Revision conflicts reject stale saves instead of overwriting a newer change; preserve and reconcile the draft before retrying.
 
 Native links and forms, CSRF protection, and the same server-side validation remain authoritative. Only published views that explicitly expose calendar-date or board-group editing have inline write controls.
 
@@ -67,6 +67,10 @@ sqlite3 .data/taskdesk.sqlite ".backup '/absolute/path/to/backup.sqlite'"
 ```
 
 Alternatively stop the server and back up the database together with any `-wal`/`-shm` files. Do not copy only the main file while a writer is active.
+
+Back up before moving from object schema version 1 to 2. Startup converts existing structured writing and revision snapshots to Markdown in one transaction, preserving object identities and links. Unsupported structures abort the upgrade without partial changes. New writing is stored as Markdown source, not editor JSON; writing backlinks point to the source object rather than an editor block.
+
+The upgrade refuses editor structures it cannot represent faithfully, including trailing hard breaks, empty paragraphs between other blocks, and inline code containing newlines. On failure, the transaction leaves the version-1 database intact and usable by the previous application version; the reported conversion issue must be resolved before upgrading.
 
 Only the current object database is supported. There is no historical issue/vault runtime, directory import/export tool, or legacy migration path. Startup never converts or deletes unrelated tables or files. Back up the SQLite database rather than treating Markdown files as live storage.
 

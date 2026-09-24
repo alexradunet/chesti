@@ -1,15 +1,6 @@
-import { baseKeymap, setBlockType, toggleMark } from 'prosemirror-commands';
-import { history, redo, undo } from 'prosemirror-history';
-import { keymap } from 'prosemirror-keymap';
-import { liftListItem, sinkListItem, splitListItem, wrapInList } from 'prosemirror-schema-list';
-import { EditorState } from 'prosemirror-state';
-import type { Command } from 'prosemirror-state';
-import { EditorView } from 'prosemirror-view';
-import { documentSchema } from './document.js';
 import type { ViewConversation } from './model.js';
 
 const dirtyForms = new Set<HTMLFormElement>();
-const editors = new Map<HTMLFormElement, EditorView>();
 const forms = document.querySelectorAll<HTMLFormElement>('form[data-enhance]');
 
 interface AiState { open: boolean; draft: string; conversationId?: string; previousId?: string; contextTitle: string }
@@ -321,6 +312,7 @@ function markDirty(form: HTMLFormElement): void {
 }
 
 for (const form of forms) {
+  if (form.dataset.draft === 'true') markDirty(form);
   form.addEventListener('input', () => markDirty(form));
   form.addEventListener('change', () => markDirty(form));
   form.addEventListener('submit', async event => {
@@ -334,7 +326,6 @@ for (const form of forms) {
     const status = form.querySelector<HTMLElement>('[data-form-state]');
     const controls = [...form.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement | HTMLButtonElement>('input, select, textarea, button')];
     const previouslyDisabled = controls.map(control => control.disabled);
-    const editor = editors.get(form);
     if (status) {
       status.setAttribute('role', 'status');
       status.textContent = 'Saving…';
@@ -343,7 +334,6 @@ for (const form of forms) {
     form.dataset.busy = 'true';
     form.setAttribute('aria-busy', 'true');
     for (const control of controls) control.disabled = true;
-    editor?.setProps({ editable: () => false });
     try {
       const response = await fetch(form.action, { method: 'POST', body: data, credentials: 'same-origin', headers: { Accept: 'text/html' } });
       const html = await response.text();
@@ -360,7 +350,6 @@ for (const form of forms) {
         status.textContent = error instanceof Error ? error.message : 'Unable to save. Your changes are still here.';
       }
     } finally {
-      editor?.setProps({ editable: () => true });
       form.dataset.busy = 'false';
       form.removeAttribute('aria-busy');
       controls.forEach((control, index) => { control.disabled = previouslyDisabled[index] ?? false; });
@@ -428,86 +417,19 @@ for (const select of document.querySelectorAll<HTMLSelectElement>('[data-propert
   sync();
 }
 
-for (const mount of document.querySelectorAll<HTMLElement>('[data-editor-mount]')) {
-  const form = mount.closest<HTMLFormElement>('form');
-  const field = form?.querySelector<HTMLInputElement>('[data-document-field]');
-  const fallback = form?.querySelector<HTMLElement>('[data-markdown-fallback]');
-  const textarea = fallback?.querySelector<HTMLTextAreaElement>('textarea');
-  const toolbar = form?.querySelector<HTMLElement>('[data-editor-toolbar]');
-  if (!form || !field || !fallback || !textarea || !toolbar) continue;
-  let view: EditorView | undefined;
-  try {
-    const doc = documentSchema.nodeFromJSON(JSON.parse(mount.dataset.document ?? '{}'));
-    doc.check();
-    const mentions = JSON.parse(mount.dataset.objects ?? '[]') as { id: string; title: string; type: string }[];
-    const listItem = documentSchema.nodes.list_item!;
-    const commands: Record<string, Command> = {
-      bold: toggleMark(documentSchema.marks.strong!),
-      italic: toggleMark(documentSchema.marks.em!),
-      code: toggleMark(documentSchema.marks.code!),
-      heading: setBlockType(documentSchema.nodes.heading!, { level: 2 }),
-      paragraph: setBlockType(documentSchema.nodes.paragraph!),
-      bullet: wrapInList(documentSchema.nodes.bullet_list!),
-      ordered: wrapInList(documentSchema.nodes.ordered_list!),
-      undo,
-      redo,
-    };
-    view = new EditorView(mount, {
-      state: EditorState.create({
-        doc,
-        plugins: [history(), keymap({
-          'Mod-z': undo, 'Mod-Shift-z': redo, 'Mod-y': redo,
-          'Mod-b': commands.bold!, 'Mod-i': commands.italic!, 'Mod-`': commands.code!,
-          Enter: splitListItem(listItem), Tab: sinkListItem(listItem), 'Shift-Tab': liftListItem(listItem),
-          'Mod-[': liftListItem(listItem), 'Mod-]': sinkListItem(listItem),
-        }), keymap(baseKeymap)],
-      }),
-      attributes: { role: 'textbox', 'aria-multiline': 'true', 'aria-labelledby': 'writing-label', spellcheck: 'true' },
-      dispatchTransaction(transaction) {
-        if (!view) return;
-        view.updateState(view.state.apply(transaction));
-        if (transaction.docChanged) {
-          field.value = JSON.stringify(view.state.doc.toJSON());
-          form.dispatchEvent(new Event('input', { bubbles: true }));
-        }
-      },
-    });
-    editors.set(form, view);
-    for (const button of toolbar.querySelectorAll<HTMLButtonElement>('[data-command]')) {
-      button.addEventListener('mousedown', event => event.preventDefault());
-      button.addEventListener('click', () => {
-        if (!view) return;
-        if (button.dataset.command === 'mention') {
-          const select = toolbar.querySelector<HTMLSelectElement>('[data-mention-picker]');
-          const mention = mentions.find(item => item.id === select?.value);
-          if (!mention) { select?.focus(); return; }
-          view.dispatch(view.state.tr.replaceSelectionWith(documentSchema.nodes.object_link!.create({ objectId: mention.id, label: mention.title })).scrollIntoView());
-        } else {
-          commands[button.dataset.command ?? '']?.(view.state, view.dispatch, view);
-        }
-        view.focus();
-      });
-    }
-    field.value = JSON.stringify(view.state.doc.toJSON());
-    field.disabled = false;
-    textarea.disabled = true;
-    fallback.hidden = true;
-    mount.hidden = false;
-    toolbar.hidden = false;
-    if (window.location.hash) {
-      const preview = form.querySelector<HTMLDetailsElement>('[data-document-preview]');
-      const target = document.getElementById(decodeURIComponent(window.location.hash.slice(1)));
-      if (preview && target && preview.contains(target)) { preview.open = true; target.scrollIntoView(); }
-    }
-  } catch {
-    view?.destroy();
-    editors.delete(form);
-    field.disabled = true;
-    textarea.disabled = false;
-    fallback.hidden = false;
-    mount.hidden = true;
-    toolbar.hidden = true;
-    const status = form.querySelector<HTMLElement>('[data-form-state]');
-    if (status) status.textContent = 'Rich editor unavailable. You can still write and save Markdown.';
-  }
+for (const button of document.querySelectorAll<HTMLButtonElement>('[data-insert-object-link]')) {
+  const form = button.closest<HTMLFormElement>('form');
+  const textarea = form?.querySelector<HTMLTextAreaElement>('textarea[name="body"]');
+  const picker = form?.querySelector<HTMLSelectElement>('[data-object-link-picker]');
+  if (!form || !textarea || !picker) continue;
+  button.addEventListener('click', () => {
+    if (form.dataset.busy === 'true' || button.disabled || textarea.disabled || textarea.readOnly || picker.disabled) return;
+    const option = picker.selectedOptions[0];
+    if (!option?.value) { picker.focus(); return; }
+    const label = (option.dataset.label ?? option.textContent ?? 'Linked object')
+      .replace(/[\r\n]+/g, ' ').replace(/[\\[\]`*_{}()<>!#+\-.|~&]/g, '\\$&');
+    textarea.setRangeText(`[${label}](/objects/${option.value})`, textarea.selectionStart, textarea.selectionEnd, 'end');
+    textarea.dispatchEvent(new Event('input', { bubbles: true }));
+    textarea.focus();
+  });
 }

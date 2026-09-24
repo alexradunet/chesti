@@ -1,18 +1,19 @@
 import type { Database } from 'bun:sqlite';
 import { AppError } from '../core.js';
 import { valueError } from './values.js';
-import { documentReferences, documentText, validateDocument } from './document.js';
+import { markdownReferences, markdownText, validateMarkdown } from './markdown.js';
+import { upgradeObjectMarkdown } from './upgrade-markdown.js';
 import { PAGE_TYPE_ID } from './model.js';
-import type { Backlink, Catalog, DocumentNode, ObjectListOptions, ObjectRecord, ObjectType, ObjectWrite, PropertyDefinition, PropertyKind, PropertyValue } from './model.js';
+import type { Backlink, Catalog, ObjectListOptions, ObjectRecord, ObjectType, ObjectWrite, PropertyDefinition, PropertyKind, PropertyValue } from './model.js';
 
 const ID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 const KINDS: Record<PropertyKind, true> = { text: true, number: true, boolean: true, date: true, datetime: true, select: true, reference: true, 'date-range': true, 'time-range': true };
 interface TypeRow { id: string; name: string; property_ids_json: string; revision: number }
 interface PropertyRow { id: string; label: string; kind: PropertyKind; options_json: string | null; target_type_id: string | null; multiple: number; revision: number }
-interface ObjectRow { id: string; type_id: string; title: string; properties_json: string; document_json: string; revision: number; created_at: string; updated_at: string; trashed: number }
+interface ObjectRow { id: string; type_id: string; title: string; properties_json: string; body: string; revision: number; created_at: string; updated_at: string; trashed: number }
 
 function objectRecord(row: ObjectRow): ObjectRecord {
-  return { id: row.id, typeId: row.type_id, title: row.title, properties: JSON.parse(row.properties_json), document: JSON.parse(row.document_json), revision: row.revision, createdAt: row.created_at, updatedAt: row.updated_at, trashed: row.trashed === 1 };
+  return { id: row.id, typeId: row.type_id, title: row.title, properties: JSON.parse(row.properties_json), body: row.body, revision: row.revision, createdAt: row.created_at, updatedAt: row.updated_at, trashed: row.trashed === 1 };
 }
 function objectType(row: TypeRow): ObjectType {
   return { id: row.id, name: row.name, propertyIds: JSON.parse(row.property_ids_json), revision: row.revision };
@@ -36,13 +37,7 @@ function canonical(value: unknown): string {
   return JSON.stringify(value);
 }
 function fingerprint(input: ObjectWrite): string {
-  const document = structuredClone(input.document);
-  const stripIds = (node: DocumentNode): void => {
-    if (node.attrs) { delete node.attrs.blockId; if (!Object.keys(node.attrs).length) delete node.attrs; }
-    for (const child of node.content ?? []) stripIds(child);
-  };
-  stripIds(document);
-  return new Bun.CryptoHasher('sha256').update(canonical({ ...input, document })).digest('hex');
+  return new Bun.CryptoHasher('sha256').update(canonical({ typeId: input.typeId, title: input.title, properties: input.properties, body: input.body })).digest('hex');
 }
 
 export class ObjectRuntime {
@@ -50,7 +45,8 @@ export class ObjectRuntime {
     db.transaction(() => {
       db.exec('CREATE TABLE IF NOT EXISTS object_metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT');
       const version = db.query<{ value: string }, []>("SELECT value FROM object_metadata WHERE key = 'schema_version'").get();
-      if (version && version.value !== '1') throw new Error('Unsupported object database schema.');
+      if (version && version.value !== '1' && version.value !== '2') throw new Error('Unsupported object database schema.');
+      if (version?.value === '1') upgradeObjectMarkdown(db, fingerprint);
       db.exec(`
         CREATE TABLE IF NOT EXISTS object_types (
           id TEXT PRIMARY KEY, name TEXT NOT NULL, property_ids_json TEXT NOT NULL CHECK(json_valid(property_ids_json)), revision INTEGER NOT NULL CHECK(revision > 0)
@@ -61,15 +57,15 @@ export class ObjectRuntime {
         ) STRICT;
         CREATE TABLE IF NOT EXISTS objects (
           id TEXT PRIMARY KEY COLLATE NOCASE, type_id TEXT NOT NULL REFERENCES object_types(id), title TEXT NOT NULL,
-          properties_json TEXT NOT NULL CHECK(json_valid(properties_json)), document_json TEXT NOT NULL CHECK(json_valid(document_json)),
+          properties_json TEXT NOT NULL CHECK(json_valid(properties_json)), body TEXT NOT NULL DEFAULT '',
           revision INTEGER NOT NULL CHECK(revision > 0), created_at TEXT NOT NULL, updated_at TEXT NOT NULL, trashed INTEGER NOT NULL CHECK(trashed IN (0, 1)),
-          document_text TEXT NOT NULL
+          body_text TEXT NOT NULL
         ) STRICT;
         CREATE INDEX IF NOT EXISTS objects_browse ON objects(trashed, updated_at DESC, id);
         CREATE INDEX IF NOT EXISTS objects_type_browse ON objects(type_id, trashed, updated_at DESC, id);
         CREATE TABLE IF NOT EXISTS object_references (
           source_id TEXT NOT NULL COLLATE NOCASE REFERENCES objects(id), target_id TEXT NOT NULL COLLATE NOCASE REFERENCES objects(id),
-          property_id TEXT NOT NULL DEFAULT '', block_id TEXT NOT NULL DEFAULT '', PRIMARY KEY(source_id, target_id, property_id, block_id)
+          property_id TEXT NOT NULL DEFAULT '', PRIMARY KEY(source_id, target_id, property_id)
         ) STRICT;
         CREATE INDEX IF NOT EXISTS object_references_target ON object_references(target_id);
         CREATE TABLE IF NOT EXISTS object_revisions (
@@ -80,7 +76,7 @@ export class ObjectRuntime {
           request_id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, object_id TEXT NOT NULL COLLATE NOCASE REFERENCES objects(id)
         ) STRICT;
       `);
-      if (!version) db.query("INSERT INTO object_metadata(key, value) VALUES ('schema_version', '1')").run();
+      if (!version) db.query("INSERT INTO object_metadata(key, value) VALUES ('schema_version', '2')").run();
       db.query('INSERT INTO object_types(id, name, property_ids_json, revision) VALUES (?, ?, ?, 1) ON CONFLICT(id) DO NOTHING').run(PAGE_TYPE_ID, 'Page', '[]');
     })();
   }
@@ -172,13 +168,13 @@ export class ObjectRuntime {
     if (options.typeId) this.getType(options.typeId);
     const pattern = `%${(options.search ?? '').replace(/[\\%_]/g, '\\$&')}%`;
     return this.db.query<ObjectRow, [number, string | null, string | null, string, string, number, number]>(`SELECT * FROM objects WHERE trashed = ? AND (? IS NULL OR type_id = ?)
-      AND (title LIKE ? ESCAPE '\\' OR document_text LIKE ? ESCAPE '\\') ORDER BY updated_at DESC, id LIMIT ? OFFSET ?`).all(options.trashed ? 1 : 0, options.typeId ?? null, options.typeId ?? null, pattern, pattern, limit, offset).map(objectRecord);
+      AND (title LIKE ? ESCAPE '\\' OR body_text LIKE ? ESCAPE '\\') ORDER BY updated_at DESC, id LIMIT ? OFFSET ?`).all(options.trashed ? 1 : 0, options.typeId ?? null, options.typeId ?? null, pattern, pattern, limit, offset).map(objectRecord);
   }
   createObject(input: ObjectWrite, requestId?: string): ObjectRecord {
     if (requestId !== undefined && (typeof requestId !== 'string' || !ID.test(requestId))) throw new AppError(422, 'Creation request ID must be a UUID.');
     return this.db.transaction(() => {
-      // Normalize structure before fingerprinting, but check the receipt before current
-      // target state: retrying an applied request cannot become a new write.
+      // Check the receipt before current target state: retrying an applied request
+      // cannot become a new write. Markdown source participates without normalization.
       const write = this.validateShape(input);
       const digest = requestId === undefined ? undefined : fingerprint(write);
       if (requestId !== undefined) {
@@ -191,8 +187,8 @@ export class ObjectRuntime {
       this.validateValues(write);
       const now = new Date().toISOString();
       const id = crypto.randomUUID();
-      this.db.query(`INSERT INTO objects(id, type_id, title, properties_json, document_json, revision, created_at, updated_at, trashed, document_text)
-        VALUES (?, ?, CAST(? AS TEXT), ?, ?, 1, ?, ?, 0, CAST(? AS TEXT))`).run(id, write.typeId, Buffer.from(write.title), JSON.stringify(write.properties), JSON.stringify(write.document), now, now, Buffer.from(documentText(write.document)));
+      this.db.query(`INSERT INTO objects(id, type_id, title, properties_json, body, revision, created_at, updated_at, trashed, body_text)
+        VALUES (?, ?, CAST(? AS TEXT), ?, CAST(? AS TEXT), 1, ?, ?, 0, CAST(? AS TEXT))`).run(id, write.typeId, Buffer.from(write.title), JSON.stringify(write.properties), Buffer.from(write.body), now, now, Buffer.from(markdownText(write.body)));
       const object = this.getObject(id);
       this.indexReferences(object);
       if (requestId !== undefined) this.db.query('INSERT INTO object_create_requests(request_id, fingerprint, object_id) VALUES (?, ?, ?)').run(requestId.toLowerCase(), digest!, id);
@@ -215,7 +211,7 @@ export class ObjectRuntime {
         }
       }
       this.remember(previous);
-      this.db.query(`UPDATE objects SET type_id = ?, title = CAST(? AS TEXT), properties_json = ?, document_json = ?, document_text = CAST(? AS TEXT), revision = revision + 1, updated_at = ? WHERE id = ? AND revision = ?`).run(write.typeId, Buffer.from(write.title), JSON.stringify(write.properties), JSON.stringify(write.document), Buffer.from(documentText(write.document)), new Date().toISOString(), id, revision);
+      this.db.query(`UPDATE objects SET type_id = ?, title = CAST(? AS TEXT), properties_json = ?, body = CAST(? AS TEXT), body_text = CAST(? AS TEXT), revision = revision + 1, updated_at = ? WHERE id = ? AND revision = ?`).run(write.typeId, Buffer.from(write.title), JSON.stringify(write.properties), Buffer.from(write.body), Buffer.from(markdownText(write.body)), new Date().toISOString(), id, revision);
       const object = this.getObject(id);
       this.indexReferences(object);
       return object;
@@ -231,7 +227,7 @@ export class ObjectRuntime {
         this.getProperty(propertyId);
         if (value === null) delete properties[propertyId]; else properties[propertyId] = value;
       }
-      return this.updateObject(id, revision, { typeId: previous.typeId, title: previous.title, properties, document: previous.document });
+      return this.updateObject(id, revision, { typeId: previous.typeId, title: previous.title, properties, body: previous.body });
     })();
   }
   setTrashed(id: string, revision: number, trashed: boolean): ObjectRecord {
@@ -247,17 +243,17 @@ export class ObjectRuntime {
   }
   backlinks(id: string): Backlink[] {
     this.getObject(id);
-    const rows = this.db.query<ObjectRow & { property_id: string; block_id: string }, [string]>(`SELECT o.*, r.property_id, r.block_id FROM object_references r JOIN objects o ON o.id = r.source_id WHERE r.target_id = ? ORDER BY o.updated_at DESC, o.id, r.property_id, r.block_id`).all(id);
-    return rows.map(row => ({ object: objectRecord(row), ...(row.property_id ? { propertyId: row.property_id } : { blockId: row.block_id }) }));
+    const rows = this.db.query<ObjectRow & { property_id: string }, [string]>(`SELECT o.*, r.property_id FROM object_references r JOIN objects o ON o.id = r.source_id WHERE r.target_id = ? ORDER BY o.updated_at DESC, o.id, r.property_id`).all(id);
+    return rows.map(row => ({ object: objectRecord(row), ...(row.property_id ? { propertyId: row.property_id } : {}) }));
   }
 
   private validateShape(input: ObjectWrite): ObjectWrite {
     if (!plainObject(input) || typeof input.typeId !== 'string' || !ID.test(input.typeId)) throw new AppError(422, 'Choose an object type.');
     if (typeof input.title !== 'string' || !input.title.trim() || input.title.length > 500) throw new AppError(422, 'Title must contain 1–500 characters.');
     if (!plainObject(input.properties) || Object.keys(input.properties).length > 256 || JSON.stringify(input.properties).length > 262_144) throw new AppError(422, 'Invalid or oversized properties.');
-    let document: DocumentNode;
-    try { document = validateDocument(input.document); } catch (error) { throw new AppError(422, error instanceof Error ? error.message : 'Invalid document.'); }
-    return { typeId: input.typeId, title: input.title, properties: structuredClone(input.properties) as Record<string, PropertyValue>, document };
+    let body: string;
+    try { body = validateMarkdown(input.body); } catch (error) { throw new AppError(422, error instanceof Error ? error.message : 'Invalid Markdown.'); }
+    return { typeId: input.typeId, title: input.title, properties: structuredClone(input.properties) as Record<string, PropertyValue>, body };
   }
   private validateValues(write: ObjectWrite, previous?: ObjectRecord): void {
     this.getType(write.typeId);
@@ -281,9 +277,9 @@ export class ObjectRuntime {
         if (error) throw new AppError(422, `${property.label}: ${error}`);
       }
     }
-    const retained = new Set(previous ? documentReferences(previous.document).map(reference => reference.targetId.toLowerCase()) : []);
-    for (const reference of documentReferences(write.document)) {
-      const target = this.getObject(reference.targetId);
+    const retained = new Set(previous ? markdownReferences(previous.body) : []);
+    for (const targetId of markdownReferences(write.body)) {
+      const target = this.getObject(targetId);
       if (target.trashed && !retained.has(target.id.toLowerCase())) throw new AppError(422, 'Cannot add a link to a trashed object.');
     }
   }
@@ -292,11 +288,11 @@ export class ObjectRuntime {
   }
   private indexReferences(object: ObjectRecord): void {
     this.db.query('DELETE FROM object_references WHERE source_id = ?').run(object.id);
-    const insert = this.db.query('INSERT OR IGNORE INTO object_references(source_id, target_id, property_id, block_id) VALUES (?, ?, ?, ?)');
+    const insert = this.db.query('INSERT OR IGNORE INTO object_references(source_id, target_id, property_id) VALUES (?, ?, ?)');
     for (const [propertyId, value] of Object.entries(object.properties)) {
       if (this.getProperty(propertyId).kind !== 'reference') continue;
-      for (const targetId of Array.isArray(value) ? value : [value]) insert.run(object.id, String(targetId), propertyId, '');
+      for (const targetId of Array.isArray(value) ? value : [value]) insert.run(object.id, String(targetId), propertyId);
     }
-    for (const reference of documentReferences(object.document)) insert.run(object.id, reference.targetId, '', reference.blockId);
+    for (const targetId of markdownReferences(object.body)) insert.run(object.id, targetId, '');
   }
 }
