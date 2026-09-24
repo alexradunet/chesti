@@ -374,16 +374,54 @@ window.addEventListener('beforeunload', event => {
   event.returnValue = '';
 });
 
+const typeNameInput = document.querySelector<HTMLInputElement>('[data-type-create] input[name="name"]');
+const typeNamePreview = document.querySelector<HTMLElement>('[data-type-name-preview]');
+if (typeNameInput && typeNamePreview) {
+  const sync = () => { typeNamePreview.textContent = typeNameInput.value.trim() || 'Your new type'; };
+  typeNameInput.addEventListener('input', sync);
+  sync();
+}
+
 for (const select of document.querySelectorAll<HTMLSelectElement>('[data-new-type]')) {
-  select.addEventListener('change', () => select.form?.requestSubmit());
+  const form = document.querySelector<HTMLFormElement>('[data-object-editor]');
+  const typeId = form?.querySelector<HTMLInputElement>('input[name="typeId"]');
+  if (!form || !typeId) continue;
+  const sync = () => {
+    if (form.dataset.busy === 'true') { select.value = typeId.value; return; }
+    typeId.value = select.value;
+    const back = document.querySelector<HTMLAnchorElement>('[data-object-back]');
+    if (back) {
+      back.href = `/?type=${encodeURIComponent(select.value)}`;
+      back.textContent = `← ${select.selectedOptions[0]?.textContent ?? ''} objects`;
+    }
+    let count = 0;
+    for (const field of form.querySelectorAll<HTMLFieldSetElement>('[data-type-ids]')) {
+      const active = field.dataset.typeIds?.split(' ').includes(select.value) ?? false;
+      field.hidden = !active;
+      field.disabled = !active;
+      if (active) count++;
+    }
+    const badge = form.querySelector('[data-property-count]');
+    if (badge) badge.textContent = String(count);
+    const empty = form.querySelector<HTMLElement>('[data-properties-empty]');
+    if (empty) empty.hidden = count > 0;
+  };
+  select.addEventListener('change', () => { sync(); markDirty(form); });
+  select.form?.addEventListener('submit', event => { event.preventDefault(); sync(); });
+  sync();
 }
 
 for (const select of document.querySelectorAll<HTMLSelectElement>('[data-property-kind]')) {
   const sync = () => {
+    const help = select.form?.querySelector<HTMLElement>('[data-kind-help]');
+    if (help) help.textContent = select.selectedOptions[0]?.dataset.help ?? '';
     for (const section of select.form?.querySelectorAll<HTMLElement>('[data-kind-options]') ?? []) {
       const enabled = section.dataset.kindOptions === select.value;
       section.hidden = !enabled;
-      for (const input of section.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>('input, select, textarea')) input.disabled = !enabled;
+      for (const input of section.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>('input, select, textarea')) {
+        input.disabled = !enabled;
+        if (input.name === 'options' || input.name === 'targetTypeId') input.required = enabled;
+      }
     }
   };
   select.addEventListener('change', sync);

@@ -31,8 +31,8 @@ Bun loads `.env` files normally. Use one server per database. This is a local si
 
 ## Use it
 
-1. **Manage types:** create Task and Meeting. Give Task a date property, then attach that same property to Meeting with **Reuse a shared property**. Labels can change without changing property identity.
-2. **New content:** create objects with typed properties and rich writing. Page is available for writing without a custom type. Object links produce backlinks; trash is reversible.
+1. **Manage types:** create Task and Meeting. Give Task a Date property, then attach that same property to Meeting with **Use an existing property**. Type cards show their fields; setup explains each property format and identifies shared labels before renaming.
+2. **New content:** choose a type, enter a title, and add optional details and rich writing. Switching types in the enhanced creation form preserves title, writing, and property drafts for switching back; only the selected type’s properties are saved. Choose **Create object** to save. Page works without custom properties. Object links produce backlinks; trash is reversible.
 3. **Views → Create view:** describe the view in the right-hand assistant, for example: “Show Task and Meeting in an editable calendar using their date property. Include unscheduled objects.”
 4. Review the generated draft in the main area, then publish. Continue the conversation to refine the latest result; **Refine with AI** explicitly starts a conversation about the selected view. Each refinement creates a separate draft.
 5. Edit a bound date or board group through an explicitly editable published view. The command updates the original object. Deleting the view leaves the objects and other views intact.
