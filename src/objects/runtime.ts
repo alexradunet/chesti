@@ -1,9 +1,7 @@
 import type { Database } from 'bun:sqlite';
-import { createHash, randomUUID } from 'node:crypto';
 import { AppError } from '../core.js';
-import { valueError } from '../vault/values.js';
+import { valueError } from './values.js';
 import { documentReferences, documentText, validateDocument } from './document.js';
-import { migrateVault } from './migration.js';
 import { PAGE_TYPE_ID } from './model.js';
 import type { Backlink, Catalog, DocumentNode, ObjectListOptions, ObjectRecord, ObjectType, ObjectWrite, PropertyDefinition, PropertyKind, PropertyValue } from './model.js';
 
@@ -44,7 +42,7 @@ function fingerprint(input: ObjectWrite): string {
     for (const child of node.content ?? []) stripIds(child);
   };
   stripIds(document);
-  return createHash('sha256').update(canonical({ ...input, document })).digest('hex');
+  return new Bun.CryptoHasher('sha256').update(canonical({ ...input, document })).digest('hex');
 }
 
 export class ObjectRuntime {
@@ -82,10 +80,7 @@ export class ObjectRuntime {
           request_id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, object_id TEXT NOT NULL COLLATE NOCASE REFERENCES objects(id)
         ) STRICT;
       `);
-      if (!version) {
-        migrateVault(db);
-        db.query("INSERT INTO object_metadata(key, value) VALUES ('schema_version', '1')").run();
-      }
+      if (!version) db.query("INSERT INTO object_metadata(key, value) VALUES ('schema_version', '1')").run();
       db.query('INSERT INTO object_types(id, name, property_ids_json, revision) VALUES (?, ?, ?, 1) ON CONFLICT(id) DO NOTHING').run(PAGE_TYPE_ID, 'Page', '[]');
     })();
   }
@@ -109,7 +104,7 @@ export class ObjectRuntime {
   createType(name: string): ObjectType {
     name = label(name, 'Type name');
     return this.db.transaction(() => {
-      const id = randomUUID();
+      const id = crypto.randomUUID();
       this.db.query('INSERT INTO object_types(id, name, property_ids_json, revision) VALUES (?, CAST(? AS TEXT), ?, 1)').run(id, Buffer.from(name), '[]');
       return this.getType(id);
     })();
@@ -140,14 +135,14 @@ export class ObjectRuntime {
           if (!Array.isArray(input.options) || !input.options.length || input.options.length > 100) throw new AppError(422, 'Select properties need 1–100 options.');
           const labels = input.options.map(option => label(option, 'Option'));
           if (new Set(labels).size !== labels.length) throw new AppError(422, 'Option labels must be unique.');
-          options = labels.map(option => ({ id: randomUUID(), label: option }));
+          options = labels.map(option => ({ id: crypto.randomUUID(), label: option }));
         }
         if (input.kind === 'reference') {
           if (!input.targetTypeId) throw new AppError(422, 'Reference properties need a target type.');
           this.getType(input.targetTypeId);
           if (input.multiple !== undefined && typeof input.multiple !== 'boolean') throw new AppError(422, 'Reference multiplicity must be true or false.');
         }
-        propertyId = randomUUID();
+        propertyId = crypto.randomUUID();
         this.db.query('INSERT INTO object_properties(id, label, kind, options_json, target_type_id, multiple, revision) VALUES (?, CAST(? AS TEXT), ?, ?, ?, ?, 1)').run(propertyId, Buffer.from(propertyLabel), input.kind, options ? JSON.stringify(options) : null, input.targetTypeId ?? null, input.multiple ? 1 : 0);
       }
       if (type.propertyIds.includes(propertyId)) throw new AppError(409, 'This type already uses that property.');
@@ -195,7 +190,7 @@ export class ObjectRuntime {
       }
       this.validateValues(write);
       const now = new Date().toISOString();
-      const id = randomUUID();
+      const id = crypto.randomUUID();
       this.db.query(`INSERT INTO objects(id, type_id, title, properties_json, document_json, revision, created_at, updated_at, trashed, document_text)
         VALUES (?, ?, CAST(? AS TEXT), ?, ?, 1, ?, ?, 0, CAST(? AS TEXT))`).run(id, write.typeId, Buffer.from(write.title), JSON.stringify(write.properties), JSON.stringify(write.document), now, now, Buffer.from(documentText(write.document)));
       const object = this.getObject(id);
@@ -282,7 +277,7 @@ export class ObjectRuntime {
           if (target.trashed && !retained.has(target.id.toLowerCase())) throw new AppError(422, `${property.label}: cannot add a reference to a trashed object.`);
         }
       } else {
-        const error = valueError({ type: property.kind }, value);
+        const error = valueError(property.kind, value);
         if (error) throw new AppError(422, `${property.label}: ${error}`);
       }
     }

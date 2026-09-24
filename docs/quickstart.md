@@ -1,6 +1,6 @@
 # Object workspace quick start
 
-The historical filename is retained for existing documentation links. The current application is an object workspace, not an app-owned Today dashboard.
+Create objects, share properties between types, and use AI to author views over the same data.
 
 ## Start
 
@@ -58,7 +58,7 @@ The enhanced editor supports headings, emphasis, code, lists, undo/redo, and obj
 
 Native links and forms, CSRF protection, and the same server-side validation remain authoritative. Only published views that explicitly expose calendar-date or board-group editing have inline write controls.
 
-## Back up and migrate
+## Back up
 
 Use SQLite's backup operation for a running database:
 
@@ -68,15 +68,6 @@ sqlite3 .data/taskdesk.sqlite ".backup '/absolute/path/to/backup.sqlite'"
 
 Alternatively stop the server and back up the database together with any `-wal`/`-shm` files. Do not copy only the main file while a writer is active.
 
-Startup migrates existing legacy **SQLite** records transactionally. Original vault tables/files are retained, and the migration runs once. No app approval is required to see the owner's migrated objects. Legacy `/vault` mutations and app review are removed; legacy runtime/CLI access to migrated databases is rejected.
+Only the current object database is supported. There is no historical issue/vault runtime, directory import/export tool, or legacy migration path. Startup never converts or deletes unrelated tables or files. Back up the SQLite database rather than treating Markdown files as live storage.
 
-For a pre-SQLite directory, first prepare a new database with the legacy adapter, then open it in the current server:
-
-```sh
-bun run lifeapps import /absolute/path/to/legacy-directory --db /absolute/path/to/new-workspace.sqlite
-DATABASE_PATH=/absolute/path/to/new-workspace.sqlite bun start
-```
-
-Do not run the legacy export tool on a migrated workspace: its archived records are no longer the current objects. Back up the SQLite database instead. Editing old Markdown files or changing `VAULT_ROOT` does not change live objects.
-
-See the [object/view contract](app-definition-v1.md) for storage, query, and command constraints.
+See the [object/view contract](object-contract.md) for storage, query, and command constraints.

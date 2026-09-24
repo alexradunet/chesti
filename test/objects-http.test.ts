@@ -2,33 +2,29 @@ import { test } from 'node:test';
 import type { TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { cpSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { createApp } from '../src/server.js';
 import { openDatabase } from '../src/database.js';
 import { AppError } from '../src/core.js';
-import { Store } from '../src/store.js';
+import { VisitorStore } from '../src/visitors.js';
 import { ObjectRuntime } from '../src/objects/runtime.js';
 import { ViewService } from '../src/objects/views.js';
-import { VaultRuntime } from '../src/vault/runtime.js';
 import type { ViewConversation, ViewGenerator } from '../src/objects/model.js';
 
 async function setup(t: TestContext, generator: ViewGenerator) {
   const db = openDatabase();
   const objects = new ObjectRuntime(db);
-  const store = new Store(db);
-  const server = createApp({ store, objects, viewGenerator: generator });
+  const visitors = new VisitorStore(db);
+  const server = createApp({ objects, viewGenerator: generator });
   t.after(async () => { await server.stop(true); db.close(); });
   const origin = server.url.origin;
   const home = await fetch(origin);
   const cookie = home.headers.get('set-cookie')!.split(';')[0]!;
-  const visitor = store.get(cookie.slice('taskdesk='.length))!;
+  const visitor = visitors.get(cookie.slice('taskdesk='.length))!;
   const get = (path: string) => fetch(origin + path, { headers: { Cookie: cookie }, redirect: 'manual' });
   const post = (path: string, fields: Record<string, string>, accept = 'text/html') => fetch(origin + path, {
     method: 'POST', headers: { Cookie: cookie, Origin: origin, Accept: accept }, body: new URLSearchParams({ csrf: visitor.csrf, ...fields }), redirect: 'manual',
   });
-  return { objects, views: new ViewService(objects), post, get, origin, visitor, store };
+  return { objects, views: new ViewService(objects), post, get, origin, visitor, visitors };
 }
 
 test('native object forms and an AI-authored calendar share data without regeneration', async t => {
@@ -139,7 +135,7 @@ test('view conversations reject other visitors and deleted latest results withou
   const created = await f.post('/views/generate', { prompt: 'Show pages' }, 'application/json');
   const result = await created.json() as { conversation: ViewConversation; viewId: string };
   const path = `/views/conversations/${result.conversation.id}`;
-  const other = f.store.create();
+  const other = f.visitors.create();
   const foreignHeaders = { Cookie: `taskdesk=${other.id}`, Origin: f.origin, Accept: 'application/json' };
   assert.equal((await fetch(f.origin + path, { headers: foreignHeaders })).status, 404);
   const foreignPost = await fetch(f.origin + '/views/generate', { method: 'POST', headers: foreignHeaders, body: new URLSearchParams({ csrf: other.csrf, prompt: 'Change it', conversationId: result.conversation.id }) });
@@ -183,30 +179,4 @@ test('saving a conversation turn is atomic with its generated view and retry rem
   assert.equal(retried.status, 200);
   const successful = await retried.json() as { conversation: ViewConversation };
   assert.deepEqual(successful.conversation.turns.map(turn => turn.prompt), ['Show pages', 'Refine pages']);
-});
-
-test('existing owner data migrates without app approval and retired mutations cannot fork it', async t => {
-  const directory = mkdtempSync(join(tmpdir(), 'objects-migration-http-'));
-  const root = join(directory, 'vault');
-  cpSync(new URL('../examples/life-vault', import.meta.url), root, { recursive: true });
-  const db = openDatabase(join(directory, 'workspace.sqlite'));
-  new VaultRuntime(db, { importRoot: root });
-  const before = db.query<{ id: string; title: string; body: string }, []>('SELECT id, title, body FROM vault_records ORDER BY id').all();
-  const source = readFileSync(join(root, 'Projects/Website/Tasks/Publish homepage.md'), 'utf8');
-  const objects = new ObjectRuntime(db);
-  assert.throws(() => new VaultRuntime(db), (error: unknown) => error instanceof AppError && error.status === 409);
-  const store = new Store(db);
-  const server = createApp({ store, objects });
-  t.after(async () => { await server.stop(true); db.close(); rmSync(directory, { recursive: true, force: true }); });
-  const home = await fetch(server.url);
-  assert.equal(home.status, 200);
-  const cookie = home.headers.get('set-cookie')!.split(';')[0]!;
-  const visitor = store.get(cookie.slice('taskdesk='.length))!;
-  for (const row of before) assert.equal(objects.getObject(row.id.toLowerCase()).title, row.title);
-  const retired = await fetch(new URL('/vault/act', server.url), {
-    method: 'POST', headers: { Cookie: cookie, Origin: server.url.origin }, body: new URLSearchParams({ csrf: visitor.csrf }), redirect: 'manual',
-  });
-  assert.equal(retired.status, 404);
-  assert.deepEqual(db.query('SELECT id, title, body FROM vault_records ORDER BY id').all(), before);
-  assert.equal(readFileSync(join(root, 'Projects/Website/Tasks/Publish homepage.md'), 'utf8'), source);
 });

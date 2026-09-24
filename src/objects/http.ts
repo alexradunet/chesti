@@ -1,6 +1,6 @@
 import { Value } from 'typebox/value';
 import { AppError } from '../core.js';
-import type { Visitor } from '../store.js';
+import type { Visitor } from '../visitors.js';
 import { documentFromMarkdown, validateDocument } from './document.js';
 import { IdSchema, PAGE_TYPE_ID } from './model.js';
 import type { ObjectPageModel, ObjectRecord, ObjectWrite, PropertyDefinition, PropertyKind, PropertyValue, SavedView, ViewConversation, ViewGenerator } from './model.js';

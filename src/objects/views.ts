@@ -1,7 +1,6 @@
-import { randomUUID } from 'node:crypto';
 import { Value } from 'typebox/value';
 import { AppError } from '../core.js';
-import { validDate, validDateTime } from '../vault/values.js';
+import { validDate, validDateTime } from './values.js';
 import { ViewSpecSchema } from './model.js';
 import type { Catalog, EvaluatedBlock, EvaluatedView, ObjectRecord, PropertyDefinition, PropertyValue, SavedView, ViewSource, ViewSpec } from './model.js';
 import type { ObjectRuntime } from './runtime.js';
@@ -202,7 +201,7 @@ export class ViewService {
       const catalog = this.objects.catalog();
       const spec = validateViewSpec(generated.spec, catalog);
       const now = new Date().toISOString();
-      const id = randomUUID();
+      const id = crypto.randomUUID();
       this.objects.db.query('INSERT INTO object_views (id,revision,status,spec_json,prompt,model,schema_json,created_at,updated_at,deleted) VALUES (?,1,\'draft\',?,?,?,?,?,?,0)')
         .run(id, JSON.stringify(spec), prompt, generated.model, schemaSignature(spec, catalog), now, now);
       this.archive(id);

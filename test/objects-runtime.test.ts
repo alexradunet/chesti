@@ -1,14 +1,16 @@
 import { test } from 'node:test';
 import type { TestContext } from 'node:test';
 import assert from 'node:assert/strict';
-import type { Database } from 'bun:sqlite';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { AppError } from '../src/core.js';
 import { openDatabase } from '../src/database.js';
-import { documentFromMarkdown, documentReferences, documentText } from '../src/objects/document.js';
+import { documentFromMarkdown } from '../src/objects/document.js';
 import { PAGE_TYPE_ID } from '../src/objects/model.js';
 import type { ObjectWrite, PropertyValue } from '../src/objects/model.js';
 import { ObjectRuntime } from '../src/objects/runtime.js';
-import { initializeVault } from '../src/vault/sql.js';
+import { valueError, validDate, validDateTime } from '../src/objects/values.js';
 
 function fixture(t: TestContext) {
   const db = openDatabase();
@@ -129,71 +131,48 @@ test('browse is bounded, literal-searchable, and isolates trash state', t => {
   assert.throws(() => runtime.listObjects({ offset: -1 }), status(422));
 });
 
-function legacyFixture(t: TestContext) {
-  const db = openDatabase();
-  t.after(() => db.close());
-  initializeVault(db);
-  const definition = { id: 'work', types: { task: { fields: { status: { type: 'enum', values: ['Open', 'Done'] }, owner: { type: 'reference', target: 'people.person' }, due: { type: 'date' } } } } };
-  const people = { id: 'people', types: { person: { fields: {} } } };
-  for (const app of [definition, people]) {
-    db.query('INSERT INTO vault_apps(id, path, current_revision) VALUES (?, ?, ?)').run(app.id, `.apps/${app.id}.md`, 'current');
-    db.query('INSERT INTO vault_app_revisions(app_id, revision, definition_json, body, source) VALUES (?, ?, ?, ?, ?)').run(app.id, 'current', JSON.stringify(app), 'Original definition prose.', 'Original definition source.');
-  }
-  const targetId = 'AABBCCDD-0000-4000-8000-000000000001';
-  const taskId = 'aabbccdd-0000-4000-8000-000000000002';
-  const noteId = 'aabbccdd-0000-4000-8000-000000000003';
-  legacyRecord(db, targetId, 'People/Ada.md', 'record', 'people.person', 'Ada', 'Original biography.', {});
-  legacyRecord(db, taskId, 'Tasks/Ship.md', 'record', 'work.task', 'Ship', '# Ship\n\n[[Ada|Owner]] and [[Missing]]; `[[Ada]]`.', { status: 'Open', owner: targetId.toLowerCase(), due: '2026-09-24', custom: { nested: ['keep', 7], active: true }, effort: 3, comment: '\uFEFFOriginal metadata.' });
-  legacyRecord(db, noteId, 'Notes/Private.md', 'note', null, 'Private', 'Owner-only note with [[People/Ada]].', { aliases: ['My private note'], pinned: true });
-  return { db, targetId, taskId, noteId };
-}
-function legacyRecord(db: Database, id: string, path: string, kind: string, type: string | null, title: string, body: string, fields: Record<string, unknown>): void {
-  db.query('INSERT INTO vault_records(id, path, kind, type, schema_version, fields_json, title, body, source, revision) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(id, path, kind, type, type === null ? null : 1, JSON.stringify(fields), title, body, `Archived source for ${id}`, `revision-${id}`);
-}
-
-test('SQL migration gives owners all records, preserves metadata and IDs, and resolves unambiguous wiki links once', t => {
-  const { db, targetId, taskId, noteId } = legacyFixture(t);
-  const archive = db.query('SELECT * FROM vault_records ORDER BY id').all();
+test('canonical objects, property identities, snapshots and create receipts persist across reopening', t => {
+  const directory = mkdtempSync(join(tmpdir(), 'object-runtime-'));
+  const file = join(directory, 'workspace.sqlite');
+  let db = openDatabase(file);
+  t.after(() => { db.close(); rmSync(directory, { recursive: true, force: true }); });
   const runtime = new ObjectRuntime(db);
-  assert.equal(runtime.listObjects().length, 3);
-  const target = runtime.getObject(targetId);
-  assert.equal(target.id, targetId);
-  const task = runtime.getObject(taskId);
-  assert.equal(task.title, 'Ship');
-  assert.equal(runtime.getType(task.typeId).name, 'work.task');
-  const byLabel = new Map(runtime.catalog().properties.map(property => [property.label, property]));
-  const statusProperty = byLabel.get('status')!;
-  assert.equal(task.properties[statusProperty.id], statusProperty.options!.find(option => option.label === 'Open')!.id);
-  assert.equal(task.properties[byLabel.get('owner')!.id], targetId);
-  assert.equal(task.properties[byLabel.get('due')!.id], '2026-09-24');
-  assert.equal(task.properties[byLabel.get('effort')!.id], 3);
-  assert.equal(task.properties[byLabel.get('comment')!.id], '\uFEFFOriginal metadata.');
-  assert.deepEqual(JSON.parse(String(task.properties[byLabel.get('custom')!.id])), { nested: ['keep', 7], active: true });
-  assert.equal(runtime.getObject(noteId).typeId, PAGE_TYPE_ID);
-  assert.equal(runtime.getObject(noteId).properties[byLabel.get('pinned')!.id], true);
-  assert.match(documentText(task.document), /Owner and \[\[Missing\]\]; \[\[Ada\]\]/);
-  assert.deepEqual(documentReferences(task.document).map(reference => reference.targetId), [targetId.toLowerCase()]);
-  assert.equal(runtime.backlinks(targetId).filter(link => link.object.id === taskId).length, 2);
-  assert.equal(runtime.backlinks(targetId).some(link => link.object.id === noteId && link.blockId), true);
-  assert.deepEqual(db.query('SELECT * FROM vault_records ORDER BY id').all(), archive);
+  let task = runtime.createType('Task');
+  task = runtime.addProperty(task.id, task.revision, { label: 'State', kind: 'select', options: ['Open', 'Done'] });
+  const state = runtime.getProperty(task.propertyIds[0]!);
+  const requestId = crypto.randomUUID();
+  const properties = { [state.id]: state.options![0]!.id };
+  const before = runtime.createObject(input(task.id, 'Before', properties, 'Saved **body**.'), requestId);
+  const edited = runtime.updateObject(before.id, before.revision, { ...before, title: 'After' });
+  const trashed = runtime.setTrashed(edited.id, edited.revision, true);
+  runtime.renameProperty(state.id, state.revision, 'Progress');
   const catalog = runtime.catalog();
-  const restarted = new ObjectRuntime(db);
-  assert.deepEqual(restarted.catalog(), catalog);
-  assert.deepEqual(restarted.getObject(taskId), task);
-  assert.equal(restarted.listObjects().length, 3);
+  db.close();
+  db = openDatabase(file);
+  const reopened = new ObjectRuntime(db);
+  assert.deepEqual(reopened.catalog(), catalog);
+  assert.deepEqual(reopened.getObject(before.id), trashed);
+  assert.deepEqual(reopened.listObjects({ trashed: true }), [trashed]);
+  assert.deepEqual(reopened.createObject(input(task.id, 'Before', properties, 'Saved **body**.'), requestId), trashed);
+  assert.throws(() => reopened.createObject(input(task.id, 'Different', properties, 'Saved **body**.'), requestId), status(409));
+  const snapshot = db.query<{ snapshot_json: string }, [string, number]>('SELECT snapshot_json FROM object_revisions WHERE object_id = ? AND revision = ?').get(before.id, before.revision)!;
+  assert.deepEqual(JSON.parse(snapshot.snapshot_json), before);
 });
 
-test('unsupported migration rolls back everything without losing or marking source data', t => {
-  const { db, taskId } = legacyFixture(t);
-  const old = db.query<{ fields_json: string }, [string]>('SELECT fields_json FROM vault_records WHERE id = ?').get(taskId)!;
-  const fields = JSON.parse(old.fields_json);
-  fields.status = 'Not declared';
-  db.query('UPDATE vault_records SET fields_json = ? WHERE id = ?').run(JSON.stringify(fields), taskId);
-  assert.throws(() => new ObjectRuntime(db), /enum value is not declared/);
-  assert.equal(db.query<{ count: number }, []>("SELECT count(*) AS count FROM sqlite_master WHERE name IN ('objects', 'object_metadata')").get()!.count, 0);
-  assert.equal(JSON.parse(db.query<{ fields_json: string }, [string]>('SELECT fields_json FROM vault_records WHERE id = ?').get(taskId)!.fields_json).status, 'Not declared');
-  db.query('UPDATE vault_records SET fields_json = ? WHERE id = ?').run(old.fields_json, taskId);
-  assert.equal(new ObjectRuntime(db).getObject(taskId).title, 'Ship');
+test('calendar dates and timestamps are strict, leap-aware, and never locale/timezone guessed', () => {
+  for (const date of ['2024-02-29', '2000-02-29', '0001-01-01', '9999-12-31']) assert.ok(validDate(date), date);
+  for (const date of ['2026-02-30', '1900-02-29', '0000-01-01', '2026-9-01', '2026-13-01', 'tomorrow', '2026-01-01T00:00:00Z']) assert.equal(validDate(date), false, date);
+  for (const date of ['2026-09-23T12:00:00Z', '2026-09-23T12:00:00.123+01:00']) assert.ok(validDateTime(date), date);
+  for (const date of ['2026-02-30T12:00:00Z', '2026-09-23T24:00:00Z', '2026-09-23T12:00:00', '2026-09-23T12:00:00+14:30', '2026-09-23T12:00:00-00:00']) assert.equal(validDateTime(date), false, date);
+  assert.ok(valueError('boolean', 'true')); assert.ok(valueError('number', Infinity)); assert.ok(valueError('number', Number.MAX_SAFE_INTEGER + 1));
+});
+
+test('time ranges validate ordering, zone offsets and DST at both endpoints; all-day ranges have exclusive ends', () => {
+  const good = { start: '2026-10-25T01:30:00+01:00', end: '2026-10-25T01:30:00+00:00', timeZone: 'Europe/London' };
+  assert.equal(valueError('time-range', good), undefined);
+  for (const bad of [{ ...good, timeZone: 'Invalid/Zone' }, { ...good, end: good.start }, { ...good, start: '2026-10-25T01:30:00+02:00' }, { ...good, extra: true }]) assert.ok(valueError('time-range', bad));
+  assert.equal(valueError('date-range', { start: '2026-09-23', end: '2026-09-24' }), undefined);
+  assert.ok(valueError('date-range', { start: '2026-09-23', end: '2026-09-23' }));
 });
 
 test('schema version guard does not modify newer object databases', t => {

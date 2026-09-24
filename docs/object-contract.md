@@ -1,6 +1,6 @@
 # Object workspace contract
 
-This document replaces the app-owned record contract. Its historical filename remains for documentation links. The implementation schema is `src/objects/model.ts`; SQLite is the sole live authority.
+The implementation schema is `src/objects/model.ts`; SQLite is the sole live authority.
 
 ## Data model
 
@@ -70,13 +70,13 @@ Generation receives a deliberate projection of type/property metadata plus the c
 
 The browser only submits prompts and lifecycle/actions, never an arbitrary spec. Trusted JSX renders declarative components; generated HTML, JavaScript, SQL, plugins, and scripts are not part of the contract.
 
-## Persistence and migration
+## Persistence
 
-`ObjectRuntime` initializes versioned object tables and performs legacy migration transactionally. Newer unknown schema versions are refused. Canonical object writes, revision snapshots, and derived edges commit together. Foreign keys, WAL, and full synchronous durability are configured by `openDatabase`.
+`ObjectRuntime` initializes versioned object tables transactionally. Newer unknown schema versions are refused. Canonical object writes, revision snapshots, and derived edges commit together. Foreign keys, WAL, and full synchronous durability are configured by `openDatabase`.
 
-Legacy migration reads owner records directly from existing SQL regardless of old app grants, assigns stable type/property/option identities, preserves object IDs and source data, translates resolvable links, and derives reference edges. Unknown structured or mixed metadata is retained as reversible JSON text with an encoding map. Ambiguous links remain prose. Unsupported data rolls back initialization instead of silently dropping records. Original app tables are archival, not a second authority; legacy runtime startup refuses a migrated database.
+The object workspace is the only supported data model. Startup does not migrate historical issue/vault data or scan directories. Existing object tables and visitor identities retain their formats; unrelated historical tables/files are neither read nor deleted. Visitor identity and CSRF state are stored directly in `browser_visitors`, without issue fixtures or a separate workspace store.
 
-The live HTTP surface is `/`, `/calendar`, `/tasks`, `/types`, `/objects`, `/properties`, and `/views`. `/calendar` lists calendar-containing saved views; `/tasks` browses an existing Task or Tasks type without creating one. `/views/generate` accepts a prompt and either a previous view ID or a conversation ID, never both. Enhanced clients request JSON; native clients receive a redirect. `/views/conversations/:id` returns successful turns only to their visitor cookie. The old `/vault` surface is retired. Historical issue-conversation workspaces remain a separate experiment and do not act on canonical objects.
+The HTTP surface is `/`, `/calendar`, `/tasks`, `/types`, `/objects`, `/properties`, and `/views`. `/calendar` lists calendar-containing saved views; `/tasks` browses an existing Task or Tasks type without creating one. `/views/generate` accepts a prompt and either a previous view ID or a conversation ID, never both. Enhanced clients request JSON; native clients receive a redirect. `/views/conversations/:id` returns successful turns only to their visitor cookie. There are no issue-workspace or vault routes.
 
 ## UI and limits
 

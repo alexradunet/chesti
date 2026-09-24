@@ -47,23 +47,22 @@ Successful conversation turns are stored in SQLite and scoped to the browser vis
 
 The model receives your prompt, up to 12 earlier prompts in the conversation, type/property metadata, and the prior declarative specification when refining. It does **not** receive object titles or writing unless you include them in a prompt. The configured provider processes that information. Generated HTML, JavaScript, SQL, and arbitrary code are not accepted.
 
-See the [quick start](docs/vault-quickstart.md) and [object/view contract](docs/app-definition-v1.md) for detailed behavior and boundaries.
+See the [quick start](docs/quickstart.md) and [object/view contract](docs/object-contract.md) for detailed behavior and boundaries.
 
-## Storage and migration
+## Storage
 
 SQLite stores canonical objects, structured documents, shared property definitions, types, saved views, view conversations, revisions, and derived backlinks. ProseMirror edits structured writing; server-rendered forms also work without JavaScript through a Markdown fallback. Images remain text placeholders and are not fetched.
 
-Existing SQLite vault records migrate transactionally on first object-runtime startup, regardless of legacy app grants. IDs, source tables, and original files are retained. Unknown structured metadata is stored reversibly with an encoding map. Invalid or unsupported data aborts initialization rather than being silently dropped. Back up before upgrading; see the quick start.
-
-The old Today/app-approval HTTP surface is retired. Legacy CLI commands refuse migrated object databases, preventing a second writable authority. The `lifeapps` parser/import tools remain for preparing legacy data **before** migration, not editing current objects. No directory is watched or treated as live storage; `VAULT_ROOT` no longer bootstraps the server.
-
-The original issue-conversation experiment remains separately at `/issues/new`. Its demo mode, Pi chat, and `bun run smoke:pi` belong to that experiment, not the object workspace or its view generator.
+The object workspace is the only supported application. Startup initializes a fresh object database or opens an existing one; it does not import or migrate historical issue/vault data. Existing object data and visitor-owned view conversations remain usable. Unrelated tables and files are left untouched, not converted or deleted. Back up SQLite before upgrading; see the quick start.
 
 ## Implementation
 
+Bun supplies the HTTP server, SQLite driver, browser bundler, file responses, cookie handling, hashing, and test runner. Hono supplies trusted JSX rendering, not routing. ProseMirror owns the shared editor/document schema and Markdown round trip; Bun's Markdown renderer is not a replacement for that structured editing pipeline.
+
+- `src/server.ts`, `src/visitors.ts`: secured local HTTP and persistent visitor identity/CSRF state.
 - `src/objects/model.ts`: shared types and closed declarative view schema.
 - `src/objects/runtime.ts`: canonical objects, property validation, revisions, commands, and backlinks.
-- `src/objects/migration.ts`: transactional legacy SQL migration.
+- `src/objects/values.ts`: dependency-light scalar and temporal validation.
 - `src/objects/document.ts`: bounded structured documents and safe rich links.
 - `src/objects/views.ts`: persistent view lifecycle, prepared bounded queries, and scoped commands.
 - `src/objects/conversations.ts`: visitor-owned view threads and atomic draft/turn persistence.

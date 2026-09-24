@@ -1,17 +1,9 @@
-import { randomUUID, timingSafeEqual } from 'node:crypto';
+import { timingSafeEqual } from 'node:crypto';
 import { resolve as resolvePath } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { AppError, validatePlan } from './core.js';
-import { createComposer } from './composer.js';
-import type { Composer } from './composer.js';
-import { issueResolver } from './issues.js';
-import { executeReceipt, workspaceResolver } from './conversation.js';
-import type { ChatRunner } from './conversation.js';
-import { createConversationRoutes } from './chat-http.js';
+import { AppError } from './core.js';
 import { openDatabase } from './database.js';
-import { errorPage, issueHome, resourcePage, workspacePage } from './render.js';
-import { Store } from './store.js';
-import type { Receipt, Visitor, Workspace } from './store.js';
+import { VisitorStore } from './visitors.js';
 import { ObjectRuntime } from './objects/runtime.js';
 import { createObjectRoutes } from './objects/http.js';
 import type { ViewGenerator } from './objects/model.js';
@@ -24,9 +16,6 @@ const securityHeaders = {
   Vary: 'Cookie, Accept',
 };
 
-function cookieId(req: Request): string | undefined {
-  return req.headers.get('cookie')?.split(';').map(c => c.trim()).find(c => c.startsWith('taskdesk='))?.slice(9);
-}
 function sameToken(actual: string | null, expected: string): boolean {
   const a = Buffer.from(actual ?? '');
   const b = Buffer.from(expected);
@@ -54,47 +43,28 @@ async function formBody(req: Request, limit = 8192): Promise<URLSearchParams> {
   }
   const fields = new URLSearchParams(Buffer.concat(chunks, size).toString('utf8'));
   for (const key of fields.keys()) {
-    if (!['selected', 'permissions'].includes(key) && !/^p:[a-f0-9-]{36}$/.test(key) && fields.getAll(key).length !== 1) throw new AppError(422, 'Repeated form field.');
+    if (!/^p:[a-f0-9-]{36}$/.test(key) && fields.getAll(key).length !== 1) throw new AppError(422, 'Repeated form field.');
   }
   return fields;
-}
-function workspaceFor(visitor: Visitor, id: string | null): Workspace | undefined {
-  if (!id) return;
-  const workspace = visitor.workspaces.find(w => w.id === id);
-  if (!workspace) throw new AppError(404, 'Workspace not found in this browser sandbox.');
-  return workspace;
-}
-function html(content: string, status = 200): Response {
-  return new Response(content, { status, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
-}
-function redirect(location: string): Response {
-  return new Response(null, { status: 303, headers: { Location: location } });
 }
 function failure(error: unknown): Response {
   const known = error instanceof AppError;
   if (!known) console.error('Request failed:', error);
   const status = known ? error.status : 500;
-  return html(errorPage(status, known ? error.message : 'An unexpected error occurred. See the local server log.'), status);
+  const message = Bun.escapeHTML(known ? error.message : 'An unexpected error occurred. See the local server log.');
+  return new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${status} · Taskdesk</title></head><body><main><h1>${status}</h1><p>${message}</p><a href="/">Return to Taskdesk</a></main></body></html>`, { status, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
 }
 function withHeaders(response: Response, headers: Headers): Response {
   for (const [name, value] of headers) if (!response.headers.has(name)) response.headers.set(name, value);
   return response;
 }
 
-export function createApp(options: { store?: Store; mode?: 'demo' | 'pi'; composer?: Composer; chatRunner?: ChatRunner; objects?: ObjectRuntime; viewGenerator?: ViewGenerator; port?: number } = {}): Bun.Server<undefined> {
-  const db = options.store?.db ?? options.objects?.db ?? openDatabase(process.env.DATABASE_PATH ?? resolvePath('.data/taskdesk.sqlite'));
-  const store = options.store ?? new Store(db);
-  const objects = options.objects ?? new ObjectRuntime(db);
-  if (objects.db !== db) throw new Error('Objects and browser state must share one database connection.');
+export function createApp(options: { objects?: ObjectRuntime; viewGenerator?: ViewGenerator; port?: number } = {}): Bun.Server<undefined> {
+  const objects = options.objects ?? new ObjectRuntime(openDatabase(process.env.DATABASE_PATH ?? resolvePath('.data/taskdesk.sqlite')));
+  const visitors = new VisitorStore(objects.db);
   const objectRoutes = createObjectRoutes(objects, options.viewGenerator);
-  const mode = options.mode ?? (process.env.COMPOSER === 'pi' ? 'pi' : 'demo');
   let objectClient: Promise<Bun.BuildOutput> | undefined;
-  const css = Bun.file(new URL('../public/style.css', import.meta.url));
-  const font = Bun.file(new URL('../node_modules/@fontsource-variable/ibm-plex-sans/files/ibm-plex-sans-latin-wght-normal.woff2', import.meta.url));
-  const client = Bun.file(new URL('../public/workspace.js', import.meta.url));
   const objectCss = Bun.file(new URL('../public/objects.css', import.meta.url));
-  const conversationRoutes = createConversationRoutes(store, options.chatRunner);
-  let composing = false;
   const handle = async (req: Request, server: Bun.Server<undefined>, headers: Headers): Promise<Response> => {
     // Bind to loopback and reject unrecognized hosts to reduce DNS-rebinding risk.
     const host = req.headers.get('host') ?? '';
@@ -116,79 +86,24 @@ export function createApp(options: { store?: Store; mode?: 'demo' | 'pi'; compos
       }
       return new Response(build.outputs[0], { headers: { 'Content-Type': 'text/javascript; charset=utf-8' } });
     }
-    if (req.method === 'GET' && (url.pathname === '/style.css' || url.pathname === '/fonts/plex.woff2' || url.pathname === '/workspace.js')) {
-      const stylesheet = url.pathname === '/style.css';
-      const javascript = url.pathname === '/workspace.js';
-      return new Response(stylesheet ? css : javascript ? client : font, { headers: { 'Content-Type': stylesheet ? 'text/css; charset=utf-8' : javascript ? 'text/javascript; charset=utf-8' : 'font/woff2', 'Cache-Control': 'no-cache' } });
-    }
-    let visitor = store.get(cookieId(req));
+    let visitor = visitors.get(new Bun.CookieMap(req.headers.get('cookie') ?? '').get('taskdesk') ?? undefined);
     if (req.method === 'POST') {
       if (!visitor) throw new AppError(403, 'Open the desk before submitting a form.');
       const origin = req.headers.get('origin');
       if (origin && origin !== `http://${host}`) throw new AppError(403, 'Cross-origin submissions are not allowed.');
       if (req.headers.get('sec-fetch-site') === 'cross-site') throw new AppError(403, 'Cross-site submissions are not allowed.');
-      const fields = await formBody(req, url.pathname.startsWith('/objects/') ? 1_048_576 : url.pathname.endsWith('/messages') || url.pathname === '/views/generate' ? 32_768 : 8192);
+      const fields = await formBody(req, url.pathname.startsWith('/objects/') ? 1_048_576 : url.pathname === '/views/generate' ? 32_768 : 8192);
       if (!sameToken(fields.get('csrf'), visitor.csrf)) throw new AppError(403, 'Invalid form token. Reload the page and try again.');
       const objectResponse = await objectRoutes(req, url, visitor, fields);
       if (objectResponse) return objectResponse;
-      const conversation = await conversationRoutes(req, url, visitor, fields);
-      if (conversation) return conversation;
-      if (url.pathname === '/workspaces') {
-        if ([...fields.keys()].some(k => !['csrf', 'task', 'engine'].includes(k))) throw new AppError(422, 'Unexpected form field.');
-        const task = fields.get('task')?.trim() ?? '';
-        const engine = fields.get('engine');
-        if (!task || task.length > 500) throw new AppError(422, 'Describe your task in 1–500 characters.');
-        if (engine !== 'demo' && engine !== 'pi') throw new AppError(422, 'Choose a supported composer.');
-        if (composing) throw new AppError(429, 'A workspace is already being composed. Please try again shortly.');
-        if (visitor.workspaces.length >= 50) throw new AppError(429, 'This local sandbox has reached its 50-workspace limit.');
-        composing = true;
-        try {
-          const resolver = issueResolver(visitor.issues);
-          const composition = await (options.composer ?? createComposer(engine))(task, resolver);
-          // Validate again at the HTTP boundary; never trust a composer adapter.
-          composition.plan = validatePlan(composition.plan, resolver, new Set(composition.inspected));
-          const workspace = store.workspace(visitor, task, composition);
-          workspace.conversation.engine = engine;
-          store.save();
-          return redirect(`/workspaces/${workspace.id}`);
-        } finally { composing = false; }
-      }
-      const mutation = /^\/issues\/(ISS-\d+)\/(assign|prioritize|start|close|reopen)$/.exec(url.pathname);
-      if (!mutation) throw new AppError(404, 'Action not found.');
-      const workspace = workspaceFor(visitor, fields.get('workspace'));
-      const version = Number(fields.get('version'));
-      if (!Number.isSafeInteger(version) || version < 1 || fields.get('version') !== String(version)) throw new AppError(422, 'Invalid resource version.');
-      const receipt: Receipt = { id: randomUUID(), source: 'form', resource: `/issues/${mutation[1]}`, action: mutation[2]!, fields: Object.fromEntries([...fields].filter(([k]) => !['csrf', 'version', 'workspace'].includes(k))), version, status: 'pending', message: '', created: new Date().toISOString() };
-      workspace?.conversation.receipts.push(receipt);
-      try { executeReceipt(store, visitor, receipt); } catch (error) { workspace?.conversation.receipts.pop(); throw error; }
-      if (receipt.status === 'failed') throw new AppError(receipt.errorStatus ?? 409, receipt.message);
-      return redirect(`/issues/${mutation[1]}?saved=1${workspace ? `&workspace=${workspace.id}` : ''}`);
+      throw new AppError(404, 'Action not found.');
     }
     if (!visitor) {
-      visitor = store.create();
+      visitor = visitors.create();
       headers.set('Set-Cookie', `taskdesk=${visitor.id}; Path=/; HttpOnly; SameSite=Strict; Max-Age=2592000`);
     }
     const objectResponse = await objectRoutes(req, url, visitor);
     if (objectResponse) return objectResponse;
-    const resolver = workspaceResolver(visitor, store);
-    const conversation = await conversationRoutes(req, url, visitor);
-    if (conversation) return conversation;
-    if (url.pathname === '/issues/new') return html(issueHome(visitor, mode));
-    const workspaceMatch = /^\/workspaces\/([a-f0-9-]{36})$/.exec(url.pathname);
-    if (workspaceMatch) {
-      const workspace = workspaceFor(visitor, workspaceMatch[1]!)!;
-      if (workspace.kind === 'today') throw new AppError(410, 'This app-owned workspace has been replaced by the object workspace. Your records are available from home.');
-      return html(workspacePage(workspace, visitor, resolver));
-    }
-    if (url.pathname === '/issues' || /^\/issues\/ISS-\d+$/.test(url.pathname)) {
-      const workspace = workspaceFor(visitor, url.searchParams.get('workspace'));
-      const ref = url.pathname + (url.pathname === '/issues' && url.searchParams.has('scope') ? `?scope=${url.searchParams.get('scope')}` : '');
-      const resource = resolver(ref);
-      // One resource, two representations. No separate RPC API for the agent.
-      return req.headers.get('accept')?.includes('application/vnd.taskdesk.resource+json')
-        ? Response.json(resource, { headers: { 'Content-Type': 'application/vnd.taskdesk.resource+json; charset=utf-8' } })
-        : html(resourcePage(resource, visitor, workspace, url.searchParams.get('saved') === '1'));
-    }
     throw new AppError(404, 'Page not found.');
   };
   return Bun.serve({
