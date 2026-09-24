@@ -14,6 +14,10 @@ The live database is `.data/taskdesk.sqlite` (`DATABASE_PATH` overrides it). Fir
 
 Today contains today's events and scheduled work, unfinished tasks, an editable daily Markdown journal, PARA links, and the same persistent conversation sidebar. Calendar links open a dated agenda. Task forms support deadlines, explicitly zoned work sessions, and completion. “Link in journal” inserts a wiki link into the draft; **Save journal** commits it.
 
+The interface uses readable body text, larger controls, clear focus states and locally scrolling tables. On narrow screens, the workspace comes before conversation; **Workspace / Conversation** links jump between them without replacing either panel. Today summarizes visible schedule items and unfinished tasks, keeps upcoming dates collapsed, and labels PARA as **Notes & projects**.
+
+Enhanced forms show unsaved, saving and error feedback beside the form, with save confirmation in the workspace. Resource navigation preserves an unsent conversation draft and updates the page title and keyboard focus. Selecting a record synchronizes every visible copy of its checkbox. The server-rendered forms remain usable without JavaScript.
+
 Try **“Create a task to finish the homepage tomorrow.”** The credential-free demo supports this exact grammar; select Pi for open-ended requests. Both use `inspect`, `act`, and `present`, and the same validated mutation boundary as browser forms. Pi cannot approve apps or access arbitrary files.
 
 Explicit definition imports become pending review and revoke their previous grants. Updates check record and definition revisions, validate prospective relationships/uniqueness, and preserve untouched Markdown and YAML formatting for export. Record changes, durable runtime receipts and browser conversation receipts commit in one SQLite transaction.
@@ -202,7 +206,7 @@ bun run check
 bun test
 ```
 
-The **126 credential-free tests** cover resource traversal, shared action validation, streaming/Stop/disconnect/replay, browser dirty-form behavior, JSX escaping, grants and atomic bulk approval, imported formatting, stale revisions, uniqueness/references, transactional record/receipt rollback, restart recovery and Markdown interchange. The enhanced form tests exercise the real client against the Bun HTTP server.
+The **129 credential-free tests** cover resource traversal, shared action validation, streaming/Stop/disconnect/replay, browser dirty-form behavior, synchronized selections, inline save failures, navigation/refresh races, JSX escaping, grants and atomic bulk approval, imported formatting, stale revisions, uniqueness/references, transactional record/receipt rollback, restart recovery and Markdown interchange. The enhanced form tests exercise the real client against the Bun HTTP server.
 
 Optional live-provider test (consumes your configured model quota; uses a temporary sandbox, not your working issues):
 
@@ -213,3 +217,5 @@ PI_MODEL=openai-codex/gpt-5.5 bun run smoke:pi
 Passed under Bun 1.4.2 with `openai-codex/gpt-5.5`: assigned ISS-101 and ISS-105, restarted the server/store, recalled the assignment without changing anything, then recomposed the workspace without further issue mutations.
 
 **Today browser smoke passed** in Chromium at desktop and 390px widths against a disposable SQLite database: explicit approvals, streamed demo task creation, native completion, journal creation/editing, unsaved-draft protection, server restart with restored conversation/data, and JavaScript-disabled form submission. Markdown export validated and reimported successfully. No cross-browser claim is made.
+
+**Readability browser smoke passed** in Chromium at 1440px, 390px and 320px widths against a disposable SQLite database. Checked Today, resource tables, app review and issue workspaces for page overflow; exercised mobile panel links, keyboard skip navigation, journal saving, demo task creation, native completion, draft-preserving resource navigation, and JavaScript-disabled journal submission.

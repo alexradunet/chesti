@@ -110,3 +110,62 @@ test('streamed model text is text, not executable markup', async t => {
   assert.equal(f.window.document.querySelectorAll('script').length, 1);
   assert.deepEqual(f.errors, []);
 });
+
+test('selecting a repeated record keeps every copy in sync and sends it once', async t => {
+  let selected: string[] = [];
+  const f = await setup(t, async c => { selected = [...c.turn.selected]; c.text('Selection received.'); });
+  const copies = [...f.window.document.querySelectorAll<HTMLInputElement>('input[name="selected"][value="/issues/ISS-101"]')];
+  assert.ok(copies.length > 1, 'the queue and detail both show this issue');
+  copies[0]!.checked = true;
+  copies[0]!.dispatchEvent(new f.window.Event('input', { bubbles: true }));
+  assert.ok(copies.every(copy => copy.checked));
+  f.send('Inspect my selection');
+  await waitFor(() => f.ready() && selected.length > 0, 'selected record delivered');
+  assert.deepEqual(selected, ['/issues/ISS-101']);
+  const refreshed = [...f.window.document.querySelectorAll<HTMLInputElement>('input[name="selected"][value="/issues/ISS-101"]')];
+  refreshed[0]!.checked = false;
+  refreshed[0]!.dispatchEvent(new f.window.Event('input', { bubbles: true }));
+  assert.ok(refreshed.every(copy => !copy.checked));
+});
+
+test('a failed form save explains the error beside the form and retains edits', async t => {
+  const f = await setup(t);
+  const owner = f.query<HTMLSelectElement>('#canvas select[name="owner"]');
+  owner.value = 'sam';
+  owner.dispatchEvent(new f.window.Event('input', { bubbles: true }));
+  const form = owner.form!;
+  const button = form.querySelector('button')!;
+  f.window.fetch = async () => new Response('<section class="error"><p class="lead">The issue changed. Reload before saving.</p></section>', { status: 409 });
+  form.requestSubmit(button);
+  await waitFor(() => Boolean(form.querySelector('.form-feedback.is-error')), 'inline save error');
+  assert.equal(owner.value, 'sam');
+  assert.equal(button.disabled, false);
+  assert.match(form.querySelector('[role="status"]')!.textContent!, /issue changed/);
+  assert.equal(form.hasAttribute('aria-busy'), false);
+  assert.deepEqual(f.errors, []);
+});
+
+test('an older save refresh cannot replace the resource opened while it was loading', async t => {
+  const f = await setup(t);
+  const fetch = f.window.fetch;
+  let release!: () => void;
+  let refreshWaiting = false;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  f.window.fetch = async (input, init) => {
+    const response = await fetch(input, init);
+    if (String(input).includes('/state?')) {
+      refreshWaiting = true;
+      await gate;
+    }
+    return response;
+  };
+  const form = f.query<HTMLSelectElement>('#canvas select[name="owner"]').form!;
+  form.requestSubmit(form.querySelector('button')!);
+  await waitFor(() => refreshWaiting, 'save refresh started');
+  f.query<HTMLAnchorElement>('a[href^="/issues/ISS-101?workspace="]').click();
+  await waitFor(() => f.query('#canvas').getAttribute('data-focus') === '/issues/ISS-101', 'resource opened');
+  release();
+  await waitFor(() => f.query('.workspace-feedback').textContent!.includes('Saved.'), 'older save finished');
+  assert.equal(f.query('#canvas').getAttribute('data-focus'), '/issues/ISS-101');
+  assert.equal(f.window.location.pathname, '/issues/ISS-101');
+});

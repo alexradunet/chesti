@@ -68,13 +68,50 @@ if (desk) {
   let refreshSequence = 0;
   let currentUrl = location.href;
   const $ = selector => document.querySelector(selector);
+  const switcher = document.createElement('nav');
+  switcher.className = 'workbench-switcher';
+  switcher.setAttribute('aria-label', 'Workspace panels');
+  for (const [target, label] of [['canvas', 'Workspace'], ['conversation', 'Conversation']]) {
+    const link = document.createElement('a');
+    link.href = `#${target}`;
+    link.textContent = label;
+    switcher.append(link);
+  }
+  desk.prepend(switcher);
+  const feedback = document.createElement('p');
+  feedback.className = 'workspace-feedback';
+  feedback.setAttribute('role', 'status');
+  feedback.hidden = true;
+  $('.canvas-region').prepend(feedback);
+  function workspaceStatus(text, error = false) {
+    feedback.textContent = text;
+    feedback.classList.toggle('is-error', error);
+    feedback.hidden = !text;
+  }
+  function formStatus(form, text, error = false) {
+    let notice = form.querySelector('.form-feedback');
+    if (!notice) {
+      notice = document.createElement('p');
+      notice.className = 'form-feedback';
+      notice.setAttribute('role', 'status');
+      form.append(notice);
+    }
+    notice.textContent = text;
+    notice.classList.toggle('is-error', error);
+  }
+  let followChat = true;
+  document.addEventListener('scroll', event => {
+    if (event.target.id !== 'transcript') return;
+    const log = event.target;
+    followChat = log.scrollHeight - log.clientHeight - log.scrollTop < 48;
+  }, true);
   const status = text => { $('#chat-status').textContent = text; };
   const draft = () => $('#message')?.value ?? '';
   const saveDraft = value => { try { sessionStorage.setItem(draftKey, value); } catch { /* storage is optional */ } };
-  const scrollChat = () => { const log = $('#transcript'); log.scrollTop = log.scrollHeight; };
+  const scrollChat = () => { if (followChat) { const log = $('#transcript'); log.scrollTop = log.scrollHeight; } };
   function selectionStatus() {
     const count = new Set([...document.querySelectorAll('input[name="selected"]:checked')].map(el => el.value)).size;
-    $('#selection-status').textContent = count ? `${count} record${count === 1 ? '' : 's'} selected for your next message.` : 'No selection · Pi can see the current view.';
+    $('#selection-status').textContent = count ? `${count} record${count === 1 ? '' : 's'} selected for your next message.` : 'No selection · using the current view.';
   }
   function busy(value, id = '') {
     $('#conversation').dataset.busy = String(value);
@@ -91,6 +128,10 @@ if (desk) {
   }
   function update(data) {
     const currentDraft = draft();
+    const active = document.activeElement;
+    const focusedId = active?.id;
+    const caret = active?.tagName === 'TEXTAREA' ? [active.selectionStart, active.selectionEnd] : null;
+    const transcriptTop = $('#transcript').scrollTop;
     const engine = $('#chat-engine').value;
     const selection = new Set([...document.querySelectorAll('input[name="selected"]:checked')].map(el => el.value));
     const oldCanvas = $('#canvas');
@@ -115,6 +156,12 @@ if (desk) {
     if (pending) status('Workspace update waiting. Finish your form, or discard its edits to refresh.');
     selectionStatus();
     scrollChat();
+    if (!followChat) $('#transcript').scrollTop = transcriptTop;
+    if (focusedId && !active.isConnected) {
+      const replacement = document.getElementById(focusedId);
+      replacement?.focus({ preventScroll: true });
+      if (caret && replacement?.tagName === 'TEXTAREA') replacement.setSelectionRange(...caret);
+    }
   }
   async function refresh() {
     const sequence = ++refreshSequence;
@@ -142,6 +189,7 @@ if (desk) {
     const label = document.createElement('span'); label.className = 'speaker'; label.textContent = 'YOU';
     const text = document.createElement('p'); text.textContent = sentMessage;
     user.append(label, text);
+    followChat = true;
     $('#live-response').before(user);
     $('#live-response').hidden = false;
     status('Connecting to the agent…');
@@ -195,31 +243,57 @@ if (desk) {
     const stop = form.id === 'chat-stop';
     const submitter = event.submitter;
     const body = new URLSearchParams(new FormData(form, submitter));
+    if (form.dataset.submitting === 'true') return;
+    form.dataset.submitting = 'true';
+    form.setAttribute('aria-busy', 'true');
+    if (!stop) formStatus(form, 'Saving…');
     if (submitter) submitter.disabled = true;
     try {
       await checked(await fetch(form.getAttribute('action'), { method: 'POST', body }));
       if (stop) { status('Stopping. Actions already applied will remain.'); return; }
       dirtyForms.delete(form);
       if (form.classList.contains('undo-layout')) switchToWorkspace = true;
-      if (!streaming) { await refresh(); status(pending ? 'Saved. Other unfinished forms were preserved.' : form.classList.contains('receipt-form') ? 'Decision recorded. Check the receipt for the outcome.' : 'Saved. Current state is shown.'); }
-      else status('Saved. Pi will see current state when it next inspects the resource.');
-    } catch (error) { status(error.message); }
-    finally { if (submitter?.isConnected) submitter.disabled = false; }
+      if (!streaming) {
+        await refresh();
+        const saved = pending ? 'Saved. Other unfinished forms were preserved.' : form.classList.contains('receipt-form') ? 'Decision recorded. Check the receipt for the outcome.' : 'Saved. Your workspace is up to date.';
+        status(saved);
+        workspaceStatus(saved);
+        if (form.isConnected) formStatus(form, 'Saved.');
+      } else {
+        status('Saved. Pi will see current state when it next inspects the resource.');
+        formStatus(form, 'Saved.');
+      }
+    } catch (error) {
+      status(error.message);
+      workspaceStatus(error.message, true);
+      formStatus(form, error.message, true);
+    } finally {
+      delete form.dataset.submitting;
+      form.removeAttribute('aria-busy');
+      if (submitter?.isConnected) submitter.disabled = false;
+    }
   });
   async function navigate(href, push = true) {
     if (dirtyForms.size && !window.confirm('Discard the unfinished form edits and navigate?')) {
       if (!push) history.pushState(null, '', currentUrl);
       return;
     }
+    // A response for the previous view must not replace the view being opened.
+    ++refreshSequence;
     try {
       const response = await checked(await fetch(href));
-      const next = fromHTML(await response.text(), '#canvas');
+      const html = new DOMParser().parseFromString(await response.text(), 'text/html');
+      const next = html.querySelector('#canvas');
       if (!next) throw new Error('That resource could not be displayed.');
+      ++refreshSequence;
       dirtyForms.clear(); pending = false; switchToWorkspace = false;
       $('#canvas').replaceWith(next);
       enhanceRanges(next);
       next.tabIndex = -1;
       next.focus({ preventScroll: true });
+      next.scrollIntoView?.({ block: 'start' });
+      document.title = html.title;
+      workspaceStatus('');
       $('#pending-update').hidden = true;
       $('#chat-send').elements.focus.value = next.dataset.focus;
       $('#chat-send').elements.revision.value = next.dataset.revision;
@@ -228,9 +302,18 @@ if (desk) {
       busy(streaming || $('#conversation').dataset.busy === 'true');
       selectionStatus();
       // Keep the conversation DOM and its live stream intact while following links.
-    } catch (error) { status(error.message); }
+    } catch (error) { status(error.message); workspaceStatus(error.message, true); }
   }
   document.addEventListener('click', event => {
+    const jump = event.target.closest('a[href^="#"]');
+    const target = jump && document.getElementById(jump.getAttribute('href').slice(1));
+    if (target && desk.contains(jump)) {
+      event.preventDefault();
+      if (!target.hasAttribute('tabindex')) target.tabIndex = -1;
+      target.focus({ preventScroll: true });
+      target.scrollIntoView?.({ block: 'start' });
+      return;
+    }
     const insert = event.target.closest('[data-journal-link]');
     if (insert && desk.contains(insert)) {
       const journal = document.querySelector('#today-journal textarea[name="body"]');
@@ -255,8 +338,18 @@ if (desk) {
   window.addEventListener('popstate', () => { void navigate(location.href, false); });
   document.addEventListener('input', event => {
     if (event.target.id === 'message') saveDraft(event.target.value);
-    if (event.target.name === 'selected') { selectionStatus(); return; }
-    if ($('#canvas').contains(event.target) && event.target.form) dirtyForms.add(event.target.form);
+    if (event.target.name === 'selected') {
+      for (const checkbox of desk.querySelectorAll('input[name="selected"]')) {
+        if (checkbox.value === event.target.value) checkbox.checked = event.target.checked;
+      }
+      selectionStatus();
+      return;
+    }
+    if ($('#canvas').contains(event.target) && event.target.form) {
+      const form = event.target.form;
+      if (!dirtyForms.has(form)) formStatus(form, 'Unsaved changes');
+      dirtyForms.add(form);
+    }
   });
   $('#apply-update').addEventListener('click', async () => {
     dirtyForms.clear();
