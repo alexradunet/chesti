@@ -117,29 +117,131 @@ test('version-1 upgrade preserves writing formats, UUID links, revisions and unr
   assert.deepEqual(new ObjectRuntime(db).getObject(sourceId), converted);
 });
 
+test('blank paragraphs preserve source boundaries without merging nested items or independent lists', t => {
+  const db = fixture(t);
+  insert(db, targetId, document(paragraph()), 1, {}, 'Person');
+  const writing = document(
+    paragraph(),
+    paragraph(literal('Before', [{ type: 'strong' }, { type: 'em' }])),
+    paragraph(),
+    paragraph(),
+    { type: 'blockquote', content: [
+      paragraph(), paragraph(literal('Quoted')), paragraph(), paragraph(literal('Quote end')), paragraph(),
+    ] },
+    { type: 'bullet_list', attrs: { tight: true }, content: [
+      { type: 'list_item', content: [
+        paragraph(), paragraph(), paragraph(literal('First', [{ type: 'strong' }, { type: 'em' }])), paragraph(),
+        { type: 'bullet_list', attrs: { tight: true }, content: [
+          { type: 'list_item', content: [paragraph(), paragraph(literal('Nested')), paragraph()] },
+          { type: 'list_item', content: [paragraph(literal('Nested sibling'))] },
+        ] },
+        paragraph(), paragraph(literal('First end')), paragraph(),
+      ] },
+      { type: 'list_item', content: [paragraph(), paragraph(literal('Second')), paragraph()] },
+    ] },
+    paragraph(),
+    { type: 'bullet_list', content: [
+      { type: 'list_item', content: [paragraph(literal('Independent'))] },
+    ] },
+    paragraph({ type: 'object_link', attrs: { objectId: targetId, label: 'Person' } }),
+    paragraph(),
+  );
+  const current = insert(db, sourceId, writing, 2, { [propertyId]: targetId }, 'Edited');
+  const original = { ...current, title: 'Created', revision: 1 };
+  db.query('INSERT INTO object_revisions VALUES (?, 1, ?, ?)').run(sourceId, JSON.stringify(original), timestamp);
+  db.query('INSERT INTO object_create_requests VALUES (?, ?, ?)').run(requestId, 'legacy-digest', sourceId);
+  const runtime = new ObjectRuntime(db);
+  const converted = runtime.getObject(sourceId);
+  assert.ok(converted.body.startsWith('\n\n***Before***\n\n\n\n\n\n'));
+  assert.ok(converted.body.endsWith(`[Person](/objects/${targetId})\n\n`));
+  assert.match(converted.body, /> \n> \n> Quoted\n> \n> \n> \n> Quote end\n> \n> /);
+  const html = Bun.markdown.html(converted.body, { noHtmlBlocks: true, noHtmlSpans: true });
+  assert.match(html, /<strong><em>Before<\/em><\/strong>|<em><strong>Before<\/strong><\/em>/);
+  assert.match(html, /<blockquote>\s*<p>Quoted<\/p>\s*<p>Quote end<\/p>\s*<\/blockquote>/);
+  assert.match(html, /<li>\s*<p><(?:strong|em)>[\s\S]*?First[\s\S]*?<ul>\s*<li>\s*<p>Nested<\/p>\s*<\/li>\s*<li>\s*<p>Nested sibling<\/p>\s*<\/li>\s*<\/ul>\s*<p>First end<\/p>\s*<\/li>\s*<li>\s*<p>Second<\/p>\s*<\/li>\s*<\/ul>/);
+  assert.match(html, /<\/ul>\s*<ul>\s*<li>Independent<\/li>\s*<\/ul>/);
+  assert.equal(markdownText(converted.body).replace(/\s+/g, ' ').trim(), 'Before Quoted Quote end First Nested Nested sibling First end Second Independent Person');
+  assert.deepEqual(markdownReferences(converted.body), [targetId]);
+  assert.deepEqual(runtime.backlinks(targetId).map(link => link.object.id), [sourceId]);
+  const { document: _currentDocument, ...metadata } = current;
+  assert.deepEqual(converted, { ...metadata, body: converted.body });
+  const { document: _originalDocument, ...originalMetadata } = original;
+  const history = db.query<{ snapshot_json: string; recorded_at: string }, []>('SELECT snapshot_json, recorded_at FROM object_revisions').get()!;
+  assert.deepEqual(JSON.parse(history.snapshot_json), { ...originalMetadata, body: converted.body });
+  assert.equal(history.recorded_at, timestamp);
+  assert.deepEqual(runtime.createObject({ ...originalMetadata, body: converted.body }, requestId), converted);
+  assert.throws(() => runtime.createObject({ ...originalMetadata, body: converted.body.trim() }, requestId), /different content/);
+  assert.deepEqual(new ObjectRuntime(db).getObject(sourceId), converted);
+  assert.deepEqual(db.query('SELECT snapshot_json, recorded_at FROM object_revisions').get(), history);
+  assert.equal(runtime.getObject(targetId).body, '\n\n');
+});
+
+test('ending and consecutive hard breaks retain newlines outside nested marks in current and historical writing', t => {
+  const db = fixture(t);
+  insert(db, targetId, document(paragraph()));
+  const marks = [{ type: 'strong' }, { type: 'em' }];
+  const markedBreak = { type: 'hard_break', marks };
+  const writing = document(
+    paragraph(literal('One', marks), markedBreak, literal('Two', marks), markedBreak, markedBreak, literal('Three', marks), markedBreak),
+    { type: 'blockquote', content: [
+      paragraph(literal('Quote'), { type: 'hard_break' }, { type: 'hard_break' }),
+    ] },
+    { type: 'bullet_list', attrs: { tight: true }, content: [
+      { type: 'list_item', content: [
+        paragraph({ type: 'hard_break' }, { type: 'hard_break' }, literal('List'), { type: 'hard_break' }, { type: 'hard_break' }),
+      ] },
+      { type: 'list_item', content: [paragraph(literal('Sibling'), { type: 'hard_break' })] },
+    ] },
+    paragraph(
+      literal('Linked', [{ type: 'link', attrs: { href: `/objects/${targetId}` } }, ...marks]),
+      { type: 'hard_break', marks: [{ type: 'link', attrs: { href: `/objects/${targetId}` } }, ...marks] },
+    ),
+  );
+  const current = insert(db, sourceId, writing, 2);
+  const original = { ...current, revision: 1, title: 'Original breaks' };
+  db.query('INSERT INTO object_revisions VALUES (?, 1, ?, ?)').run(sourceId, JSON.stringify(original), timestamp);
+  db.query('INSERT INTO object_create_requests VALUES (?, ?, ?)').run(requestId, 'legacy-digest', sourceId);
+  const runtime = new ObjectRuntime(db);
+  const converted = runtime.getObject(sourceId);
+  assert.ok(converted.body.startsWith('***One***  \n***Two***  \n  \n***Three***  \n\n\n'));
+  assert.ok(converted.body.endsWith(`[***Linked***](</objects/${targetId}>)  \n`));
+  assert.match(converted.body, /> Quote  \n>   \n> /);
+  assert.match(converted.body, /  \n  \n- List  \n    \n  \n- Sibling  \n/);
+  const html = Bun.markdown.html(converted.body, { noHtmlBlocks: true, noHtmlSpans: true });
+  assert.match(html, /One<\/(?:em|strong)><\/(?:em|strong)><br\s*\/?>\n<(?:em|strong)><(?:em|strong)>Two/);
+  assert.doesNotMatch(html, /\\|\*\*/);
+  assert.match(html, /<li>\s*<p>List<\/p>\s*<\/li>\s*<li>\s*<p>Sibling<\/p>\s*<\/li>/);
+  assert.equal(markdownText(converted.body).replace(/\s+/g, ' ').trim(), 'One Two Three Quote List Sibling Linked');
+  assert.deepEqual(markdownReferences(converted.body), [targetId]);
+  const { document: _document, ...metadata } = original;
+  const history = db.query<{ snapshot_json: string }, []>('SELECT snapshot_json FROM object_revisions').get()!;
+  assert.deepEqual(JSON.parse(history.snapshot_json), { ...metadata, body: converted.body });
+  assert.deepEqual(runtime.createObject({ ...metadata, body: converted.body }, requestId), converted);
+});
+
 test('upgraded creation receipts and historical source persist across reopening', t => {
   const directory = mkdtempSync(join(tmpdir(), 'object-upgrade-'));
   let db = openDatabase(join(directory, 'workspace.sqlite'));
   t.after(() => { db.close(); rmSync(directory, { recursive: true, force: true }); });
   legacyDatabase(db);
-  const original = insert(db, sourceId, document(paragraph(literal('Created source'))));
+  const original = insert(db, sourceId, document(paragraph(), paragraph(literal('Created source'), { type: 'hard_break' }), paragraph()));
   db.query('INSERT INTO object_create_requests VALUES (?, ?, ?)').run(requestId, 'legacy-digest', sourceId);
   let runtime = new ObjectRuntime(db);
   const upgraded = runtime.getObject(sourceId);
-  assert.equal(upgraded.body, 'Created source');
+  assert.equal(upgraded.body, '\n\nCreated source  \n\n\n');
   const edited = runtime.updateObject(sourceId, 1, { ...upgraded, body: '  # Raw source\r\n\nKeep  spaces\n' });
   db.close();
   db = openDatabase(join(directory, 'workspace.sqlite'));
   runtime = new ObjectRuntime(db);
   assert.deepEqual(runtime.getObject(sourceId), edited);
-  assert.deepEqual(runtime.createObject({ typeId: original.typeId, title: original.title, properties: original.properties, body: 'Created source' }, requestId), edited);
+  assert.deepEqual(runtime.createObject({ typeId: original.typeId, title: original.title, properties: original.properties, body: upgraded.body }, requestId), edited);
   const history = db.query<{ snapshot_json: string }, []>('SELECT snapshot_json FROM object_revisions').get()!;
-  assert.equal(JSON.parse(history.snapshot_json).body, 'Created source');
+  assert.equal(JSON.parse(history.snapshot_json).body, upgraded.body);
 });
 
 test('an unknown historical node rolls back every schema and content change', t => {
   const db = fixture(t);
-  const original = insert(db, sourceId, document(paragraph(literal('Preserve this source'))), 2);
+  const original = insert(db, sourceId, document(paragraph(), paragraph(literal('Preserve this source'), { type: 'hard_break' }), paragraph()), 2);
   db.query('INSERT INTO object_revisions VALUES (?, 1, ?, ?)').run(sourceId, JSON.stringify({ ...original, revision: 1, document: document({ type: 'unknown_widget', content: [literal('Do not drop')] }) }), timestamp);
   db.query('INSERT INTO object_create_requests VALUES (?, ?, ?)').run(requestId, 'original-receipt', sourceId);
   const tables = ['objects', 'object_revisions', 'object_create_requests', 'object_metadata', 'object_references', 'visitor_state', 'saved_views'];
@@ -154,6 +256,9 @@ test('unknown marks, malformed lists, missing creation history and oversized con
   for (const writing of [
     document(paragraph(literal('Important', [{ type: 'unknown_style' }]))),
     document({ type: 'bullet_list', content: [paragraph(literal('Not an item'))] }),
+    document(paragraph({ type: 'hard_break', marks: [{ type: 'code' }] })),
+    document(paragraph({ type: 'hard_break', marks: [{ type: 'link', attrs: { href: `/objects/${targetId}` } }] })),
+    document(paragraph(literal('unrepresentable\ncode', [{ type: 'code' }]))),
     document(paragraph(literal('é'.repeat(140_000)))),
   ]) {
     const db = fixture(t);

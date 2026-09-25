@@ -71,7 +71,6 @@ function decode(input: unknown): LegacyNode {
         if (content.some(child => !Object.hasOwn(inlineAttrs, child.type))) fail(`invalid ${value.type} children`);
         if (value.type === 'heading' && (!Number.isInteger(attrs.level ?? 1) || Number(attrs.level ?? 1) < 1 || Number(attrs.level ?? 1) > 6)) fail('invalid heading level');
         if (value.type === 'heading' && content.some(child => child.type !== 'text' && child.type !== 'image')) fail('invalid heading children');
-        if (content.at(-1)?.type === 'hard_break') fail('trailing hard break cannot be represented in Markdown');
         break;
       case 'code_block':
         if (content.some(child => child.type !== 'text' || child.marks.length)) fail('invalid code block children');
@@ -120,11 +119,32 @@ function code(value: string): string {
   const pad = /^`|`$/.test(value) || (/^ .* $/.test(value) && /[^ ]/.test(value)) ? ' ' : '';
   return `${fence}${pad}${value}${pad}${fence}`;
 }
-function inline(nodes: LegacyNode[], level = 0): string {
+function inline(nodes: LegacyNode[]): string {
+  let result = '';
+  let start = 0;
+  let linkedContent: Set<string> | undefined;
+  for (let index = 0; index < nodes.length; index++) {
+    const node = nodes[index]!;
+    if (node.type !== 'hard_break') continue;
+    if (node.marks.some(mark => mark.type === 'code')) fail('code mark on a non-text node');
+    const link = node.marks.find(mark => mark.type === 'link');
+    if (link) {
+      linkedContent ??= new Set(nodes.filter(candidate => candidate.type !== 'hard_break')
+        .flatMap(candidate => candidate.marks.filter(mark => mark.type === 'link').map(mark => JSON.stringify(mark.attrs))));
+      if (!linkedContent.has(JSON.stringify(link.attrs))) fail('link mark only on hard breaks');
+    }
+    // Close marks before each break: a trailing newline inside an emphasis or
+    // link delimiter can invalidate the markup. Whitespace breaks remain plain
+    // blank lines at paragraph boundaries, unlike a visible terminal backslash.
+    result += inlineMarks(nodes.slice(start, index)) + '  \n';
+    start = index + 1;
+  }
+  return result + inlineMarks(nodes.slice(start));
+}
+function inlineMarks(nodes: LegacyNode[], level = 0): string {
   const order = ['link', 'strong', 'em', 'code'];
   if (level === order.length) return nodes.map(node => {
     if (node.type === 'text') return text(node.text!);
-    if (node.type === 'hard_break') return '\\\n';
     if (node.type === 'object_link') return `[${text(String(node.attrs.label ?? 'Linked object'))}](/objects/${String(node.attrs.objectId).toLowerCase()})`;
     if (node.type === 'image') return `![${text(String(node.attrs.alt ?? ''))}](${destination(String(node.attrs.src))}${title(node.attrs.title)})`;
     return fail(`unexpected inline node ${node.type}`);
@@ -144,7 +164,7 @@ function inline(nodes: LegacyNode[], level = 0): string {
       if (group.some(node => node.type !== 'text')) fail('code mark on a non-text node');
       result += code(group.map(node => node.text!).join(''));
     } else {
-      const content = inline(group, level + 1);
+      const content = inlineMarks(group, level + 1);
       if (!mark) result += content;
       else if (mark.type === 'link') result += `[${content}](${destination(String(mark.attrs.href))}${title(mark.attrs.title)})`;
       else {
@@ -157,9 +177,16 @@ function inline(nodes: LegacyNode[], level = 0): string {
   return result;
 }
 function blocks(nodes: LegacyNode[]): string {
-  if (nodes.length > 1 && nodes.some(node => node.type === 'paragraph' && !node.content.length)) fail('empty paragraph between blocks cannot be represented in Markdown');
-  // Alternating list delimiters keep adjacent independent lists from merging.
-  return nodes.map((node, index) => block(node, index % 2 === 1)).join('\n\n');
+  // An empty editor paragraph contributes a blank-line boundary, not a visible
+  // placeholder. Even an entirely empty document retains its source blank lines.
+  if (nodes.every(node => node.type === 'paragraph' && !node.content.length)) return '\n\n'.repeat(nodes.length);
+  // Empty paragraphs must not reset alternation and merge independent lists.
+  let alternate = false;
+  return nodes.map(node => {
+    const result = block(node, alternate);
+    if (node.type === 'ordered_list' || node.type === 'bullet_list') alternate = !alternate;
+    return result;
+  }).join('\n\n');
 }
 function block(node: LegacyNode, alternate = false): string {
   switch (node.type) {
@@ -179,7 +206,12 @@ function block(node: LegacyNode, alternate = false): string {
       return node.content.map((item, index) => {
         const marker = node.type === 'bullet_list' ? (alternate ? '+ ' : '- ') : `${Number(node.attrs.order ?? 1) + index}${alternate ? ')' : '.'} `;
         const lines = blocks(item.content).split('\n');
-        return marker + lines.map((line, index) => index ? `${' '.repeat(marker.length)}${line}` : line).join('\n');
+        // More than one blank line after an empty list marker ends the item in
+        // Markdown. Keep leading blank source before the marker instead, so its
+        // first real block and any nested lists remain in this same item.
+        const firstContent = lines.findIndex(line => line.trim().length > 0);
+        const leading = firstContent > 0 ? lines.splice(0, firstContent).join('\n') + '\n' : '';
+        return leading + marker + lines.map((line, index) => index ? `${' '.repeat(marker.length)}${line}` : line).join('\n');
       }).join(node.attrs.tight ? '\n' : '\n\n');
     default: return fail(`unexpected block ${node.type}`);
   }

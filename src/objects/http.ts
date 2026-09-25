@@ -3,7 +3,7 @@ import { AppError } from '../core.js';
 import type { Visitor } from '../visitors.js';
 import { validateMarkdown } from './markdown.js';
 import { IdSchema, PAGE_TYPE_ID } from './model.js';
-import type { ObjectPageModel, ObjectRecord, ObjectWrite, PropertyDefinition, PropertyKind, PropertyValue, SavedView, ViewConversation, ViewGenerator } from './model.js';
+import type { ObjectLookupResult, ObjectPageModel, ObjectRecord, ObjectWrite, PropertyDefinition, PropertyKind, PropertyValue, SavedView, ViewConversation, ViewGenerator } from './model.js';
 import type { ObjectRuntime } from './runtime.js';
 import { ViewService } from './views.js';
 import { generateView } from './generator.js';
@@ -57,7 +57,8 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
   return async (req: Request, url: URL, visitor: Visitor, fields?: URLSearchParams): Promise<Response | undefined> => {
     if (!(url.pathname === '/' || url.pathname === '/calendar' || url.pathname === '/tasks' || /^\/(?:types|objects|properties|views)(?:\/|$)/.test(url.pathname))) return;
     const conversationRoute = url.pathname.startsWith('/views/conversations/');
-    const json = conversationRoute || (url.pathname === '/views/generate' && req.headers.get('accept')?.includes('application/json'));
+    const lookupRoute = url.pathname === '/objects/lookup';
+    const json = lookupRoute || conversationRoute || (url.pathname === '/views/generate' && req.headers.get('accept')?.includes('application/json'));
     const catalog = objects.catalog();
     const model: ObjectPageModel = {
       csrf: visitor.csrf, path: url.pathname, screen: 'objects', catalog, views: views.list(), objects: [],
@@ -82,6 +83,17 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
     };
     try {
       if (req.method === 'GET') {
+        if (lookupRoute) {
+          requireFields(url.searchParams, ['q']);
+          const search = url.searchParams.get('q') ?? '';
+          if (search.length > 200) throw new AppError(422, 'Search must be at most 200 characters.');
+          const rows = objects.listObjects({ search, limit: 51 });
+          const result: ObjectLookupResult = {
+            items: rows.slice(0, 50).map(record => ({ id: record.id, title: record.title, typeName: objects.getType(record.typeId).name })),
+            truncated: rows.length > 50,
+          };
+          return Response.json(result, { headers: { 'Cache-Control': 'no-store' } });
+        }
         if (url.searchParams.has('conversation')) {
           const conversation = conversations.get(visitor.id, url.searchParams.get('conversation')!);
           model.aiConversationId = conversation.id;
@@ -186,11 +198,13 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
       if (objectMatch) {
         model.screen = 'object'; model.object = objects.getObject(objectMatch[1]!); model.objectType = objects.getType(model.object.typeId); model.objects = pickerObjects();
         if (objectMatch[2] === 'update') {
-          model.objectDraft = { title: fields.get('title') ?? '', body: fields.get('body') ?? model.object.body, revision: fields.get('revision') ?? '', typeId: fields.get('typeId') ?? model.object.typeId };
-          requireFields(fields, ['csrf', 'revision', 'typeId', 'title', 'body'], true);
+          model.objectDraft = { title: fields.get('title') ?? '', body: fields.get('body') ?? model.object.body, revision: fields.get('reviewedRevision') ?? fields.get('revision') ?? '', typeId: fields.get('typeId') ?? model.object.typeId };
+          requireFields(fields, ['csrf', 'revision', 'reviewedRevision', 'typeId', 'title', 'body'], true);
           const write = readWrite(fields, model.object);
           model.objectDraft.properties = write.properties;
-          objects.updateObject(objectMatch[1]!, revision(fields), write);
+          const originalRevision = revision(fields);
+          const expectedRevision = fields.has('reviewedRevision') ? revision(fields, 'reviewedRevision') : originalRevision;
+          objects.updateObject(objectMatch[1]!, expectedRevision, write);
           return go(`/objects/${objectMatch[1]}?saved=1`);
         }
         requireFields(fields, ['csrf', 'revision']);
@@ -259,6 +273,9 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
       if (!(error instanceof AppError)) throw error;
       if (json) return Response.json({ error: error.message }, { status: error.status, headers: { 'Cache-Control': 'no-store' } });
       model.error = error.message;
+      if (error.status === 409 && model.object && model.objectDraft?.revision && Number(model.objectDraft.revision) !== model.object.revision) {
+        model.error = 'This object changed. Compare the latest saved version with your draft before saving.';
+      }
       return page(error.status);
     }
   };

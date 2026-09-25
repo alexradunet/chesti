@@ -33,6 +33,7 @@
 .object-shell .nav-links { display: flex; flex-direction: column; gap: 3px; }
 .object-shell .nav-links > a { display: flex; align-items: center; gap: 10px; min-height: 35px; padding: 7px 10px; border-radius: 6px; color: #62675e; text-decoration: none; line-height: 1.35; }
 .object-shell .nav-links > a > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.object-shell .nav-links kbd { margin-left: auto; font-size: .65rem; white-space: nowrap; color: var(--muted); }
 .object-shell .nav-links > a:hover, .object-shell .nav-new:hover { background: #eaece5; }
 .object-shell .nav-links > a[aria-current="page"], .object-shell .nav-new[aria-current="page"] { color: #354b35; background: #e4e9df; font-weight: 600; }
 .object-shell .nav-section { margin-top: 25px; }
@@ -159,7 +160,7 @@
 .object-shell .property-builders .panel { background: var(--paper); border-radius: 10px; }
 .object-shell .property-builders .reuse-property { background: var(--wash); }
 .object-shell .kind-help { min-height: 2.5rem; margin-top: -.45rem; }
-.object-shell .object-type-picker { display: flex; align-items: flex-end; flex-wrap: wrap; gap: .7rem 1.2rem; max-width: 900px; padding: 1.1rem 1.3rem; border: 1px solid var(--line); border-radius: 10px; background: var(--wash); margin-bottom: 2rem; }
+.object-shell .object-type-picker { display: flex; align-items: flex-end; flex-wrap: wrap; gap: .5rem 1rem; max-width: 900px; margin-bottom: 1.25rem; }
 .object-shell .object-type-picker label { flex: 1 1 220px; max-width: 340px; margin: 0; }
 .object-shell .object-type-picker > a { font-size: .8rem; padding-bottom: .65rem; }
 .object-shell .object-type-picker p { flex-basis: 100%; margin: 0; }
@@ -169,29 +170,50 @@
 .object-shell .properties > summary::before { content: "›"; color: var(--muted); }
 .object-shell .properties[open] > summary::before { transform: rotate(90deg); }
 .object-shell .properties > summary > .fine { margin-left: auto; font-weight: 400; }
-.object-shell .writing-heading { display: flex; align-items: baseline; flex-wrap: wrap; gap: .5rem 1rem; margin-bottom: 1rem; }
-.object-shell .writing-heading h2 { margin: 0; }
+.object-shell .writing-heading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: .6rem; }
+.object-shell .writing-heading label { margin: 0; }
 .object-shell .notice { border: 1px solid var(--line); background: var(--wash); padding: 1rem; border-radius: 6px; margin: 0 0 1.5rem; }
 .object-shell .error { color: #962c27; }
 .object-shell .notice.error { border-color: #e6b7b3; background: #fff4f2; }
 .object-shell .form-state { min-height: 0; font-size: .85rem; color: var(--muted); margin: .5rem 0 0; }
 .object-shell .form-state:empty { display: none; }
 .object-shell .form-state.error { color: #962c27; }
+.object-shell .object-search { width: min(640px, calc(100% - 2rem)); max-height: calc(100dvh - 2rem); padding: 1.5rem; color: var(--ink); background: var(--paper); border: 1px solid var(--line); border-radius: 10px; }
+.object-shell .object-search::backdrop { background: #252c2370; }
+.object-shell .object-search header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 1rem; }
+.object-shell .object-search h2 { margin: 0; }
+.object-shell .object-search form { display: flex; align-items: flex-end; gap: .75rem; }
+.object-shell .object-search label { flex: 1; min-width: 0; }
+.object-shell .object-search .object-index { margin-bottom: 0; }
+.object-shell .object-search .object-index :is(a, button) { display: flex; flex: 1; align-items: baseline; justify-content: space-between; gap: 1rem; min-width: 0; width: 100%; padding: .75rem .3rem; border: 0; border-radius: 4px; box-shadow: none; background: transparent; color: var(--accent); text-align: left; }
+.object-shell .object-search .object-index :is(a, button):hover { background: var(--wash); }
+.object-shell .object-search .object-index button > span { color: var(--muted); font-size: .82rem; }
+.object-shell .object-sections { display: flex; flex-wrap: wrap; gap: 1.25rem; margin: 0 0 1.5rem; }
+.object-shell .object-editing { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1.5rem; }
+.object-shell .object-editing > * { min-width: 0; }
+.object-shell .saved-conflict { border: 1px solid #e6b7b3; border-radius: 8px; padding: 1.25rem; background: #fffaf8; }
+.object-shell .saved-conflict h2 { margin-top: 0; }
+.object-shell .saved-details { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: .5rem 1rem; }
+.object-shell .saved-details dt { color: var(--muted); }
+.object-shell .saved-details dd { margin: 0; white-space: pre-wrap; }
+.object-shell .saved-source { max-height: 30rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+@media (min-width: 1100px) {
+  .object-shell:not(.ai-open) .object-editing.has-conflict { grid-template-columns: minmax(0, 1fr) minmax(300px, .8fr); align-items: start; }
+}
 .object-shell .object-editor { max-width: 900px; }
-.object-shell .object-editor > label:not(.title-field) { max-width: 440px; }
-.object-shell .title-field input { font-size: 1.6rem !important; padding: .6rem .7rem !important; letter-spacing: -.02em; }
+.object-shell .object-type-field { max-width: 440px; margin: .75rem 0; }
+.object-shell .title-field input { font-size: 1.85rem !important; font-weight: 600; padding: .6rem .7rem !important; letter-spacing: -.02em; }
 .object-shell details > summary { cursor: pointer; padding: .5rem 0; font-weight: 550; }
-.object-shell .properties { margin: 1.6rem 0 2rem; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: .5rem 0; }
+.object-shell .properties { margin: 1rem 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: .25rem 0; }
 .object-shell .property-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); gap: 1.1rem 1.5rem; padding: 1rem 0; }
+.object-shell .property-grid:empty { display: none; }
 .object-shell .range-field { grid-column: 1 / -1; min-width: 0; margin: 0; border: 1px solid var(--line); border-radius: 6px; padding: .8rem; }
 .object-shell .range-field legend { font-size: .88rem; font-weight: 550; padding: 0 .4rem; }
 .object-shell .range-inputs { display: flex; flex-wrap: wrap; gap: .8rem; }
 .object-shell .range-inputs label { flex: 1 1 140px; }
 .object-shell .range-field small { display: block; margin-top: .6rem; }
-.object-shell .writing { margin-top: 2rem; }
-.object-shell .markdown-source { min-height: 340px; padding: 1rem 1.2rem; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: .94rem; line-height: 1.7; tab-size: 2; }
-.object-shell .object-link-tools { display: flex; align-items: flex-end; flex-wrap: wrap; gap: .7rem; margin: 1rem 0; }
-.object-shell .object-link-tools label { flex: 1 1 220px; max-width: 400px; font-size: .8rem; }
+.object-shell .writing { margin-top: 1.25rem; }
+.object-shell .markdown-source { min-height: 300px; padding: 1rem 1.2rem; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: .94rem; line-height: 1.7; tab-size: 2; }
 .object-shell .markdown-content { padding: 1rem 0; }
 .object-shell .markdown-content h1 { font-size: 1.6rem; }
 .object-shell .markdown-content h2 { font-size: 1.35rem; margin-top: 1.5rem; }
@@ -200,9 +222,12 @@
 .object-shell .markdown-content code { background: var(--wash); border-radius: 3px; padding: .1rem .2rem; font-size: .9em; }
 .object-shell .markdown-content li > p { margin: .25rem 0; }
 .object-shell .markdown-content table { display: block; overflow-x: auto; }
-.object-shell .markdown-preview { margin-top: .75rem; font-size: .9rem; }
+.object-shell .markdown-preview { margin: 1.5rem 0; max-width: 900px; font-size: .9rem; }
 .object-shell .save-bar { position: sticky; bottom: 0; display: flex; align-items: center; gap: 1rem; background: var(--paper); border-top: 1px solid var(--line); padding: 1rem 0; margin-top: 1.5rem; z-index: 2; }
 .object-shell .save-bar .form-state { margin: 0; }
+.object-shell .object-editor .save-bar { display: grid; grid-template-columns: max-content minmax(0, 1fr); align-items: center; gap: 1rem; margin-top: 1rem; }
+.object-shell [data-object-save-controls] > button { white-space: nowrap; }
+.object-shell .object-editor .save-bar .form-state { min-height: 1.5em; min-width: 0; }
 .object-shell .backlinks { border-top: 1px solid var(--line); padding-top: 1.5rem; }
 .object-shell .trash-form { margin-top: 2rem; }
 .object-shell .view-actions { display: flex; flex-wrap: wrap; gap: .65rem; align-items: flex-start; }
@@ -296,6 +321,7 @@
   .object-shell .view-list > li > div { flex-basis: calc(100% - 50px); }
   .object-shell .calendar-day { grid-template-columns: minmax(0, 1fr); gap: .5rem; }
   .object-shell .save-bar { flex-wrap: wrap; gap: .5rem 1rem; }
+  .object-shell .object-editor .save-bar { grid-template-columns: minmax(0, 1fr); justify-items: start; gap: .4rem; }
 }
 @media (max-width: 760px) {
   .object-shell .workspace-layout, .object-shell.ai-open .workspace-layout { grid-template-columns: minmax(0, 1fr); }

@@ -32,7 +32,7 @@ Bun loads `.env` files normally. Use one server per database. This is a local si
 ## Use it
 
 1. **Manage types:** create Task and Meeting. Give Task a Date property, then attach that same property to Meeting with **Use an existing property**. Type cards show their fields; setup explains each property format and identifies shared labels before renaming.
-2. **New content:** choose a type, enter a title, and add optional details and Markdown writing. Edit the source directly; saved writing has a rendered reading view. Switching types in the enhanced creation form preserves title, writing, and property drafts for switching back; only the selected type’s properties are saved. Choose **Create object** to save. Page works without custom properties. Standard `[label](/objects/UUID)` links produce backlinks; trash is reversible.
+2. **New content:** choose a type, enter a title and Markdown writing, then fill any optional properties under **Details**. Details starts closed when there are no custom fields. Existing objects keep their type selector inside Details; creation keeps its type choice before writing. Switching types in the enhanced creation form preserves title, writing, and property drafts for switching back; only the selected type’s properties are saved. Choose **Create object** to save. Page works without custom properties. Standard `[label](/objects/UUID)` links produce backlinks; trash is reversible.
 3. **Views → Create view:** describe the view in the right-hand assistant, for example: “Show Task and Meeting in an editable calendar using their date property. Include unscheduled objects.”
 4. Review the generated draft in the main area, then publish. Continue the conversation to refine the latest result; **Refine with AI** explicitly starts a conversation about the selected view. Each refinement creates a separate draft.
 5. Edit a bound date or board group through an explicitly editable published view. The command updates the original object. Deleting the view leaves the objects and other views intact.
@@ -40,6 +40,8 @@ Bun loads `.env` files normally. Use one server per database. This is a local si
 Supported trusted components: list, table, calendar agenda, and board. A view can combine types through explicit stable-ID bindings. A calendar does not require a Task subclass or a common property label—only a compatible temporal property for each source. Structural compatibility does not itself grant a write command.
 
 The left sidebar holds New content, Search, Calendar, Tasks, pinned views, and your object types. **Calendar** lists saved views containing a calendar; **Tasks** browses an existing type named Task or Tasks without creating one automatically. Object-type links browse that type; **Manage types** edits its schema.
+
+With JavaScript, **Search** or **Ctrl/Command+K** opens object search without leaving your current draft. Search titles and writing, use arrow keys or Tab to choose a result, and press Enter to open it. **Insert link** uses the same dialog, but selecting a result inserts an escaped Markdown link at the writing selection instead of navigating. Escape cancels without changing the draft or selection. Both actions search the full collection.
 
 The **View assistant** opens on the right, resizes on desktop, and becomes a drawer on smaller screens. Closing it or navigating does not discard the current conversation or typed prompt. Navigation does not silently change its target. **Create view** and the assistant’s **New conversation** control start fresh. If generation finishes while an object has unsaved edits, it leaves those edits in place and offers a preview link instead of navigating away.
 
@@ -53,9 +55,13 @@ See the [quick start](docs/quickstart.md) and [object/view contract](docs/object
 
 SQLite stores canonical objects, Markdown bodies, shared property definitions, types, saved views, view conversations, revisions, and derived backlinks. The same plain Markdown textarea works with and without JavaScript. Source is stored as submitted, without a rich-text parse/serialize round trip. Bun renders saved writing; raw HTML remains text, unsafe link targets are not clickable, and images remain inert text placeholders.
 
+Object pages link directly to **Edit Markdown**, **Read saved**, and **Linked from**. A conflicting save keeps your draft and shows the latest saved title, type, details, and writing for comparison. Reconcile the draft, then choose **Save reconciled changes**; a further concurrent edit still rejects the save. This works with and without JavaScript.
+
+Save feedback stays beside the save button instead of appearing in duplicate page banners. With JavaScript, the same area shows the saved revision, unsaved changes, saving progress, or an error. Native forms show confirmation or errors there too, with a reminder that further edits still require saving.
+
 The object workspace is the only supported application. Startup initializes a fresh object database or opens an existing one; it does not import or migrate historical issue/vault data. Existing object data and visitor-owned view conversations remain usable. Unrelated tables and files are left untouched, not converted or deleted. Back up SQLite before upgrading; see the quick start.
 
-Object schema version 2 stores writing as Markdown. Existing version-1 object databases upgrade transactionally on startup, converting structured writing and revision snapshots while preserving object IDs, revisions, references, and creation receipts. Unknown or unsupported data aborts the upgrade rather than dropping writing. Back up before the first start after upgrading. This is a change to the current object format, not a return of the removed vault import system.
+Object schema version 2 stores writing as Markdown. Existing version-1 object databases upgrade transactionally on startup, converting structured writing and revision snapshots while preserving object IDs, revisions, references, and creation receipts. Empty editor paragraphs and ending hard breaks become ordinary Markdown blank lines; Markdown does not reproduce empty editor block layout. Unknown or unsupported data aborts the upgrade rather than dropping writing. Back up before the first start after upgrading. This is a change to the current object format, not a return of the removed vault import system.
 
 ## Implementation
 
@@ -82,4 +88,4 @@ bun test
 
 No type inheritance, generated plugins, arbitrary model execution, synchronization, attachment storage, or per-object sharing permissions. Types are defaults rather than rigid record schemas; the editor exposes type properties and properties already present on an object. Property kind, reference shape, and select options are fixed after creation; renaming labels is supported.
 
-Browse pages show 50 objects. Generated blocks show up to 100 rows with an explicit truncation notice. Refine the prompt to narrow larger result sets. Pickers are bounded to 200 candidates; existing selections remain visible. Calendar agendas group by the stored start date, not a month grid or recurrence engine.
+Browse pages show 50 objects. Generated blocks show up to 100 rows with an explicit truncation notice. Refine the prompt to narrow larger result sets. Object search and writing-link search return at most 50 matches and explicitly ask you to narrow truncated results. Other pickers are bounded to 200 candidates; existing selections remain visible. Calendar agendas group by the stored start date, not a month grid or recurrence engine.

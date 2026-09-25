@@ -45,6 +45,16 @@ export interface ObjectWrite {
 }
 export interface ObjectListOptions { typeId?: string; search?: string; trashed?: boolean; limit?: number; offset?: number }
 
+export const ObjectLookupSchema = object({
+  items: Type.Array(object({
+    id: IdSchema,
+    title: Type.String({ minLength: 1, maxLength: 500 }),
+    typeName: Type.String({ minLength: 1, maxLength: 200 }),
+  }), { maxItems: 50 }),
+  truncated: Type.Boolean(),
+});
+export type ObjectLookupResult = Static<typeof ObjectLookupSchema>;
+
 const role = Type.String({ pattern: '^[a-z][a-zA-Z0-9]{0,31}$' });
 const FilterSchema = object({
   propertyId: IdSchema,

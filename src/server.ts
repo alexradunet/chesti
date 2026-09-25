@@ -118,7 +118,7 @@ export function createApp(options: { objects?: ObjectRuntime; viewGenerator?: Vi
       try { return withHeaders(await handle(req, server, headers), headers); }
       catch (error) {
         const path = new URL(req.url).pathname;
-        if (req.headers.get('accept')?.includes('application/json') && (path === '/views/generate' || path.startsWith('/views/conversations/'))) {
+        if (path === '/objects/lookup' || (req.headers.get('accept')?.includes('application/json') && (path === '/views/generate' || path.startsWith('/views/conversations/')))) {
           const known = error instanceof AppError;
           if (!known) console.error('Request failed:', error);
           return withHeaders(Response.json({ error: known ? error.message : 'An unexpected error occurred. See the local server log.' }, { status: known ? error.status : 500 }), headers);

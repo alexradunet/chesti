@@ -2,13 +2,15 @@ import { test } from 'node:test';
 import type { TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
+import { Value } from 'typebox/value';
 import { createApp } from '../src/server.js';
 import { openDatabase } from '../src/database.js';
 import { AppError } from '../src/core.js';
 import { VisitorStore } from '../src/visitors.js';
 import { ObjectRuntime } from '../src/objects/runtime.js';
 import { ViewService } from '../src/objects/views.js';
-import type { ViewConversation, ViewGenerator } from '../src/objects/model.js';
+import { ObjectLookupSchema, PAGE_TYPE_ID } from '../src/objects/model.js';
+import type { ObjectLookupResult, ViewConversation, ViewGenerator } from '../src/objects/model.js';
 
 async function setup(t: TestContext, generator: ViewGenerator) {
   const db = openDatabase();
@@ -139,6 +141,107 @@ test('rejected native writes preserve title and Markdown without replacing saved
   assert.equal(oversizedDraft.body, oversizedBody);
   assert.equal(oversizedDraft.revision, String(latest.revision));
   assert.deepEqual(f.objects.getObject(saved.id), latest);
+});
+
+test('lookup searches the entire live collection by title and writing with literal wildcards', async t => {
+  const f = await setup(t, async () => { throw new Error('Not used'); });
+  const type = f.objects.createType('Research');
+  const older = f.objects.createObject({ typeId: type.id, title: 'Archive %_ title', body: 'A singular body needle.', properties: {} });
+  f.objects.db.query('UPDATE objects SET updated_at = ? WHERE id = ?').run('2000-01-01T00:00:00.000Z', older.id);
+  const trashed = f.objects.createObject({ typeId: type.id, title: 'Archive %_ trash', body: 'A singular body needle.', properties: {} });
+  f.objects.setTrashed(trashed.id, trashed.revision, true);
+  for (let index = 0; index < 205; index++) f.objects.createObject({ typeId: PAGE_TYPE_ID, title: `Recent ${index}`, body: 'Ordinary writing', properties: {} });
+  assert.equal(f.objects.listObjects({ limit: 200 }).some(record => record.id === older.id), false);
+  for (const query of ['Archive', 'singular body needle', '%', '_']) {
+    const response = await f.get(`/objects/lookup?q=${encodeURIComponent(query)}`);
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('cache-control'), 'no-store');
+    const result: unknown = await response.json();
+    assert.ok(Value.Check(ObjectLookupSchema, result));
+    assert.deepEqual(result, { items: [{ id: older.id, title: older.title, typeName: type.name }], truncated: false });
+  }
+});
+
+test('lookup returns at most fifty results and rejects unsupported, repeated, or oversized queries as uncached JSON', async t => {
+  const f = await setup(t, async () => { throw new Error('Not used'); });
+  const records = Array.from({ length: 50 }, (_, index) => f.objects.createObject({ typeId: PAGE_TYPE_ID, title: `Batch ${index}`, body: '', properties: {} }));
+  const exact = await (await f.get('/objects/lookup?q=Batch')).json() as ObjectLookupResult;
+  assert.equal(exact.truncated, false);
+  assert.deepEqual(exact.items.map(item => item.id).sort(), records.map(record => record.id).sort());
+  const extra = f.objects.createObject({ typeId: PAGE_TYPE_ID, title: 'Batch extra', body: '', properties: {} });
+  const overflow = await (await f.get('/objects/lookup')).json() as ObjectLookupResult;
+  assert.ok(Value.Check(ObjectLookupSchema, overflow));
+  assert.equal(overflow.items.length, 50);
+  assert.equal(overflow.truncated, true);
+  assert.equal(new Set(overflow.items.map(item => item.id)).size, 50);
+  const validIds = new Set([...records, extra].map(record => record.id));
+  assert.ok(overflow.items.every(item => validIds.has(item.id)));
+  f.objects.setTrashed(extra.id, extra.revision, true);
+  assert.equal((await (await f.get('/objects/lookup?q=Batch')).json() as ObjectLookupResult).truncated, false);
+  const boundary = await f.get(`/objects/lookup?q=${'x'.repeat(200)}`);
+  assert.equal(boundary.status, 200);
+  assert.deepEqual(await boundary.json(), { items: [], truncated: false });
+  for (const query of [`q=${'x'.repeat(201)}`, 'q=a&q=b', 'limit=100', 'trash=1', 'conversation=not-an-id']) {
+    const response = await f.get(`/objects/lookup?${query}`);
+    assert.equal(response.status, 422);
+    assert.equal(response.headers.get('cache-control'), 'no-store');
+    assert.equal(typeof (await response.json() as { error: string }).error, 'string');
+  }
+});
+
+test('explicit review still conflicts with subsequent writes and preserves the reconciled draft until saved', async t => {
+  const f = await setup(t, async () => { throw new Error('Not used'); });
+  let type = f.objects.createType('Measured review');
+  type = f.objects.addProperty(type.id, type.revision, { label: 'Count', kind: 'number' });
+  const propertyId = type.propertyIds[0]!;
+  const saved = f.objects.createObject({ typeId: type.id, title: 'Original', body: 'Original body', properties: { [propertyId]: 1 } });
+  const reviewed = f.objects.updateObject(saved.id, saved.revision, { ...saved, title: 'Reviewed title', body: 'Reviewed body', properties: { [propertyId]: 2 } });
+  const latest = f.objects.updateObject(saved.id, reviewed.revision, { ...reviewed, title: 'Another edit', properties: { [propertyId]: 3 } });
+  const path = `/objects/${saved.id}/update`;
+  const fields = { revision: String(saved.revision), reviewedRevision: String(reviewed.revision), title: 'Reconciled title', body: '\nReconciled **body**.\n\n', [`p:${propertyId}`]: '42' };
+  const conflict = await f.post(path, fields);
+  assert.equal(conflict.status, 409);
+  const draft = nativeObjectFields(await conflict.text());
+  assert.equal(draft.title, fields.title);
+  assert.equal(draft.body, fields.body);
+  assert.equal(draft[`p:${propertyId}`], '42');
+  assert.equal(draft.revision, String(reviewed.revision));
+  assert.deepEqual(f.objects.getObject(saved.id), latest);
+  assert.equal((await f.post(path, { ...fields, reviewedRevision: String(latest.revision) })).status, 303);
+  const reconciled = f.objects.getObject(saved.id);
+  assert.equal(reconciled.title, fields.title);
+  assert.equal(reconciled.body, fields.body);
+  assert.deepEqual(reconciled.properties, { [propertyId]: 42 });
+  assert.equal(reconciled.revision, latest.revision + 1);
+});
+
+test('reviewed revisions cannot bypass missing or invalid original revisions and are update-only', async t => {
+  const f = await setup(t, async () => { throw new Error('Not used'); });
+  const saved = f.objects.createObject({ typeId: PAGE_TYPE_ID, title: 'Saved', body: 'Saved body', properties: {} });
+  const path = `/objects/${saved.id}/update`;
+  const attempt = { title: 'Draft title', body: '\nUnsaved body\n', reviewedRevision: String(saved.revision) };
+  const invalidFields: Record<string, string>[] = [
+    attempt,
+    { ...attempt, revision: '1.5' },
+    { ...attempt, revision: String(saved.revision), reviewedRevision: '9007199254740992' },
+  ];
+  for (const fields of invalidFields) {
+    const response = await f.post(path, fields);
+    assert.equal(response.status, 422);
+    const draft = nativeObjectFields(await response.text());
+    assert.equal(draft.title, attempt.title);
+    assert.equal(draft.body, attempt.body);
+    assert.equal(draft.revision, fields.reviewedRevision);
+    assert.deepEqual(f.objects.getObject(saved.id), saved);
+  }
+  const repeated = new URLSearchParams({ csrf: f.visitor.csrf, ...attempt, revision: String(saved.revision) });
+  repeated.append('reviewedRevision', String(saved.revision));
+  const duplicate = await fetch(f.origin + path, { method: 'POST', headers: { Cookie: `taskdesk=${f.visitor.id}`, Origin: f.origin }, body: repeated });
+  assert.equal(duplicate.status, 422);
+  assert.equal((await f.post(`/objects/${saved.id}/trash`, { revision: String(saved.revision), reviewedRevision: String(saved.revision) })).status, 422);
+  assert.equal((await f.post('/objects/create', { title: 'Not created', reviewedRevision: String(saved.revision) })).status, 422);
+  assert.deepEqual(f.objects.getObject(saved.id), saved);
+  assert.deepEqual(f.objects.listObjects(), [saved]);
 });
 
 test('native object forms and an AI-authored calendar share data without regeneration', async t => {
