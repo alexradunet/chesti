@@ -64,6 +64,7 @@ export function createApp(options: { objects?: ObjectRuntime; viewGenerator?: Vi
   const visitors = new VisitorStore(objects.db);
   const objectRoutes = createObjectRoutes(objects, options.viewGenerator);
   let objectClient: Promise<Bun.BuildOutput> | undefined;
+  const tokensCss = Bun.file(new URL('../public/tokens.css', import.meta.url));
   const objectCss = Bun.file(new URL('../public/objects.css', import.meta.url));
   const handle = async (req: Request, server: Bun.Server<undefined>, headers: Headers): Promise<Response> => {
     // Bind to loopback and reject unrecognized hosts to reduce DNS-rebinding risk.
@@ -75,6 +76,7 @@ export function createApp(options: { objects?: ObjectRuntime; viewGenerator?: Vi
       headers.set('Allow', 'GET, POST');
       throw new AppError(405, 'Use a link or a form.');
     }
+    if (req.method === 'GET' && url.pathname === '/tokens.css') return new Response(tokensCss, { headers: { 'Content-Type': 'text/css; charset=utf-8' } });
     if (req.method === 'GET' && url.pathname === '/objects.css') return new Response(objectCss, { headers: { 'Content-Type': 'text/css; charset=utf-8' } });
     if (req.method === 'GET' && url.pathname === '/objects-client.js') {
       objectClient ??= Bun.build({ entrypoints: [fileURLToPath(new URL('./objects/client.ts', import.meta.url))], target: 'browser', minify: true });

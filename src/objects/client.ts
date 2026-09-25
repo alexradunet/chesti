@@ -12,6 +12,7 @@ const aiPrompt = aiForm?.querySelector<HTMLTextAreaElement>('textarea[name="prom
 const aiStatus = document.querySelector<HTMLElement>('[data-ai-status]');
 const aiTurns = document.querySelector<HTMLElement>('[data-ai-turns]');
 const aiContext = document.querySelector<HTMLElement>('[data-ai-context-label]');
+const aiEmptyTemplate = document.querySelector<HTMLTemplateElement>('[data-ai-empty-template]');
 const navigation = document.querySelector<HTMLElement>('#workspace-nav');
 const backdrop = document.querySelector<HTMLElement>('[data-panel-backdrop]');
 const objectSearch = document.querySelector<HTMLDialogElement>('#object-search');
@@ -80,19 +81,26 @@ function showAiStatus(message: string, error = false): void {
   aiStatus.setAttribute('role', error ? 'alert' : 'status');
 }
 
+function syncAiSuggestions(): void {
+  const suggestions = aiTurns?.querySelector<HTMLElement>('[data-ai-suggestions]');
+  if (suggestions) suggestions.hidden = Boolean(aiBusy || aiLoading || aiState.conversationId || aiState.previousId || conversation?.turns.length || aiState.draft !== '' || aiPrompt?.value !== '');
+}
+
 function renderConversation(): void {
   if (aiContext) aiContext.textContent = conversation?.turns.at(-1)?.title ?? aiState.contextTitle;
   if (!aiTurns) return;
   aiTurns.replaceChildren();
   if (!conversation?.turns.length) {
-    const empty = document.createElement('div');
-    empty.className = 'ai-empty';
-    const heading = document.createElement('h3');
-    heading.textContent = aiState.previousId ? 'Make this view your own' : 'A different way to see your objects';
-    const text = document.createElement('p');
-    text.textContent = aiState.previousId ? 'Describe what to change. You’ll get a separate draft to review; the original stays untouched.' : 'Describe a list, table, calendar, or board. AI builds a draft here, and you preview it in the main workspace.';
-    empty.append(heading, text);
-    aiTurns.append(empty);
+    const empty = aiEmptyTemplate?.content.cloneNode(true);
+    if (empty) {
+      aiTurns.append(empty);
+      if (aiState.previousId) {
+        const heading = aiTurns.querySelector('h3');
+        const text = aiTurns.querySelector('[data-ai-empty-description]');
+        if (heading) heading.textContent = 'Make this view your own';
+        if (text) text.textContent = 'Describe what to change. You’ll get a separate draft to review; the original stays untouched.';
+      }
+    }
   }
   for (const turn of conversation?.turns ?? []) {
     const article = document.createElement('article');
@@ -119,6 +127,7 @@ function renderConversation(): void {
   aiTurns.scrollTop = aiTurns.scrollHeight;
   const previous = aiForm?.querySelector<HTMLInputElement>('[name="previousId"]');
   if (previous) { previous.value = aiState.previousId ?? ''; previous.disabled = !aiState.previousId; }
+  syncAiSuggestions();
 }
 
 function startConversation(previousId?: string, title = 'New view'): void {
@@ -134,8 +143,17 @@ function startConversation(previousId?: string, title = 'New view'): void {
 document.body.classList.add('enhanced');
 if (aiPrompt) {
   aiPrompt.value = aiState.draft;
-  aiPrompt.addEventListener('input', () => { aiState.draft = aiPrompt.value; persistAi(); });
+  aiPrompt.addEventListener('input', () => { aiState.draft = aiPrompt.value; persistAi(); syncAiSuggestions(); });
 }
+aiTurns?.addEventListener('click', event => {
+  const suggestion = event.target instanceof Element ? event.target.closest<HTMLButtonElement>('[data-ai-suggestion]') : null;
+  if (!suggestion || !aiPrompt || aiBusy || aiLoading || aiState.conversationId || aiState.previousId || conversation?.turns.length || aiState.draft !== '' || aiPrompt.value !== '') return;
+  aiPrompt.value = suggestion.dataset.aiSuggestion ?? '';
+  aiState.draft = aiPrompt.value;
+  persistAi();
+  syncAiSuggestions();
+  aiPrompt.focus();
+});
 for (const toggle of document.querySelectorAll<HTMLElement>('[data-ai-toggle]')) toggle.addEventListener('click', event => {
   event.preventDefault();
   setAiOpen(!aiState.open, toggle);
@@ -150,6 +168,7 @@ for (const trigger of document.querySelectorAll<HTMLElement>('[data-ai-start], [
     aiPrompt.value = document.body.dataset.aiPrompt;
     aiState.draft = aiPrompt.value;
     persistAi();
+    syncAiSuggestions();
   }
 });
 document.querySelector('[data-ai-new]')?.addEventListener('click', () => startConversation());
@@ -189,6 +208,7 @@ renderConversation();
 async function restoreConversation(): Promise<void> {
   if (!aiState.conversationId) return;
   aiLoading = true;
+  syncAiSuggestions();
   showAiStatus('Loading conversation…');
   try {
     const response = await fetch(`/views/conversations/${encodeURIComponent(aiState.conversationId)}`, { headers: { Accept: 'application/json' } });
@@ -202,7 +222,7 @@ async function restoreConversation(): Promise<void> {
     showAiStatus('');
   } catch (error) {
     showAiStatus(`${error instanceof Error ? error.message : 'Unable to load the conversation.'} Start a new conversation to continue.`, true);
-  } finally { aiLoading = false; }
+  } finally { aiLoading = false; syncAiSuggestions(); }
 }
 void restoreConversation();
 
@@ -210,6 +230,7 @@ aiForm?.addEventListener('submit', async event => {
   event.preventDefault();
   if (!aiPrompt || aiBusy || aiLoading || !aiForm.reportValidity()) return;
   aiBusy = true;
+  syncAiSuggestions();
   aiForm.setAttribute('aria-busy', 'true');
   const controls = [...aiForm.querySelectorAll<HTMLButtonElement | HTMLTextAreaElement>('button,textarea')];
   controls.forEach(control => { control.disabled = true; });
@@ -241,6 +262,7 @@ aiForm?.addEventListener('submit', async event => {
     aiBusy = false;
     aiForm.removeAttribute('aria-busy');
     controls.forEach(control => { control.disabled = false; });
+    syncAiSuggestions();
   }
 });
 

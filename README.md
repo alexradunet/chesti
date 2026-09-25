@@ -41,13 +41,15 @@ Bun loads `.env` files normally. Use one server per database. This is a local si
 
 Supported trusted components: list, table, calendar agenda, and board. A view can combine types through explicit stable-ID bindings. A calendar does not require a Task subclass or a common property label—only a compatible temporal property for each source. Events and Reminders have mutually exclusive all-day/timed fields: use separate calendar blocks for these representations and a nonempty filter on each bound field, without excluding genuinely undated tasks. Structural compatibility does not itself grant a write command.
 
-**Objects** opens a type overview with object counts—not a mixed feed. Choose a type there or in the sidebar to browse only its objects. Each type offers **List** and **Gallery** layouts; gallery cards show the title, a plain-text excerpt of saved writing, and the last-updated date. Layout controls work without JavaScript and preserve the current search, page, and trash scope. These are built-in browse layouts, not AI-authored saved views.
+**Objects** opens a type overview with totals for objects, types, and saved views—not a mixed feed. Choose a type there or in the sidebar to browse only its objects. Each type offers **List** and **Gallery** layouts; gallery cards show the title, a plain-text excerpt of saved writing, and the last-updated date. Layout controls work without JavaScript and preserve the current search, page, and trash scope. These are built-in browse layouts, not AI-authored saved views.
 
 The sidebar also holds New content, Search, Calendar, Tasks, Journal, and pinned views. **Calendar** lists saved views containing a calendar; **Tasks** always browses the built-in Task type, even after renaming it. **Journal** opens a daily page; its object-type link browses all journal pages. **Manage types** edits schemas. Trash is also organized by type; Search remains available across types.
 
 With JavaScript, **Search** or **Ctrl/Command+K** opens object search without leaving your current draft. Search titles and writing, use arrow keys or Tab to choose a result, and press Enter to open it. **Insert link** uses the same dialog, but selecting a result inserts an escaped Markdown link at the writing selection instead of navigating. Escape cancels without changing the draft or selection. Both actions search the full collection.
 
 The **View assistant** opens on the right, resizes on desktop, and becomes a drawer on smaller screens. Closing it or navigating does not discard the current conversation or typed prompt. Navigation does not silently change its target. **Create view** and the assistant’s **New conversation** control start fresh. If generation finishes while an object has unsaved edits, it leaves those edits in place and offers a preview link instead of navigating away.
+
+In a fresh, empty new-view conversation, optional starter suggestions fill and focus the composer locally. They never submit, call the provider, or overwrite an existing prompt—even whitespace. They stay hidden during refinement, in active/saved threads, and while restoring or generating. Review the prompt and explicitly choose **Generate view**; native forms remain the baseline without JavaScript.
 
 Successful conversation turns are stored in SQLite and scoped to the browser visitor cookie. The active thread, unsent prompt, and panel visibility are remembered for the current browser tab; pins and panel width are local browser preferences. The assistant creates views, not arbitrary chat replies or object edits.
 
@@ -81,13 +83,29 @@ Bun supplies the HTTP server, SQLite driver, browser bundler, Markdown parser/re
 - `src/objects/views.ts`: persistent view lifecycle, prepared bounded queries, and scoped commands.
 - `src/objects/conversations.ts`: visitor-owned view threads and atomic draft/turn persistence.
 - `src/objects/generator.ts`: isolated metadata-only Pi generation and validated submission.
-- `src/objects/http.ts`, `render.tsx`, `client.ts`: minimal native forms, trusted components, and progressive enhancement.
-- `public/objects.css`: responsive workspace styling.
+- `src/objects/http.ts`, `render.tsx`, `client.ts`: native forms, domain screens, trusted view components, and progressive enhancement.
+- `src/objects/ui.tsx`: shared UI atoms and small page compositions.
+- `public/tokens.css`, `public/objects.css`: design primitives/semantic roles and responsive component styling.
 
 ```sh
 bun run check
 bun test
 ```
+
+## Design system
+
+The UI follows **primitives → semantic roles → components**. `public/tokens.css` defines the warm paper/forest palette and shared typography, spacing, radius, and motion scales, then maps colors to roles such as `--surface-panel`, `--action-primary`, and `--border-control`. `public/objects.css` consumes those roles: control boundaries remain distinct from quiet decorative dividers. System sans-serif text uses a 15px body size at the default root size; Markdown writing uses the monospace role. Shared spacing, rounded surfaces, and short transitions keep the workspace cohesive.
+
+`src/objects/ui.tsx` keeps the `Icon`, `Button`, `ButtonLink`, and `Badge` atoms together with the small `PageHeading` and `EmptyState` compositions. Domain screens stay in `src/objects/render.tsx`; fields and forms remain native HTML. This uses the existing Hono JSX renderer, with no additional component framework or dependencies. Buttons perform actions (`type="button"` by default); links navigate. A submit action must opt in explicitly:
+
+```tsx
+<>
+  <Button type="submit" variant="primary">Save changes</Button>
+  <ButtonLink href="/views">Back to views</ButtonLink>
+</>
+```
+
+For CSS extensions, use semantic color roles and the existing primitive scales for spacing, typography, radii, and motion; do not add arbitrary palette constants per component. Preserve visible keyboard focus, disabled and pressed states, and reduced-motion behavior when extending a control.
 
 ## Current boundaries
 

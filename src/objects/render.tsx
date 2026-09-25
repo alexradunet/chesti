@@ -1,7 +1,8 @@
 import type { JSX } from 'hono/jsx/jsx-runtime';
 import { raw } from 'hono/html';
 import { renderMarkdown } from './markdown.js';
-import { BUILTIN_PROPERTIES, BUILTIN_TYPES, EVENT_DATES_PROPERTY_ID, EVENT_TIME_PROPERTY_ID, EVENT_TYPE_ID, JOURNAL_DATE_PROPERTY_ID, JOURNAL_TYPE_ID, REMINDER_DATE_PROPERTY_ID, REMINDER_TIME_PROPERTY_ID, REMINDER_TYPE_ID, TASK_DONE_PROPERTY_ID, TASK_DUE_PROPERTY_ID, TASK_TYPE_ID } from './model.js';
+import { Badge, Button, ButtonLink, EmptyState, Icon, PageHeading, type IconName } from './ui.js';
+import { BUILTIN_PROPERTIES, BUILTIN_TYPES, EVENT_DATES_PROPERTY_ID, EVENT_TIME_PROPERTY_ID, EVENT_TYPE_ID, JOURNAL_DATE_PROPERTY_ID, JOURNAL_TYPE_ID, PAGE_TYPE_ID, REMINDER_DATE_PROPERTY_ID, REMINDER_TIME_PROPERTY_ID, REMINDER_TYPE_ID, TASK_DONE_PROPERTY_ID, TASK_DUE_PROPERTY_ID, TASK_TYPE_ID } from './model.js';
 import type { EvaluatedBlock, ObjectPageModel, ObjectRecord, PropertyDefinition, PropertyValue, SavedView, ViewRow } from './model.js';
 
 const Hidden = ({ name, value }: { name: string; value: string | number }) => <input type="hidden" name={name} value={value} />;
@@ -13,24 +14,15 @@ const typeName = (model: ObjectPageModel, id: string) => model.catalog.types.fin
 const propertyOf = (model: ObjectPageModel, id: string) => model.catalog.properties.find(property => property.id === id);
 const isRange = (value: PropertyValue | undefined | null): value is { start: string; end: string; timeZone?: string } => Boolean(value && typeof value === 'object' && !Array.isArray(value));
 
-type IconName = 'plus' | 'search' | 'calendar' | 'tasks' | 'objects' | 'views' | 'type' | 'settings' | 'trash' | 'ai' | 'menu' | 'close' | 'pin';
-  const paths: Record<IconName, string> = {
-    plus: 'M12 5v14M5 12h14',
-    search: 'M21 21l-5-5M19 10.5a8.5 8.5 0 1 1-17 0 8.5 8.5 0 0 1 17 0',
-    calendar: 'M8 3v4M16 3v4M4 10h16M5 5h14a1 1 0 0 1 1 1v14H4V6a1 1 0 0 1 1-1M8 14h2M14 14h2M8 17h2',
-    tasks: 'M9 6h11M9 12h11M9 18h11M3 6l1 1 2-3M3 12l1 1 2-3M3 18l1 1 2-3',
-    objects: 'M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z',
-    views: 'M3 5h18v14H3zM3 10h18M9 10v9',
-    type: 'M12 3l9 5v9l-9 5-9-5V8zM3 8l9 5 9-5M12 13v9',
-    settings: 'M4 6h16M4 12h16M4 18h16M8 3v6M16 9v6M10 15v6',
-    trash: 'M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7',
-    ai: 'M12 3l2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5z',
-    menu: 'M4 6h16M4 12h16M4 18h16',
-    close: 'M6 6l12 12M18 6L6 18',
-    pin: 'M9 3h6l-1 7 4 4H6l4-4zM12 14v7',
-  };
-function Icon({ name }: { name: IconName }) {
-  return <svg class="icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d={paths[name]} /></svg>;
+function typeIcon(typeId: string): IconName {
+  switch (typeId) {
+    case PAGE_TYPE_ID: return 'page';
+    case TASK_TYPE_ID: return 'tasks';
+    case EVENT_TYPE_ID: return 'calendar';
+    case JOURNAL_TYPE_ID: return 'journal';
+    case REMINDER_TYPE_ID: return 'reminder';
+    default: return 'type';
+  }
 }
 
 function WorkspaceNav({ model }: { model: ObjectPageModel }) {
@@ -45,13 +37,29 @@ function WorkspaceNav({ model }: { model: ObjectPageModel }) {
     { href: '/views', label: 'Views', icon: 'views', active: !model.section && (model.screen === 'views' || model.screen === 'view') },
   ];
   return <nav id="workspace-nav" class="workspace-nav" aria-label="Workspace">
-    <div class="nav-brand"><a class="brand" href="/"><span class="brand-mark"><Icon name="objects" /></span>Taskdesk</a><button class="icon-button js-only nav-close" type="button" data-nav-close="" aria-label="Close navigation"><Icon name="close" /></button></div>
-    <a class="nav-new" href="/objects/new" aria-current={model.screen === 'new-object' ? 'page' : undefined}><Icon name="plus" />New content</a>
+    <div class="nav-brand"><a class="brand" href="/"><span class="brand-mark"><Icon name="objects" /></span>Taskdesk</a><Button class="icon-button js-only nav-close" type="button" data-nav-close="" aria-label="Close navigation"><Icon name="close" /></Button></div>
+    <ButtonLink variant="primary" class="nav-new" href="/objects/new" aria-current={model.screen === 'new-object' ? 'page' : undefined}><Icon name="plus" />New content</ButtonLink>
     <div class="nav-links">{links.map(link => <a href={link.href} data-object-search={link.icon === 'search' ? '' : undefined} aria-keyshortcuts={link.icon === 'search' ? 'Control+k Meta+k' : undefined} aria-current={link.active ? 'page' : undefined}><Icon name={link.icon} /><span>{link.label}</span>{link.icon === 'search' && <kbd class="js-only">Ctrl/⌘ K</kbd>}</a>)}</div>
     <section class="nav-section js-only" aria-labelledby="pinned-heading"><h2 id="pinned-heading">Pinned views</h2><p class="nav-hint" data-pins-empty="">Pin a view to keep it here.</p><div class="nav-links">{model.views.map(view => <a href={`/views/${view.id}`} data-pinned-view="" data-view-id={view.id} hidden aria-current={model.evaluatedView?.view.id === view.id ? 'page' : undefined}><Icon name="pin" /><span>{view.spec.title}</span></a>)}</div></section>
-    <section class="nav-section" aria-labelledby="object-types-heading"><h2 id="object-types-heading">Object types</h2><div class="nav-links">{model.catalog.types.map((type, index) => <a href={`/?type=${encodeURIComponent(type.id)}`} aria-current={!model.section && !model.trashed && currentType === type.id ? 'page' : undefined}><span class={`type-icon type-accent-${index % 5}`}><Icon name="type" /></span><span>{type.name}</span></a>)}<a class="nav-manage" href="/types" aria-current={model.screen === 'types' || model.screen === 'type' ? 'page' : undefined}><Icon name="settings" /><span>Manage types</span></a></div></section>
+    <section class="nav-section" aria-labelledby="object-types-heading"><h2 id="object-types-heading">Object types</h2><div class="nav-links">{model.catalog.types.map((type, index) => <a href={`/?type=${encodeURIComponent(type.id)}`} aria-current={!model.section && !model.trashed && currentType === type.id ? 'page' : undefined}><span class={`type-icon type-accent-${index % 5}`}><Icon name={typeIcon(type.id)} /></span><span>{type.name}</span></a>)}<a class="nav-manage" href="/types" aria-current={model.screen === 'types' || model.screen === 'type' ? 'page' : undefined}><Icon name="settings" /><span>Manage types</span></a></div></section>
     <div class="nav-bottom nav-links"><a href="/?trash=1" aria-current={model.trashed ? 'page' : undefined}><Icon name="trash" /><span>Trash</span></a><p class="nav-hint">Your objects. Your workspace.</p></div>
   </nav>;
+}
+
+function AiEmpty({ model }: { model: ObjectPageModel }) {
+  const available = (id: string) => model.catalog.types.some(type => type.id === id);
+  return <div class="ai-empty">
+    <span class="ai-empty-icon"><Icon name="ai" /></span>
+    <h3>A new perspective on your objects</h3>
+    <p data-ai-empty-description="">Describe a list, table, calendar, or board. This AI assistant generates and refines views—it cannot write or change your objects.</p>
+    <div class="ai-suggestions js-only" data-ai-suggestions="" hidden>
+      <span class="fine">Start with an idea</span>
+      {available(TASK_TYPE_ID) && <Button class="ai-suggestion" data-ai-suggestion="Create a board of Task objects grouped by Done, showing their Due dates."><Icon name="tasks" />A task board<Icon name="arrow" /></Button>}
+      {available(EVENT_TYPE_ID) && <Button class="ai-suggestion" data-ai-suggestion="Create an upcoming calendar of Event objects. Use separate calendar blocks for All-day dates and Event time, filtering out empty values in each."><Icon name="calendar" />An upcoming calendar<Icon name="arrow" /></Button>}
+      {available(PAGE_TYPE_ID) && <Button class="ai-suggestion" data-ai-suggestion="Create a list of Page objects as a page library."><Icon name="page" />A page library<Icon name="arrow" /></Button>}
+    </div>
+    <p class="fine native-only">Try “Show my projects grouped by status.”</p>
+  </div>;
 }
 
 function AiPanel({ model }: { model: ObjectPageModel }) {
@@ -59,10 +67,11 @@ function AiPanel({ model }: { model: ObjectPageModel }) {
   const previousId = model.aiPreviousId ?? previous?.id;
   return <aside id="ai-panel" class="ai-panel" hidden={!model.aiOpen} aria-labelledby="ai-heading">
     <div class="ai-resize js-only" data-ai-resize="" role="separator" tabindex={0} aria-label="Resize AI panel" aria-orientation="vertical" aria-valuemin={320} aria-valuemax={560} aria-valuenow={380}></div>
-    <header class="ai-header"><div><Icon name="ai" /><h2 id="ai-heading">View assistant</h2></div><div class="ai-header-actions"><button class="icon-button js-only" type="button" data-ai-new="" aria-label="Start a new conversation" title="New conversation"><Icon name="plus" /></button><button class="icon-button js-only" type="button" data-ai-close="" aria-label="Close view assistant"><Icon name="close" /></button><a class="icon-button native-only" href={previous ? `/views/${previous.id}` : '/views'} aria-label="Close view assistant"><Icon name="close" /></a></div></header>
+    <header class="ai-header"><div><Icon name="ai" /><h2 id="ai-heading">View assistant</h2></div><div class="ai-header-actions"><Button class="icon-button js-only" type="button" data-ai-new="" aria-label="Start a new conversation" title="New conversation"><Icon name="plus" /></Button><Button class="icon-button js-only" type="button" data-ai-close="" aria-label="Close view assistant"><Icon name="close" /></Button><ButtonLink variant="ghost" class="icon-button native-only" href={previous ? `/views/${previous.id}` : '/views'} aria-label="Close view assistant"><Icon name="close" /></ButtonLink></div></header>
     <div class="ai-context"><span class="fine">Working on</span><span class="context-chip" data-ai-context-label="">{model.aiContextTitle ?? previous?.spec.title ?? 'New view'}</span></div>
-    <div class="ai-turns" data-ai-turns="" aria-live="polite" aria-relevant="additions text"><div class="ai-empty"><span class="ai-empty-icon"><Icon name="ai" /></span><h3>A new perspective on your objects</h3><p>Describe a list, table, calendar, or board. This AI assistant generates and refines views—it cannot write or change your objects.</p><p class="fine">Try “Show my projects grouped by status.”</p></div></div>
-    <div class="ai-composer"><form data-ai-form="" method="post" action="/views/generate"><Token model={model} />{model.aiConversationId ? <Hidden name="conversationId" value={model.aiConversationId} /> : previousId && <Hidden name="previousId" value={previousId} />}<label for="ai-prompt">Describe your view<textarea id="ai-prompt" name="prompt" rows={4} required maxlength={4000} placeholder="What would you like to see?">{model.prompt ?? ''}</textarea></label><div class="ai-submit-row"><span class="fine">Creates a draft to review</span><button type="submit" class="primary"><Icon name="ai" />Generate view</button></div><p class={`form-state${model.error ? ' error' : ''}`} data-ai-status="" role="status">{model.aiOpen ? model.error : undefined}</p></form><details class="ai-privacy"><summary>What is shared with AI?</summary><p>Your prompt, conversation prompts, type and property schema, and any previous view specification go to your configured model provider. Object titles, property values, and note bodies are not sent. Successful prompts and view results are saved in this workspace.</p></details></div>
+    <div class="ai-turns" data-ai-turns="" aria-live="polite" aria-relevant="additions text"><AiEmpty model={model} /></div>
+    <template data-ai-empty-template=""><AiEmpty model={model} /></template>
+    <div class="ai-composer"><form data-ai-form="" method="post" action="/views/generate"><Token model={model} />{model.aiConversationId ? <Hidden name="conversationId" value={model.aiConversationId} /> : previousId && <Hidden name="previousId" value={previousId} />}<label for="ai-prompt">Describe your view<textarea id="ai-prompt" name="prompt" rows={4} required maxlength={4000} placeholder="What would you like to see?">{model.prompt ?? ''}</textarea></label><div class="ai-submit-row"><span class="fine">Creates a draft to review</span><Button type="submit" variant="primary"><Icon name="ai" />Generate view</Button></div><p class={`form-state${model.error ? ' error' : ''}`} data-ai-status="" role="status">{model.aiOpen ? model.error : undefined}</p></form><details class="ai-privacy"><summary>What is shared with AI?</summary><p>Your prompt, conversation prompts, type and property schema, and any previous view specification go to your configured model provider. Object titles, property values, and note bodies are not sent. Successful prompts and view results are saved in this workspace.</p></details></div>
   </aside>;
 }
 
@@ -103,20 +112,30 @@ function Value({ model, propertyId, value }: { model: ObjectPageModel; propertyI
 }
 
 function ObjectHome({ model }: { model: ObjectPageModel }) {
+  const objectCount = Object.values(model.typeCounts ?? {}).reduce((total, count) => total + count, 0);
   return <>
-    <div class="page-heading">
-      <div><h1>{model.trashed ? 'Trash' : 'Objects'}</h1><p class="muted">{model.trashed ? 'Choose a type to find objects you can restore.' : 'Choose a type to browse your objects.'}</p></div>
-      {!model.trashed && <a class="button" href="/types#create-type"><Icon name="plus" />New type</a>}
+    <div class="workspace-intro">
+    <PageHeading eyebrow={model.trashed ? 'Your workspace, recoverable' : 'Your personal workspace'} title={model.trashed ? 'Trash' : 'Objects'} description={model.trashed ? 'Choose a type to find objects you can restore.' : 'A place for your thoughts, plans, and everyday details.'}>
+      {!model.trashed && <><ButtonLink href="/types#create-type"><Icon name="plus" />New type</ButtonLink><ButtonLink variant="primary" href="/objects/new"><Icon name="plus" />New content</ButtonLink></>}
+    </PageHeading>
+    <dl class="workspace-summary" aria-label="Workspace summary">
+      <div><dt>{model.trashed ? 'Objects in trash' : 'Objects'}</dt><dd>{objectCount}</dd></div>
+      <div><dt>Object types</dt><dd>{model.catalog.types.length}</dd></div>
+      {!model.trashed && <div><dt>Saved views</dt><dd>{model.views.length}</dd></div>}
+    </dl>
     </div>
+    <div class="browse-heading"><h2>Browse by type</h2><p class="fine">Everything in its own place.</p></div>
     <div class="type-cards type-browser">
       {model.catalog.types.map((type, index) => {
         const count = model.typeCounts?.[type.id] ?? 0;
+        const builtin = BUILTIN_TYPES.find(item => item.id === type.id);
+        const description = builtin?.description ?? (type.propertyIds.length ? type.propertyIds.map(id => propertyOf(model, id)?.label).filter(Boolean).join(' · ') : 'A title and space to write. Make it your own.');
         const query = new URLSearchParams({ type: type.id, ...(model.trashed ? { trash: '1' } : {}) });
-        return <a class="type-card type-browse-card" href={`/?${query}`}>
-          <span class={`type-card-icon type-accent-${index % 5}`}><Icon name="type" /></span>
+        return <a class={`type-card type-browse-card type-accent-${index % 5}`} href={`/?${query}`}>
+          <div class="type-card-top"><span class={`type-card-icon type-accent-${index % 5}`}><Icon name={typeIcon(type.id)} /></span><Badge>{count} {count === 1 ? 'object' : 'objects'}</Badge></div>
           <h2>{type.name}</h2>
-          <p class="muted">{count} {count === 1 ? 'object' : 'objects'}{model.trashed ? ' in trash' : ''}</p>
-          <span class="type-card-footer">Browse {type.name} →</span>
+          <p class="muted">{description}</p>
+          <span class="type-card-footer"><span>Browse {type.name}</span><Icon name="arrow" /></span>
         </a>;
       })}
     </div>
@@ -144,10 +163,9 @@ function Objects({ model }: { model: ObjectPageModel }) {
   else if (selectedType) emptyMessage = `No ${selectedType} objects yet. Create one to get started.`;
   return <>
     {selectedType && <a class="back-link" href={model.trashed ? '/?trash=1' : '/'}>← Object types</a>}
-    <div class="page-heading">
-      <div><h1>{heading}</h1>{!selectedType && <p class="muted">Find objects across your types.</p>}</div>
-      {selectedType && !model.trashed && <a class="button primary" href={`/objects/new?type=${encodeURIComponent(model.selectedTypeId!)}`}><Icon name="plus" />New object</a>}
-    </div>
+    <PageHeading title={heading} description={!selectedType ? 'Find objects across your types.' : undefined}>
+      {selectedType && !model.trashed && <ButtonLink variant="primary" href={`/objects/new?type=${encodeURIComponent(model.selectedTypeId!)}`}><Icon name="plus" />New object</ButtonLink>}
+    </PageHeading>
     <div class="browse-toolbar">
       <form class="filter-bar" method="get" action={path}>
         <label>{selectedType ? `Search ${selectedType}` : 'Search'}<input type="search" name="q" value={model.search ?? ''} maxlength={200} /></label>
@@ -157,7 +175,7 @@ function Objects({ model }: { model: ObjectPageModel }) {
         </>}
         <Hidden name="layout" value={layout} />
         {model.trashed && <Hidden name="trash" value="1" />}
-        <button type="submit">Search</button>
+        <Button type="submit">Search</Button>
       </form>
       {selectedType && <nav class="layout-switch" aria-label="Object layout">
         <a href={query(offset, 'list')} aria-current={layout === 'list' ? 'page' : undefined}><Icon name="tasks" />List</a>
@@ -167,7 +185,7 @@ function Objects({ model }: { model: ObjectPageModel }) {
     {model.objects.length ? <ul class={layout === 'gallery' ? 'object-gallery' : 'object-index'} aria-label={selectedType ? `${selectedType} objects` : 'Search results'} data-object-results="">
       {model.objects.map(record => <li>
         {layout === 'gallery' ? <a class="object-card" href={objectUrl(record.id)}>
-          <div class="object-card-heading"><Icon name="type" /><strong>{titleOf(record)}</strong></div>
+          <div class="object-card-heading"><Icon name={typeIcon(record.typeId)} /><strong>{titleOf(record)}</strong></div>
           {!selectedType && <span class="fine">{typeName(model, record.typeId)}</span>}
           <p class="object-card-excerpt">{model.objectExcerpts?.[record.id] || 'No writing yet.'}</p>
           <time datetime={record.updatedAt}>Updated {record.updatedAt.slice(0, 10)}</time>
@@ -176,7 +194,7 @@ function Objects({ model }: { model: ObjectPageModel }) {
           <time datetime={record.updatedAt} aria-label={`Updated ${record.updatedAt.slice(0, 10)}`}>{record.updatedAt.slice(0, 10)}</time>
         </>}
       </li>)}
-    </ul> : <p class="empty">{emptyMessage}</p>}
+    </ul> : <EmptyState icon={model.trashed ? 'trash' : 'objects'} title={model.search?.trim() ? 'No matches found' : model.trashed ? 'Nothing to restore here' : selectedType ? `Your ${selectedType} collection starts here` : 'Find something in your workspace'}><p>{emptyMessage}</p></EmptyState>}
     <div class="browse-footer">
       {selectedType && <a href={query(0, layout, !model.trashed)}>{model.trashed ? `Back to ${selectedType}` : `${selectedType} trash`}</a>}
       <nav class="pagination" aria-label="Object pages">
@@ -184,7 +202,7 @@ function Objects({ model }: { model: ObjectPageModel }) {
         {model.hasMore && <a href={query(offset + 50)}>Next</a>}
       </nav>
     </div>
-    {model.section === 'tasks' && <div class="view-invitation"><Icon name="ai" /><div><strong>See your tasks differently</strong><p>Generate a board or calendar using your existing task properties.</p></div><a class="button" href="/views?ai=1" data-ai-start="">Create task view</a></div>}
+    {model.section === 'tasks' && <div class="view-invitation"><Icon name="ai" /><div><strong>See your tasks differently</strong><p>Generate a board or calendar using your existing task properties.</p></div><ButtonLink href="/views?ai=1" data-ai-start="">Create task view</ButtonLink></div>}
   </>;
 }
 
@@ -204,11 +222,11 @@ const kindLabel = (property: PropertyDefinition) => propertyKinds.find(kind => k
 function Types({ model }: { model: ObjectPageModel }) {
   const base = model.typeDraft?.basedOnTypeId ?? model.basedOnTypeId;
   return <>
-    <div class="page-heading"><div><span class="eyebrow">Shape your workspace</span><h1>Object types</h1><p class="muted">Built-in foundations and your own independent types.</p></div><a class="button" href="#create-type"><Icon name="plus" />New type</a></div>
+    <PageHeading eyebrow="Shape your workspace" title="Object types" description="Built-in foundations and your own independent types."><ButtonLink href="#create-type"><Icon name="plus" />New type</ButtonLink></PageHeading>
     <div class="type-cards">{model.catalog.types.map((type, index) => {
       const builtin = BUILTIN_TYPES.find(item => item.id === type.id);
-      return <article class="type-card"><span class={`type-card-icon type-accent-${index % 5}`}><Icon name="type" /></span><h2><a href={`/types/${type.id}`}>{type.name}</a></h2>
-        {builtin && <span class="tag">Protected {builtin.name} · customizable</span>}
+      return <article class="type-card"><span class={`type-card-icon type-accent-${index % 5}`}><Icon name={typeIcon(type.id)} /></span><h2><a href={`/types/${type.id}`}>{type.name}</a></h2>
+        {builtin && <Badge>Protected {builtin.name} · customizable</Badge>}
         <p class="muted">{type.propertyIds.length ? type.propertyIds.map(id => propertyOf(model, id)?.label).filter(Boolean).join(' · ') : 'A title and space to write. No extra properties yet.'}</p>
         <div class="type-card-footer"><span class="fine">{type.propertyIds.length} {type.propertyIds.length === 1 ? 'property' : 'properties'}</span><a href={`/objects/new?type=${type.id}`} aria-label={`New ${type.name}`}>Create object →</a></div>
       </article>;
@@ -220,7 +238,7 @@ function Types({ model }: { model: ObjectPageModel }) {
         <small id="type-name-help">Name one thing, like “Book”, rather than a collection.</small>
         <label>Based on<select name="basedOnTypeId" aria-describedby="based-on-help"><option value="" selected={!base}>Empty type</option>{model.catalog.types.map(type => <option value={type.id} selected={base === type.id}>{type.name}</option>)}{base && !model.catalog.types.some(type => type.id === base) && <option value={base} selected>Unavailable type</option>}</select></label>
         <div class="type-name-preview" aria-hidden="true"><span class="type-card-icon"><Icon name="type" /></span><div><strong data-type-name-preview="">{model.typeDraft?.name || 'Your new type'}</strong><small>Title · Writing · Your properties</small></div></div>
-        <button class="primary" type="submit">Create type &amp; add properties</button><State />
+        <Button variant="primary" type="submit">Create type &amp; add properties</Button><State />
       </form>
     </section>
   </>;
@@ -231,14 +249,14 @@ function TypeEditor({ model }: { model: ObjectPageModel }) {
   if (!type) return <p class="empty">Type not found.</p>;
   const available = model.catalog.properties.filter(property => !type.propertyIds.includes(property.id));
   const builtin = BUILTIN_TYPES.find(item => item.id === type.id);
-  return <><a class="back-link" href="/types">← All types</a><div class="page-heading"><div><span class="eyebrow">Type setup</span><h1>{type.name}</h1><p class="muted">Choose the details that make a {type.name} useful to you.</p></div><a class="button primary" href={`/objects/new?type=${type.id}`}><Icon name="plus" />Create object</a></div>
+  return <><a class="back-link" href="/types">← All types</a><PageHeading eyebrow="Type setup" title={type.name} description={`Choose the details that make a ${type.name} useful to you.`}><ButtonLink variant="primary" href={`/objects/new?type=${type.id}`}><Icon name="plus" />Create object</ButtonLink></PageHeading>
     {builtin && <p class="notice"><strong>Protected {builtin.name} · customizable.</strong> Its identity and core fields remain available. Rename this type, rename field labels, and add your own fields. {builtin.description}</p>}
     <p><a href={`/types?basedOnTypeId=${type.id}#create-type`}>Create an independent type based on {type.name}</a></p>
-    <details class="type-settings"><summary>Rename type</summary><form class="inline-form" method="post" action={`/types/${type.id}/update`} data-enhance=""><Token model={model} /><Hidden name="revision" value={type.revision} /><label>Type name<input name="name" value={type.name} required maxlength={100} /></label><button type="submit">Save name</button><State /></form></details>
-    <section class="type-properties"><div class="section-heading"><h2>Object properties</h2><span class="tag">{type.propertyIds.length} fields</span></div><p class="muted">Core field rules apply to built-in types. Additional fields are optional.</p><div class="built-in-properties"><span>Title <small>Built in</small></span><span>Writing <small>Built in</small></span></div>
-      {type.propertyIds.length ? <ul class="property-list property-cards">{type.propertyIds.map(id => { const property = propertyOf(model, id); const sharedWith = model.catalog.types.filter(item => item.id !== type.id && item.propertyIds.includes(id)); return property && <li><div class="property-card-heading"><strong>{property.label}</strong><span class="tag">{kindLabel(property)}</span>{BUILTIN_PROPERTIES.some(item => item.id === id) && <span class="tag">Protected core field</span>}</div>{property.options?.length ? <div class="option-chips">{property.options.map(option => <span class="tag">{option.label}</span>)}</div> : null}{property.targetTypeId && <p class="muted">Links to {typeName(model, property.targetTypeId)}{property.multiple ? ' · multiple links' : ''}</p>}<details><summary>Rename property</summary><p class="fine">{sharedWith.length ? `Shared with ${sharedWith.map(item => item.name).join(', ')}. Renaming changes the label there too.` : 'Renaming keeps existing values and views connected.'}</p><form class="inline-form" method="post" action={`/properties/${id}/update`} data-enhance=""><Token model={model} /><Hidden name="revision" value={property.revision} /><label>Property label<input name="label" value={property.label} required maxlength={100} /></label><button type="submit">Save label</button><State /></form></details></li>; })}</ul> : <div class="empty property-empty"><Icon name="type" /><div><strong>Start simple. Add structure when you need it.</strong><p>You can create objects now, or add a property below. Existing objects keep their writing.</p></div></div>}</section>
-    <div class="two-columns property-builders"><section class="panel"><h2>Add a property</h2><p class="muted">What would you like to keep track of?</p><form method="post" action={`/types/${type.id}/properties`} data-enhance=""><Token model={model} /><Hidden name="revision" value={type.revision} /><label>Property label<input name="label" required maxlength={100} placeholder="e.g. Status, Due date, or Author" /></label><label>Property format<select name="kind" data-property-kind="" aria-describedby="property-kind-help">{propertyKinds.map(kind => <option value={kind.value} data-help={kind.help}>{kind.label}</option>)}</select></label><p class="kind-help fine" id="property-kind-help" data-kind-help="">{propertyKinds[0].help}</p><div data-kind-options="select"><label>Choices<textarea name="options" rows={4} placeholder={'Not started\nIn progress\nDone'}></textarea></label><small>One choice per line. Required for a Select property.</small></div><div data-kind-options="reference"><label>Link to type<select name="targetTypeId"><option value="">Choose a type</option>{model.catalog.types.map(item => <option value={item.id}>{item.name}</option>)}</select></label><label class="check"><input type="checkbox" name="multiple" value="true" />Allow multiple object links</label><small>Only objects of this type can be linked.</small></div><button class="primary" type="submit"><Icon name="plus" />Add property</button><State /></form></section>
-    <section class="panel reuse-property"><span class="eyebrow">Keep things connected</span><h2>Use an existing property</h2><p class="muted">Already tracking this elsewhere? Reuse the same property so views can bring your objects together.</p>{available.length ? <form method="post" action={`/types/${type.id}/properties`} data-enhance=""><Token model={model} /><Hidden name="revision" value={type.revision} /><label>Shared property<select name="propertyId" required><option value="" selected>Choose a property</option>{available.map(property => <option value={property.id}>{property.label} · {kindLabel(property)}</option>)}</select></label><p class="fine">Labels and choices are shared. Each object keeps its own value.</p><button type="submit">Use property</button><State /></form> : <p class="fine">No other properties to reuse yet. New properties you add will be available to other types.</p>}</section></div></>;
+    <details class="type-settings"><summary>Rename type</summary><form class="inline-form" method="post" action={`/types/${type.id}/update`} data-enhance=""><Token model={model} /><Hidden name="revision" value={type.revision} /><label>Type name<input name="name" value={type.name} required maxlength={100} /></label><Button type="submit">Save name</Button><State /></form></details>
+    <section class="type-properties"><div class="section-heading"><h2>Object properties</h2><Badge>{type.propertyIds.length} fields</Badge></div><p class="muted">Core field rules apply to built-in types. Additional fields are optional.</p><div class="built-in-properties"><span>Title <small>Built in</small></span><span>Writing <small>Built in</small></span></div>
+      {type.propertyIds.length ? <ul class="property-list property-cards">{type.propertyIds.map(id => { const property = propertyOf(model, id); const sharedWith = model.catalog.types.filter(item => item.id !== type.id && item.propertyIds.includes(id)); return property && <li><div class="property-card-heading"><strong>{property.label}</strong><Badge>{kindLabel(property)}</Badge>{BUILTIN_PROPERTIES.some(item => item.id === id) && <Badge>Protected core field</Badge>}</div>{property.options?.length ? <div class="option-chips">{property.options.map(option => <Badge>{option.label}</Badge>)}</div> : null}{property.targetTypeId && <p class="muted">Links to {typeName(model, property.targetTypeId)}{property.multiple ? ' · multiple links' : ''}</p>}<details><summary>Rename property</summary><p class="fine">{sharedWith.length ? `Shared with ${sharedWith.map(item => item.name).join(', ')}. Renaming changes the label there too.` : 'Renaming keeps existing values and views connected.'}</p><form class="inline-form" method="post" action={`/properties/${id}/update`} data-enhance=""><Token model={model} /><Hidden name="revision" value={property.revision} /><label>Property label<input name="label" value={property.label} required maxlength={100} /></label><Button type="submit">Save label</Button><State /></form></details></li>; })}</ul> : <div class="empty property-empty"><Icon name="type" /><div><strong>Start simple. Add structure when you need it.</strong><p>You can create objects now, or add a property below. Existing objects keep their writing.</p></div></div>}</section>
+    <div class="two-columns property-builders"><section class="panel"><h2>Add a property</h2><p class="muted">What would you like to keep track of?</p><form method="post" action={`/types/${type.id}/properties`} data-enhance=""><Token model={model} /><Hidden name="revision" value={type.revision} /><label>Property label<input name="label" required maxlength={100} placeholder="e.g. Status, Due date, or Author" /></label><label>Property format<select name="kind" data-property-kind="" aria-describedby="property-kind-help">{propertyKinds.map(kind => <option value={kind.value} data-help={kind.help}>{kind.label}</option>)}</select></label><p class="kind-help fine" id="property-kind-help" data-kind-help="">{propertyKinds[0].help}</p><div data-kind-options="select"><label>Choices<textarea name="options" rows={4} placeholder={'Not started\nIn progress\nDone'}></textarea></label><small>One choice per line. Required for a Select property.</small></div><div data-kind-options="reference"><label>Link to type<select name="targetTypeId"><option value="">Choose a type</option>{model.catalog.types.map(item => <option value={item.id}>{item.name}</option>)}</select></label><label class="check"><input type="checkbox" name="multiple" value="true" />Allow multiple object links</label><small>Only objects of this type can be linked.</small></div><Button variant="primary" type="submit"><Icon name="plus" />Add property</Button><State /></form></section>
+    <section class="panel reuse-property"><span class="eyebrow">Keep things connected</span><h2>Use an existing property</h2><p class="muted">Already tracking this elsewhere? Reuse the same property so views can bring your objects together.</p>{available.length ? <form method="post" action={`/types/${type.id}/properties`} data-enhance=""><Token model={model} /><Hidden name="revision" value={type.revision} /><label>Shared property<select name="propertyId" required><option value="" selected>Choose a property</option>{available.map(property => <option value={property.id}>{property.label} · {kindLabel(property)}</option>)}</select></label><p class="fine">Labels and choices are shared. Each object keeps its own value.</p><Button type="submit">Use property</Button><State /></form> : <p class="fine">No other properties to reuse yet. New properties you add will be available to other types.</p>}</section></div></>;
 }
 
 function JournalDiscovery({ model }: { model: ObjectPageModel }) {
@@ -249,15 +267,15 @@ function JournalDiscovery({ model }: { model: ObjectPageModel }) {
 
 function Journal({ model }: { model: ObjectPageModel }) {
   return <>
-    <div class="page-heading"><div><h1>Journal</h1><p class="muted">One journal per calendar date, including journals in trash.</p></div></div>
+    <PageHeading title="Journal" description="One journal per calendar date, including journals in trash." />
     <form class="filter-bar" method="get" action="/journal" data-journal-picker="" data-local-date-default={model.journalDateDefault ? 'true' : undefined}>
-      <label>Journal date<input name="date" type="date" required value={model.journalDate ?? ''} /></label><button type="submit">Find journal</button><a class="button" href="/journal" data-journal-today="">Today</a>
+      <label>Journal date<input name="date" type="date" required value={model.journalDate ?? ''} /></label><Button type="submit">Find journal</Button><ButtonLink href="/journal" data-journal-today="">Today</ButtonLink>
     </form>
     <JournalDiscovery model={model} />
     <section class="panel">
       <h2>Open your daily journal</h2><p class="muted">Opening an existing day keeps its writing and revision. Opening a new day creates an empty journal. Journals in trash are never restored automatically.</p>
       <form method="post" action="/journal/open" data-enhance="" data-journal-open="">
-        <Token model={model} /><Hidden name="date" value={model.journalDate ?? ''} /><button class="primary" type="submit">Open journal for <span data-journal-day="">{model.journalDate}</span></button><State />
+        <Token model={model} /><Hidden name="date" value={model.journalDate ?? ''} /><Button variant="primary" type="submit">Open journal for <span data-journal-day="">{model.journalDate}</span></Button><State />
       </form>
       <p class="fine">Find a date above, then open it. Nothing is created by viewing this page.</p>
     </section>
@@ -276,13 +294,14 @@ function BuiltinRules({ model, typeId }: { model: ObjectPageModel; typeId: strin
 
 function ObjectSearch() {
   return <dialog class="object-search" id="object-search" aria-labelledby="object-search-heading">
-    <header><h2 id="object-search-heading">Find an object</h2><button type="button" data-search-close="">Close</button></header>
+    <header><h2 id="object-search-heading">Find an object</h2><Button variant="ghost" class="icon-button" type="button" data-search-close="" aria-label="Close search"><Icon name="close" /></Button></header>
     <form method="get" action="/" data-object-search-form="">
       <label>Search title or writing<input type="search" name="q" maxlength={200} autocomplete="off" autofocus /></label>
-      <button type="submit">Search</button>
+      <Button type="submit">Search</Button>
     </form>
     <p class="fine" data-search-status="" role="status">Press Enter to search. Use arrow keys or Tab to choose a result.</p>
     <ul class="object-index" data-search-results="" aria-label="Matching objects"></ul>
+    <div class="search-hints" aria-hidden="true"><span><kbd>↑</kbd><kbd>↓</kbd> navigate</span><span><kbd>Enter</kbd> select</span><span><kbd>Esc</kbd> close</span></div>
   </dialog>;
 }
 
@@ -322,19 +341,19 @@ function ObjectEditor({ model }: { model: ObjectPageModel }) {
   if (draft) state = 'Unsaved changes';
   if (model.error) state = model.error;
   const conflict = Boolean(record && draft?.revision && Number(draft.revision) !== record.revision);
-  return <><h1 class="sr-only">{record ? 'Edit object' : 'New object'}</h1><a class="back-link" data-object-back="" href={`/?type=${type.id}`}>← {type.name} objects</a>{record?.trashed && <p class="tag">In trash</p>}
+  return <><h1 class="sr-only">{record ? 'Edit object' : 'New object'}</h1><a class="back-link" data-object-back="" href={`/?type=${type.id}`}>← {type.name} objects</a>{record?.trashed && <Badge tone="warning">In trash</Badge>}
     {record && <nav class="object-sections" aria-label="Object sections"><a href="#markdown-body">Edit Markdown</a><a href={conflict ? '#saved-conflict' : '#saved-writing'} data-read-saved="">Read saved</a><a href="#object-backlinks">Linked from</a></nav>}
     {!record && <div class="object-type-picker"><label>Object type<select name="typeId" form="object-editor" data-new-type="">{model.catalog.types.map(item => <option value={item.id} selected={item.id === type.id}>{item.name}</option>)}</select></label><a href="/types#create-type">Create a new type</a><p class="fine native-only">Choose Use type below to load its fields without saving or losing your writing.</p></div>}
     <div class={`object-editing${conflict ? ' has-conflict' : ''}`}>
     <form id="object-editor" class="object-editor" method="post" action={record ? `/objects/${record.id}/update` : '/objects/create'} data-enhance="" data-object-editor="" data-new-object={!record ? 'true' : undefined} data-local-date-default={!record && !draft && model.journalDateDefault ? 'true' : undefined} data-draft={draft ? 'true' : undefined}><Token model={model} />{record ? <Hidden name="revision" value={draft?.revision ?? record.revision} /> : <Hidden name="requestId" value={draft?.requestId ?? crypto.randomUUID()} />}
       <label class="title-field"><span class="sr-only">Title</span><input name="title" value={draft?.title ?? record?.title ?? (type.id === JOURNAL_TYPE_ID ? journalDate ?? '' : '')} data-journal-title-default={!record && !draft && type.id === JOURNAL_TYPE_ID ? 'true' : undefined} required maxlength={500} autocomplete="off" placeholder="Untitled" /></label>
       <section class="writing">
-        <div class="writing-heading"><label for="markdown-body">Writing (Markdown)</label><button class="js-only" type="button" data-insert-object-link="">Insert link</button></div>
+        <div class="writing-heading"><label for="markdown-body">Writing (Markdown)</label><Button class="js-only" type="button" data-insert-object-link="">Insert link</Button></div>
         <textarea id="markdown-body" class="markdown-source" name="body" rows={14} aria-describedby="markdown-help" spellcheck={true}>{`\n${body}`}</textarea>
         <p class="fine" id="markdown-help">Use # headings, **bold**, and [label](url). Changes need saving.</p>
       </section>
       <details class="properties" open={propertyCount > 0}>
-        <summary>Details <span class="tag" data-property-count="" hidden={!propertyCount}>{propertyCount}</span><span class="fine" data-object-type-label="">{type.name}</span></summary>
+        <summary>Details <Badge data-property-count="" hidden={!propertyCount}>{propertyCount}</Badge><span class="fine" data-object-type-label="">{type.name}</span></summary>
         {record && <label class="object-type-field">Type<select name="typeId" data-new-type="">{model.catalog.types.map(item => <option value={item.id} selected={item.id === type.id}>{item.name}</option>)}</select><small>Changing type keeps existing values. Without JavaScript, choose Use type below to load its fields without saving.</small></label>}
         <p class="fine" data-properties-empty="" hidden={propertyCount > 0}>No additional properties. <a href={`/types/${type.id}`} data-type-setup="">Manage type</a></p>
         <BuiltinRules model={model} typeId={type.id} />
@@ -356,7 +375,7 @@ function ObjectEditor({ model }: { model: ObjectPageModel }) {
       </details>
       <JournalDiscovery model={model} />
       <div class="save-bar">
-        <span data-object-save-controls="">{conflict && record ? <button type="submit" class="primary" name="reviewedRevision" value={record.revision}>Save reconciled changes</button> : <button type="submit" class="primary">{record ? 'Save changes' : 'Create object'}</button>} <button class="native-only" type="submit" name="intent" value="change-type" formnovalidate>Use type</button></span>
+        <span data-object-save-controls="">{conflict && record ? <Button type="submit" variant="primary" name="reviewedRevision" value={record.revision}>Save reconciled changes</Button> : <Button type="submit" variant="primary">{record ? 'Save changes' : 'Create object'}</Button>} <Button class="native-only" type="submit" name="intent" value="change-type" formnovalidate>Use type</Button></span>
         <State message={state} error={Boolean(model.error)} />
       </div>
     </form>
@@ -377,7 +396,7 @@ function ObjectEditor({ model }: { model: ObjectPageModel }) {
       </section>
       <form class="trash-form" method="post" action={`/objects/${record.id}/${record.trashed ? 'restore' : 'trash'}`} data-enhance="">
         <Token model={model} /><Hidden name="revision" value={record.revision} />
-        <button type="submit">{record.trashed ? 'Restore object' : 'Move to trash'}</button><State />
+        <Button type="submit" variant={record.trashed ? 'secondary' : 'danger'}>{record.trashed ? 'Restore object' : 'Move to trash'}</Button><State />
       </form>
     </>}
   </>;
@@ -386,17 +405,17 @@ function ObjectEditor({ model }: { model: ObjectPageModel }) {
 function Views({ model }: { model: ObjectPageModel }) {
   const calendar = model.section === 'calendar';
   const views = calendar ? model.views.filter(view => view.spec.blocks.some(block => block.component === 'calendar')) : model.views;
-  return <><div class="page-heading"><div><h1>{calendar ? 'Calendar' : 'Views'}</h1><p class="muted">{calendar ? 'Your dated objects, seen together. Open a saved calendar or create your own.' : 'Different perspectives on the same objects. Nothing copied, nothing moved.'}</p></div><a class="button primary" href={calendar ? '/calendar?ai=1' : '/views?ai=1'} data-ai-start=""><Icon name="ai" />{calendar ? 'Create calendar' : 'Create view'}</a></div>
+  return <><PageHeading title={calendar ? 'Calendar' : 'Views'} description={calendar ? 'Your dated objects, seen together. Open a saved calendar or create your own.' : 'Different perspectives on the same objects. Nothing copied, nothing moved.'}><ButtonLink variant="primary" href={calendar ? '/calendar?ai=1' : '/views?ai=1'} data-ai-start=""><Icon name="ai" />{calendar ? 'Create calendar' : 'Create view'}</ButtonLink></PageHeading>
     <div class="view-invitation"><span class="invitation-icon"><Icon name={calendar ? 'calendar' : 'views'} /></span><div><strong>{calendar ? 'Make room for what’s coming up' : 'A view that fits the way you think'}</strong><p>{calendar ? 'Ask for a calendar using date properties already in your workspace.' : 'Describe a list, table, calendar, or board. The view assistant creates a draft you can review.'}</p></div></div>
     {calendar && <p class="fine">For Events, include separate calendar blocks for all-day dates and timed ranges. For Reminders, include separate blocks for dates and exact times. Bind each block to the corresponding field and filter out empty values so both alternatives appear. Creating or opening objects never generates a view automatically.</p>}
-    <h2 class="section-heading">{calendar ? 'Saved calendars' : 'Saved views'}<span class="tag">{views.length}</span></h2>{views.length ? <ul class="view-list">{views.map(view => <li><span class="view-list-icon"><Icon name={view.spec.blocks.some(block => block.component === 'calendar') ? 'calendar' : 'views'} /></span><div><a href={`/views/${view.id}`}>{view.spec.title}</a><p class="muted">{view.spec.description}</p></div><span class="tag">{view.status}</span><a class="button" href={`/views/${view.id}`}>{view.status === 'draft' ? 'Preview' : 'Open'}</a></li>)}</ul> : <div class="empty"><h3>{calendar ? 'No calendars yet' : 'A fresh perspective starts here'}</h3><p>{calendar ? 'No saved view includes a calendar. Create one to bring your dated objects into focus.' : 'Create your first view from the objects and properties in your workspace.'}</p><a href={calendar ? '/calendar?ai=1' : '/views?ai=1'} data-ai-start="">{calendar ? 'Describe a calendar' : 'Describe a view'}</a></div>}</>;
+    <h2 class="section-heading">{calendar ? 'Saved calendars' : 'Saved views'}<Badge>{views.length}</Badge></h2>{views.length ? <ul class="view-list">{views.map(view => <li><span class="view-list-icon"><Icon name={view.spec.blocks.some(block => block.component === 'calendar') ? 'calendar' : 'views'} /></span><div><a href={`/views/${view.id}`}>{view.spec.title}</a><p class="muted">{view.spec.description}</p></div><Badge tone={view.status === 'draft' ? 'warning' : 'success'}>{view.status}</Badge><ButtonLink href={`/views/${view.id}`}>{view.status === 'draft' ? 'Preview' : 'Open'}</ButtonLink></li>)}</ul> : <EmptyState icon={calendar ? 'calendar' : 'views'} title={calendar ? 'No calendars yet' : 'A fresh perspective starts here'}><p>{calendar ? 'No saved view includes a calendar. Create one to bring your dated objects into focus.' : 'Create your first view from the objects and properties in your workspace.'}</p><a href={calendar ? '/calendar?ai=1' : '/views?ai=1'} data-ai-start="">{calendar ? 'Describe a calendar' : 'Describe a view'}</a></EmptyState>}</>;
 }
 
 function InlineAction({ model, view, blockIndex, row, role }: { model: ObjectPageModel; view: SavedView; blockIndex: number; row: ViewRow; role: 'date' | 'group' }) {
   const propertyId = row.bindings[role];
   const property = propertyId ? propertyOf(model, propertyId) : undefined;
   if (!property || view.status !== 'published' || !view.spec.blocks[blockIndex]?.editable) return null;
-  return <details class="inline-action"><summary>Edit {property.label}</summary><form method="post" action={`/views/${view.id}/act`} data-enhance=""><Token model={model} /><Hidden name="revision" value={view.revision} /><Hidden name="blockIndex" value={blockIndex} /><Hidden name="objectId" value={row.object.id} /><Hidden name="objectRevision" value={row.object.revision} /><Hidden name="role" value={role} />{model.evaluatedView?.input && <Hidden name="inputId" value={model.evaluatedView.input.id} />}<PropertyControl model={model} property={property} value={row.object.properties[property.id]} name="value" /><button type="submit">Save</button><State /></form></details>;
+  return <details class="inline-action"><summary>Edit {property.label}</summary><form method="post" action={`/views/${view.id}/act`} data-enhance=""><Token model={model} /><Hidden name="revision" value={view.revision} /><Hidden name="blockIndex" value={blockIndex} /><Hidden name="objectId" value={row.object.id} /><Hidden name="objectRevision" value={row.object.revision} /><Hidden name="role" value={role} />{model.evaluatedView?.input && <Hidden name="inputId" value={model.evaluatedView.input.id} />}<PropertyControl model={model} property={property} value={row.object.properties[property.id]} name="value" /><Button type="submit">Save</Button><State /></form></details>;
 }
 
 function BoundValues({ model, block, row }: { model: ObjectPageModel; block: EvaluatedBlock; row: ViewRow }) {
@@ -444,9 +463,9 @@ function View({ model }: { model: ObjectPageModel }) {
   if (!evaluated) return <p class="empty">View not found.</p>;
   const view = evaluated.view;
   const input = view.spec.input;
-  return <><a class="back-link" href="/views">All views</a><div class="page-heading"><div><h1>{view.spec.title}</h1><p class="muted">{view.spec.description}</p></div><span class="tag">{view.status === 'draft' ? 'Draft preview' : 'Published'}</span></div>
-    <div class="view-actions">{view.status === 'draft' && <form method="post" action={`/views/${view.id}/publish`} data-enhance=""><Token model={model} /><Hidden name="revision" value={view.revision} /><button type="submit" class="primary">Publish view</button><State /></form>}<a class="button" href={`/views/${view.id}?ai=1`} data-ai-context="" data-previous-id={view.id} data-context-title={view.spec.title}><Icon name="ai" />Refine with AI</a><button class="js-only" type="button" data-pin-view="" data-view-id={view.id} aria-pressed="false">Pin view</button><form method="post" action={`/views/${view.id}/delete`} data-enhance=""><Token model={model} /><Hidden name="revision" value={view.revision} /><button type="submit">Delete view</button><State /></form><p class="muted">Deleting a view does not delete its objects.</p></div>
-    {input && <form class="filter-bar" method="get" action={`/views/${view.id}`}><label>{input.label}<select name="input" required><option value="">Choose an object</option>{model.objects.filter(record => record.typeId === input.typeId && !record.trashed).map(record => <option value={record.id} selected={record.id === evaluated.input?.id}>{titleOf(record)}</option>)}</select></label><button type="submit">Show view</button></form>}
+  return <><a class="back-link" href="/views">All views</a><PageHeading title={view.spec.title} description={view.spec.description}><Badge tone={view.status === 'draft' ? 'warning' : 'success'}>{view.status === 'draft' ? 'Draft preview' : 'Published'}</Badge></PageHeading>
+    <div class="view-actions">{view.status === 'draft' && <form method="post" action={`/views/${view.id}/publish`} data-enhance=""><Token model={model} /><Hidden name="revision" value={view.revision} /><Button type="submit" variant="primary">Publish view</Button><State /></form>}<ButtonLink href={`/views/${view.id}?ai=1`} data-ai-context="" data-previous-id={view.id} data-context-title={view.spec.title}><Icon name="ai" />Refine with AI</ButtonLink><Button class="js-only" type="button" data-pin-view="" data-view-id={view.id} aria-pressed="false">Pin view</Button><form method="post" action={`/views/${view.id}/delete`} data-enhance=""><Token model={model} /><Hidden name="revision" value={view.revision} /><Button type="submit" variant="danger">Delete view</Button><State /></form><p class="muted">Deleting a view does not delete its objects.</p></div>
+    {input && <form class="filter-bar" method="get" action={`/views/${view.id}`}><label>{input.label}<select name="input" required><option value="">Choose an object</option>{model.objects.filter(record => record.typeId === input.typeId && !record.trashed).map(record => <option value={record.id} selected={record.id === evaluated.input?.id}>{titleOf(record)}</option>)}</select></label><Button type="submit">Show view</Button></form>}
     {input && !evaluated.input ? <p class="empty">Choose a {typeName(model, input.typeId)} above to show this view.</p> : evaluated.blocks.map((block, index) => <section class="view-block"><h2>{block.definition.title}</h2><ViewBlockContent model={model} block={block} blockIndex={index} view={view} />{block.truncated && <p class="muted">This section reached its result limit. Narrow the view by refining your prompt.</p>}</section>)}
     <p class="fine">Source: {view.model}. Draft actions are read-only; object links always open the object editor.</p>
   </>;
@@ -467,9 +486,9 @@ export function renderObjectWorkspace(model: ObjectPageModel): string {
   const currentView = model.screen === 'view' ? model.evaluatedView?.view : undefined;
   const suggestedPrompt = model.section === 'calendar' ? 'Create a calendar of my objects using their date properties.' : model.section === 'tasks' && model.selectedTypeId ? 'Create a view of my tasks using their existing properties.' : undefined;
   const objectEditor = model.screen === 'new-object' || (model.screen === 'object' && Boolean(model.object));
-  return '<!doctype html>' + (<html lang="en"><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><meta name="color-scheme" content="light" /><title>{title} · Taskdesk</title><link rel="stylesheet" href="/objects.css" /></head><body class={`object-shell${model.aiOpen ? ' ai-open' : ''}`} data-ai-view-id={currentView?.id} data-ai-view-title={currentView?.spec.title} data-ai-context-title={model.aiContextTitle} data-ai-prompt={suggestedPrompt}>
+  return '<!doctype html>' + (<html lang="en"><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><meta name="color-scheme" content="light" /><title>{title} · Taskdesk</title><link rel="stylesheet" href="/tokens.css" /><link rel="stylesheet" href="/objects.css" /></head><body class={`object-shell${model.aiOpen ? ' ai-open' : ''}`} data-ai-view-id={currentView?.id} data-ai-view-title={currentView?.spec.title} data-ai-context-title={model.aiContextTitle} data-ai-prompt={suggestedPrompt}>
     <a class="skip-link" href="#main">Skip to content</a><div class="workspace-layout"><WorkspaceNav model={model} />
-    <div class="workspace-content"><header class="workspace-header"><div class="workspace-breadcrumb"><button class="icon-button js-only nav-toggle" type="button" data-nav-toggle="" aria-label="Open navigation" aria-controls="workspace-nav" aria-expanded="false"><Icon name="menu" /></button><a href="/">Workspace</a><span aria-hidden="true">/</span><span class="breadcrumb-title">{title}</span></div><a class="button ai-toggle" href="/views?ai=1" data-ai-toggle="" aria-controls="ai-panel" aria-expanded={model.aiOpen ? 'true' : 'false'}><Icon name="ai" /><span>View assistant</span></a></header>
+    <div class="workspace-content"><header class="workspace-header"><div class="workspace-breadcrumb"><Button class="icon-button js-only nav-toggle" type="button" data-nav-toggle="" aria-label="Open navigation" aria-controls="workspace-nav" aria-expanded="false"><Icon name="menu" /></Button><a href="/">Workspace</a><span aria-hidden="true">/</span><span class="breadcrumb-title">{title}</span></div><ButtonLink class="ai-toggle" href="/views?ai=1" data-ai-toggle="" aria-controls="ai-panel" aria-expanded={model.aiOpen ? 'true' : 'false'}><Icon name="ai" /><span>View assistant</span></ButtonLink></header>
     <main id="main" tabindex={-1}>{model.error && !objectEditor && <div class="notice error" role="alert">{model.error}</div>}{model.notice && !objectEditor && <div class="notice" role="status">{model.notice}</div>}{model.screen === 'journal' ? <Journal model={model} /> : model.screen === 'home' ? <ObjectHome model={model} /> : model.screen === 'objects' ? <Objects model={model} /> : model.screen === 'types' ? <Types model={model} /> : model.screen === 'type' ? <TypeEditor model={model} /> : model.screen === 'new-object' || model.screen === 'object' ? <ObjectEditor model={model} /> : model.screen === 'views' ? <Views model={model} /> : <View model={model} />}</main><footer class="workspace-footer">Objects are yours. Views are ways to see them.</footer></div>
     <button class="panel-backdrop" data-panel-backdrop="" type="button" aria-label="Close open panel" hidden></button><AiPanel model={model} /></div><ObjectSearch /><script type="module" src="/objects-client.js"></script></body></html>).toString();
 }

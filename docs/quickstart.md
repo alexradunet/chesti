@@ -60,7 +60,7 @@ Add fields such as Mood to Journal or Priority to Task to customize the built-in
 
 ## Browse by type
 
-The home page, **Objects**, shows your types and their object counts. Choose a type card or its sidebar link to see only objects of that type. **New object** on that page starts an object with the chosen type.
+The home page, **Objects**, shows totals for objects, types, and saved views, followed by types and their object counts—not a mixed object feed. Choose a type card or its sidebar link to see only objects of that type. **New object** on that page starts an object with the chosen type.
 
 Use **List** for compact rows or **Gallery** for cards with titles, saved-writing excerpts, and update dates. List is the default; the selected layout is part of the page URL, so refreshing or using browser Back retains it. Switching layouts keeps your search and page. Both layouts work without JavaScript and do not create or modify a saved view.
 
@@ -71,6 +71,8 @@ Search on a type page stays within that type. Each page shows up to 50 objects; 
 Open **Views → Create view**. In the right-hand View assistant, ask:
 
 > Create an editable calendar showing all Task and Work item objects using Due date. Keep undated objects visible as unscheduled.
+
+With JavaScript, a fresh new-view conversation offers starter suggestions when the composer is completely empty. Choosing one only fills and focuses the composer locally; it never submits or calls the provider. Suggestions never replace an existing prompt, including whitespace, and are hidden for refinement, active/saved threads, and while restoring or generating. Edit the prompt as needed, then explicitly choose **Generate view**. Without JavaScript, enter the prompt and submit the native form.
 
 The model sees your prompt, schema metadata, up to 12 prior conversation prompts, and the previous view specification when refining—not object titles or writing unless you put them in your prompt. Review the draft in the main area and choose **Publish view**. Open **Edit Due date** on a row to reschedule the original object. Rename Due date to Deadline in Manage types: the saved view still works because bindings use property IDs.
 
