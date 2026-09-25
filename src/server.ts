@@ -2,9 +2,9 @@ import { timingSafeEqual } from 'node:crypto';
 import { resolve as resolvePath } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { AppError } from './core.js';
-import { openDatabase } from './database.js';
 import { VisitorStore } from './visitors.js';
-import { ObjectRuntime } from './objects/runtime.js';
+import type { ObjectRuntime } from './objects/runtime.js';
+import { openWorkspace } from './objects/workspace.js';
 import { createObjectRoutes } from './objects/http.js';
 import type { ViewGenerator } from './objects/model.js';
 
@@ -43,7 +43,7 @@ async function formBody(req: Request, limit = 8192): Promise<URLSearchParams> {
   }
   const fields = new URLSearchParams(Buffer.concat(chunks, size).toString('utf8'));
   for (const key of fields.keys()) {
-    if (!/^p:[a-f0-9-]{36}$/.test(key) && fields.getAll(key).length !== 1) throw new AppError(422, 'Repeated form field.');
+    if (!/^(?:draft:)?p:[a-f0-9-]{36}$/.test(key) && fields.getAll(key).length !== 1) throw new AppError(422, 'Repeated form field.');
   }
   return fields;
 }
@@ -60,7 +60,7 @@ function withHeaders(response: Response, headers: Headers): Response {
 }
 
 export function createApp(options: { objects?: ObjectRuntime; viewGenerator?: ViewGenerator; port?: number } = {}): Bun.Server<undefined> {
-  const objects = options.objects ?? new ObjectRuntime(openDatabase(process.env.DATABASE_PATH ?? resolvePath('.data/taskdesk.sqlite')));
+  const objects = options.objects ?? openWorkspace(process.env.DATABASE_PATH ?? resolvePath('.data/taskdesk.sqlite'));
   const visitors = new VisitorStore(objects.db);
   const objectRoutes = createObjectRoutes(objects, options.viewGenerator);
   let objectClient: Promise<Bun.BuildOutput> | undefined;

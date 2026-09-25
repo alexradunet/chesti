@@ -8,6 +8,7 @@ import { AppError } from '../src/core.js';
 import { openDatabase } from '../src/database.js';
 import { ObjectRuntime } from '../src/objects/runtime.js';
 import { ViewService, validateViewSpec } from '../src/objects/views.js';
+import { JOURNAL_TYPE_ID, JOURNAL_DATE_PROPERTY_ID, TASK_TYPE_ID, TASK_DONE_PROPERTY_ID } from '../src/objects/model.js';
 import type { ObjectType, PropertyKind, PropertyValue, ViewSpec } from '../src/objects/model.js';
 
 function fixture(t: TestContext) {
@@ -241,4 +242,42 @@ test('a schema kind change invalidates a saved binding even when the new kind fi
   f.db.query('UPDATE object_properties SET kind = ? WHERE id = ?').run('boolean', group.id);
   assert.throws(() => f.views.publish(draft.id, draft.revision), status(409));
   assert.throws(() => f.views.evaluate(draft.id), status(409));
+});
+
+test('published journal date commands enforce daily uniqueness including trash and retain writing', t => {
+  const f = fixture(t);
+  const one = f.objects.openJournal('2026-09-25');
+  const journal = f.objects.updateObject(one.id, one.revision, { ...one, body: 'Daily writing must survive.' });
+  const other = f.objects.openJournal('2026-09-26');
+  f.objects.setTrashed(other.id, other.revision, true);
+  const spec: ViewSpec = { title: 'Journals', blocks: [{
+    title: 'Days', component: 'calendar', editable: true,
+    sources: [{ typeId: JOURNAL_TYPE_ID, bindings: { date: JOURNAL_DATE_PROPERTY_ID } }],
+  }] };
+  const draft = f.views.create({ spec, model: 'test/model' }, 'Journal calendar');
+  const view = f.views.publish(draft.id, draft.revision);
+  assert.throws(() => f.views.act(view.id, view.revision, 0, journal.id, journal.revision, 'date', '2026-09-26'), status(409));
+  assert.throws(() => f.views.act(view.id, view.revision, 0, journal.id, journal.revision, 'date', null), status(422));
+  assert.deepEqual(f.objects.getObject(journal.id), journal);
+  const moved = f.views.act(view.id, view.revision, 0, journal.id, journal.revision, 'date', '2026-09-24');
+  assert.equal(moved.body, journal.body);
+  assert.equal(f.views.evaluate(view.id).blocks[0]!.rows[0]!.object.properties[JOURNAL_DATE_PROPERTY_ID], '2026-09-24');
+});
+
+test('new built-in tasks appear as incomplete and creation retries cannot reset completed work', t => {
+  const f = fixture(t);
+  const requestId = crypto.randomUUID();
+  const input = { typeId: TASK_TYPE_ID, title: 'Finish work', properties: {}, body: '' };
+  const task = f.objects.createObject(input, requestId);
+  const spec: ViewSpec = { title: 'Open tasks', blocks: [{
+    title: 'Completion', component: 'board', editable: true,
+    sources: [{ typeId: TASK_TYPE_ID, bindings: { group: TASK_DONE_PROPERTY_ID }, where: [{ propertyId: TASK_DONE_PROPERTY_ID, operator: 'equals', value: false }] }],
+  }] };
+  const draft = f.views.create({ spec, model: 'test/model' }, 'Incomplete tasks');
+  const view = f.views.publish(draft.id, draft.revision);
+  assert.deepEqual(f.views.evaluate(view.id).blocks[0]!.rows.map(row => row.object.id), [task.id]);
+  const completed = f.views.act(view.id, view.revision, 0, task.id, task.revision, 'group', true);
+  assert.deepEqual(f.views.evaluate(view.id).blocks[0]!.rows, []);
+  assert.deepEqual(f.objects.createObject(input, requestId), completed);
+  assert.throws(() => f.objects.createObject({ ...input, properties: { [TASK_DONE_PROPERTY_ID]: false } }, requestId), status(409));
 });

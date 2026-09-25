@@ -6,7 +6,12 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { AppError } from '../src/core.js';
 import { openDatabase } from '../src/database.js';
-import { PAGE_TYPE_ID } from '../src/objects/model.js';
+import {
+  BUILTIN_TYPES, PAGE_TYPE_ID, TASK_TYPE_ID, TASK_DUE_PROPERTY_ID,
+  EVENT_TYPE_ID, EVENT_DATES_PROPERTY_ID, EVENT_TIME_PROPERTY_ID,
+  REMINDER_TYPE_ID, REMINDER_DATE_PROPERTY_ID, REMINDER_TIME_PROPERTY_ID,
+  JOURNAL_TYPE_ID, JOURNAL_DATE_PROPERTY_ID,
+} from '../src/objects/model.js';
 import type { ObjectWrite, PropertyValue } from '../src/objects/model.js';
 import { ObjectRuntime } from '../src/objects/runtime.js';
 import { valueError, validDate, validDateTime } from '../src/objects/values.js';
@@ -177,8 +182,105 @@ test('time ranges validate ordering, zone offsets and DST at both endpoints; all
 test('schema version guard does not modify newer object databases', t => {
   const { db, runtime } = fixture(t);
   const object = runtime.createObject(input());
-  db.query("UPDATE object_metadata SET value = '3' WHERE key = 'schema_version'").run();
+  db.query("UPDATE object_metadata SET value = '999' WHERE key = 'schema_version'").run();
   assert.throws(() => new ObjectRuntime(db), /Unsupported object database schema/);
   assert.deepEqual(runtime.getObject(object.id), object);
-  assert.equal(db.query<{ value: string }, []>("SELECT value FROM object_metadata WHERE key = 'schema_version'").get()!.value, '3');
+  assert.equal(db.query<{ value: string }, []>("SELECT value FROM object_metadata WHERE key = 'schema_version'").get()!.value, '999');
+});
+
+test('daily journals reuse saved and trashed writing across connections without creating duplicates', t => {
+  const directory = mkdtempSync(join(tmpdir(), 'daily-journal-'));
+  const file = join(directory, 'workspace.sqlite');
+  const db = openDatabase(file);
+  const first = new ObjectRuntime(db);
+  const otherDb = openDatabase(file);
+  const other = new ObjectRuntime(otherDb);
+  t.after(() => { otherDb.close(); db.close(); rmSync(directory, { recursive: true, force: true }); });
+  const date = '2026-09-25';
+  const made = first.openJournal(date);
+  const written = first.updateObject(made.id, made.revision, { ...made, title: 'A memorable day', body: '# Keep this\n\nMy writing.' });
+  assert.deepEqual(other.openJournal(date), written);
+  assert.throws(() => other.createObject(input(JOURNAL_TYPE_ID, 'Duplicate', { [JOURNAL_DATE_PROPERTY_ID]: date }, 'Different writing')), status(409));
+  const trashed = other.setTrashed(written.id, written.revision, true);
+  assert.deepEqual(first.openJournal(date), trashed);
+  assert.throws(() => first.createObject(input(JOURNAL_TYPE_ID, 'Replacement', { [JOURNAL_DATE_PROPERTY_ID]: date })), status(409));
+  const restored = first.setTrashed(trashed.id, trashed.revision, false);
+  assert.equal(restored.body, written.body);
+  assert.deepEqual(other.listObjects({ typeId: JOURNAL_TYPE_ID }), [restored]);
+  assert.throws(() => db.query(`INSERT INTO objects SELECT ?, type_id, title, properties_json, body, revision, created_at, updated_at, trashed, body_text FROM objects WHERE id = ?`).run(crypto.randomUUID(), made.id));
+});
+
+test('journal date changes and type changes cannot erase a date or overwrite another day', t => {
+  const { db, runtime } = fixture(t);
+  const first = runtime.openJournal('2026-09-25');
+  const second = runtime.openJournal('2026-09-26');
+  const beforeHistory = db.query('SELECT * FROM object_revisions').all();
+  assert.throws(() => runtime.patchProperties(first.id, first.revision, { [JOURNAL_DATE_PROPERTY_ID]: '2026-09-26' }), status(409));
+  assert.throws(() => runtime.patchProperties(first.id, first.revision, { [JOURNAL_DATE_PROPERTY_ID]: null }), status(422));
+  assert.throws(() => runtime.patchProperties(first.id, first.revision, { [JOURNAL_DATE_PROPERTY_ID]: '2026-02-30' }), status(422));
+  assert.deepEqual(runtime.getObject(first.id), first);
+  assert.deepEqual(runtime.getObject(second.id), second);
+  assert.deepEqual(db.query('SELECT * FROM object_revisions').all(), beforeHistory);
+  assert.throws(() => db.query('UPDATE objects SET properties_json = ? WHERE id = ?').run('{}', first.id));
+  const page = runtime.createObject(input(PAGE_TYPE_ID, 'Not yet a journal'));
+  assert.throws(() => runtime.updateObject(page.id, page.revision, { ...page, typeId: JOURNAL_TYPE_ID }), status(422));
+  assert.throws(() => runtime.updateObject(page.id, page.revision, { ...page, typeId: JOURNAL_TYPE_ID, properties: { [JOURNAL_DATE_PROPERTY_ID]: '2026-09-26' } }), status(409));
+  const moved = runtime.patchProperties(first.id, first.revision, { [JOURNAL_DATE_PROPERTY_ID]: '2026-09-24' });
+  assert.equal(runtime.getJournal('2026-09-25'), undefined);
+  assert.equal(runtime.getJournal('2026-09-24')?.id, moved.id);
+  assert.throws(() => runtime.patchProperties(first.id, first.revision, { [JOURNAL_DATE_PROPERTY_ID]: '2026-09-23' }), status(409));
+});
+
+test('built-in identities and core fields are protected while customizations survive reopening', t => {
+  const { db, runtime } = fixture(t);
+  let task = runtime.getType(TASK_TYPE_ID);
+  task = runtime.renameType(task.id, task.revision, 'Actions');
+  task = runtime.addProperty(task.id, task.revision, { label: 'Energy', kind: 'number' });
+  const due = runtime.getProperty(TASK_DUE_PROPERTY_ID);
+  runtime.renameProperty(due.id, due.revision, 'Deadline');
+  for (const type of BUILTIN_TYPES) {
+    assert.throws(() => db.query('DELETE FROM object_types WHERE id = ?').run(type.id));
+  }
+  assert.throws(() => db.query('UPDATE object_types SET property_ids_json = ? WHERE id = ?').run('[]', TASK_TYPE_ID));
+  assert.throws(() => db.query('DELETE FROM object_properties WHERE id = ?').run(TASK_DUE_PROPERTY_ID));
+  assert.throws(() => db.query('UPDATE object_properties SET kind = ? WHERE id = ?').run('text', TASK_DUE_PROPERTY_ID));
+  const record = runtime.createObject(input(TASK_TYPE_ID, 'A real action', { [TASK_DUE_PROPERTY_ID]: '2026-10-01', [task.propertyIds.at(-1)!]: 3 }));
+  const catalog = runtime.catalog();
+  const reopened = new ObjectRuntime(db);
+  assert.deepEqual(reopened.catalog(), catalog);
+  assert.deepEqual(reopened.getObject(record.id), record);
+});
+
+test('types based on built-ins share properties but not lifecycle rules or later field additions', t => {
+  const { runtime } = fixture(t);
+  const diary = runtime.createType('Travel entry', JOURNAL_TYPE_ID);
+  const date = '2026-09-25';
+  runtime.openJournal(date);
+  const a = runtime.createObject(input(diary.id, 'Morning', { [JOURNAL_DATE_PROPERTY_ID]: date }));
+  const b = runtime.createObject(input(diary.id, 'Evening', { [JOURNAL_DATE_PROPERTY_ID]: date }));
+  const undated = runtime.createObject(input(diary.id, 'Unscheduled writing'));
+  const property = runtime.getProperty(JOURNAL_DATE_PROPERTY_ID);
+  runtime.renameProperty(property.id, property.revision, 'Entry day');
+  const journal = runtime.getType(JOURNAL_TYPE_ID);
+  const extended = runtime.addProperty(journal.id, journal.revision, { label: 'Mood', kind: 'text' });
+  assert.equal(runtime.getType(diary.id).propertyIds.includes(extended.propertyIds.at(-1)!), false);
+  assert.equal(runtime.getProperty(runtime.getType(diary.id).propertyIds[0]!).label, 'Entry day');
+  assert.deepEqual(new Set(runtime.listObjects({ typeId: diary.id }).map(record => record.id)), new Set([a.id, b.id, undated.id]));
+});
+
+test('event and reminder schedules require one representation and switch atomically', t => {
+  const { runtime } = fixture(t);
+  assert.throws(() => runtime.createObject(input(EVENT_TYPE_ID)), status(422));
+  const event = runtime.createObject(input(EVENT_TYPE_ID, 'Holiday', { [EVENT_DATES_PROPERTY_ID]: { start: '2026-09-25', end: '2026-09-26' } }));
+  const time = { start: '2026-09-25T09:00:00Z', end: '2026-09-25T10:00:00Z', timeZone: 'UTC' };
+  assert.throws(() => runtime.patchProperties(event.id, event.revision, { [EVENT_TIME_PROPERTY_ID]: time }), status(422));
+  const timed = runtime.patchProperties(event.id, event.revision, { [EVENT_DATES_PROPERTY_ID]: null, [EVENT_TIME_PROPERTY_ID]: time });
+  assert.equal(timed.properties[EVENT_DATES_PROPERTY_ID], undefined);
+  assert.deepEqual(timed.properties[EVENT_TIME_PROPERTY_ID], time);
+  assert.throws(() => runtime.createObject(input(REMINDER_TYPE_ID)), status(422));
+  const reminder = runtime.createObject(input(REMINDER_TYPE_ID, 'Think about plans', { [REMINDER_DATE_PROPERTY_ID]: '2026-09-25' }));
+  assert.throws(() => runtime.patchProperties(reminder.id, reminder.revision, { [REMINDER_TIME_PROPERTY_ID]: '2026-09-25T21:00:00Z' }), status(422));
+  const precise = runtime.patchProperties(reminder.id, reminder.revision, { [REMINDER_DATE_PROPERTY_ID]: null, [REMINDER_TIME_PROPERTY_ID]: '2026-09-25T21:00:00Z' });
+  assert.equal(precise.properties[REMINDER_DATE_PROPERTY_ID], undefined);
+  assert.equal(precise.properties[REMINDER_TIME_PROPERTY_ID], '2026-09-25T21:00:00Z');
 });

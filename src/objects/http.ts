@@ -2,7 +2,7 @@ import { Value } from 'typebox/value';
 import { AppError } from '../core.js';
 import type { Visitor } from '../visitors.js';
 import { validateMarkdown } from './markdown.js';
-import { IdSchema, PAGE_TYPE_ID } from './model.js';
+import { IdSchema, JOURNAL_DATE_PROPERTY_ID, JOURNAL_TYPE_ID, PAGE_TYPE_ID, TASK_TYPE_ID } from './model.js';
 import type { ObjectLookupResult, ObjectPageModel, ObjectRecord, ObjectWrite, PropertyDefinition, PropertyKind, PropertyValue, SavedView, ViewConversation, ViewGenerator } from './model.js';
 import type { ObjectRuntime } from './runtime.js';
 import { ViewService } from './views.js';
@@ -17,8 +17,8 @@ function revision(fields: URLSearchParams, name = 'revision'): number {
 }
 function requireFields(fields: URLSearchParams, allowed: string[], properties = false): void {
   for (const name of fields.keys()) {
-    if (!allowed.includes(name) && !(properties && /^p:[a-f0-9-]{36}(?::(?:start|end|timeZone))?$/.test(name))) throw new AppError(422, 'Unexpected form field.');
-    if ((!properties || !name.startsWith('p:')) && fields.getAll(name).length !== 1) throw new AppError(422, 'Repeated form field.');
+    if (!allowed.includes(name) && !(properties && /^(?:draft:)?p:[a-f0-9-]{36}(?::(?:start|end|timeZone))?$/.test(name))) throw new AppError(422, 'Unexpected form field.');
+    if ((!properties || !/^(?:draft:)?p:/.test(name)) && fields.getAll(name).length !== 1) throw new AppError(422, 'Repeated form field.');
   }
 }
 function formValue(property: PropertyDefinition, fields: URLSearchParams, prefix: string): PropertyValue | null {
@@ -49,13 +49,25 @@ function formValue(property: PropertyDefinition, fields: URLSearchParams, prefix
   return value;
 }
 
+function localDate(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+}
+
+function draftFields(fields: URLSearchParams): Record<string, string[]> {
+  const draft: Record<string, string[]> = {};
+  for (const name of fields.keys()) if (name.startsWith('draft:p:')) draft[name.slice(6)] = fields.getAll(name);
+  for (const name of fields.keys()) if (name.startsWith('p:')) draft[name] = fields.getAll(name);
+  return draft;
+}
+
 /** The native editor, enhanced editor, and generated view forms share the same commands. */
 export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenerator = generateView) {
   const views = new ViewService(objects);
   const conversations = new ViewConversationService(objects.db, views);
   const generating = new Set<string>();
   return async (req: Request, url: URL, visitor: Visitor, fields?: URLSearchParams): Promise<Response | undefined> => {
-    if (!(url.pathname === '/' || url.pathname === '/calendar' || url.pathname === '/tasks' || /^\/(?:types|objects|properties|views)(?:\/|$)/.test(url.pathname))) return;
+    if (!(url.pathname === '/' || url.pathname === '/calendar' || url.pathname === '/tasks' || /^\/(?:journal|types|objects|properties|views)(?:\/|$)/.test(url.pathname))) return;
     const conversationRoute = url.pathname.startsWith('/views/conversations/');
     const lookupRoute = url.pathname === '/objects/lookup';
     const json = lookupRoute || conversationRoute || (url.pathname === '/views/generate' && req.headers.get('accept')?.includes('application/json'));
@@ -107,7 +119,7 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
         if (url.pathname === '/' || url.pathname === '/tasks') {
           if (url.pathname === '/tasks') {
             model.section = 'tasks';
-            model.objectType = catalog.types.find(type => /^tasks?$/i.test(type.name));
+            model.objectType = objects.getType(TASK_TYPE_ID);
           }
           model.search = url.searchParams.get('q') ?? '';
           if (model.search.length > 200) throw new AppError(422, 'Search must be at most 200 characters.');
@@ -117,14 +129,36 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
           const offset = url.searchParams.get('offset') ?? '0';
           if (!/^\d{1,7}$/.test(offset) || Number(offset) > 1_000_000) throw new AppError(422, 'Invalid page.');
           model.offset = Number(offset);
-          const rows = model.section === 'tasks' && !model.selectedTypeId ? [] : objects.listObjects({ typeId: model.selectedTypeId, search: model.search, trashed: model.trashed, offset: model.offset, limit: 51 });
-          model.hasMore = rows.length > 50;
-          model.objects = rows.slice(0, 50);
-        } else if (url.pathname === '/types') model.screen = 'types';
+          const layout = url.searchParams.get('layout') ?? 'list';
+          if (layout !== 'list' && layout !== 'gallery') throw new AppError(422, 'Choose List or Gallery.');
+          model.browseLayout = layout;
+          const searching = url.searchParams.has('q') || url.searchParams.get('focus') === 'search';
+          if (!model.section && !model.selectedTypeId && !searching) {
+            model.screen = 'home';
+            model.typeCounts = objects.countObjectsByType(model.trashed);
+          } else if (model.selectedTypeId || (!model.section && model.search.trim())) {
+            const rows = objects.listObjects({ typeId: model.selectedTypeId, search: model.search, trashed: model.trashed, offset: model.offset, limit: 51 });
+            model.hasMore = rows.length > 50;
+            model.objects = rows.slice(0, 50);
+            if (layout === 'gallery') model.objectExcerpts = objects.objectExcerpts(model.objects.map(record => record.id));
+          }
+        } else if (url.pathname === '/journal') {
+          model.screen = 'journal';
+          model.journalDateDefault = !url.searchParams.has('date');
+          model.journalDate = url.searchParams.get('date') ?? localDate();
+          model.journal = objects.getJournal(model.journalDate);
+        } else if (url.pathname === '/types') {
+          model.screen = 'types';
+          model.basedOnTypeId = url.searchParams.get('basedOnTypeId') || undefined;
+          if (model.basedOnTypeId) objects.getType(model.basedOnTypeId);
+        }
         else if (url.pathname === '/objects/new') {
           model.screen = 'new-object';
           model.objectType = objects.getType(url.searchParams.get('type') ?? PAGE_TYPE_ID);
           model.objects = pickerObjects();
+          model.journalDateDefault = !url.searchParams.has('date');
+          model.journalDate = url.searchParams.get('date') ?? localDate();
+          if (model.objectType.id === JOURNAL_TYPE_ID) model.journal = objects.getJournal(model.journalDate);
         } else if (url.pathname === '/views' || url.pathname === '/calendar') {
           model.screen = 'views';
           if (url.pathname === '/calendar') model.section = 'calendar';
@@ -153,10 +187,18 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
         return page();
       }
       if (!fields) throw new AppError(400, 'Submit a form.');
+      if (url.pathname === '/journal/open') {
+        model.screen = 'journal';
+        model.journalDate = fields.get('date') ?? '';
+        requireFields(fields, ['csrf', 'date']);
+        const journal = objects.openJournal(model.journalDate);
+        return go(`/objects/${journal.id}`);
+      }
       if (url.pathname === '/types/create') {
         model.screen = 'types';
-        requireFields(fields, ['csrf', 'name']);
-        const type = objects.createType(fields.get('name') ?? '');
+        model.typeDraft = { name: fields.get('name') ?? '', basedOnTypeId: fields.get('basedOnTypeId') || undefined };
+        requireFields(fields, ['csrf', 'name', 'basedOnTypeId']);
+        const type = objects.createType(model.typeDraft.name, model.typeDraft.basedOnTypeId);
         return go(`/types/${type.id}?saved=1`);
       }
       const typeMatch = /^\/types\/([a-f0-9-]{36})\/(update|properties)$/.exec(url.pathname);
@@ -186,9 +228,13 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
       }
       if (url.pathname === '/objects/create') {
         model.screen = 'new-object'; model.objects = pickerObjects();
-        model.objectDraft = { title: fields.get('title') ?? '', body: fields.get('body') ?? '', requestId: fields.get('requestId') ?? '', typeId: fields.get('typeId') ?? PAGE_TYPE_ID };
+        model.objectDraft = { title: fields.get('title') ?? '', body: fields.get('body') ?? '', requestId: fields.get('requestId') ?? '', typeId: fields.get('typeId') ?? PAGE_TYPE_ID, fields: draftFields(fields) };
         model.objectType = objects.getType(model.objectDraft.typeId!);
-        requireFields(fields, ['csrf', 'requestId', 'typeId', 'title', 'body'], true);
+        requireFields(fields, ['csrf', 'requestId', 'typeId', 'title', 'body', 'intent'], true);
+        if (fields.get('intent') === 'change-type') {
+          model.journalDate = localDate();
+          return page();
+        }
         const write = readWrite(fields);
         model.objectDraft.properties = write.properties;
         const record = objects.createObject(write, fields.get('requestId') || undefined);
@@ -198,8 +244,12 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
       if (objectMatch) {
         model.screen = 'object'; model.object = objects.getObject(objectMatch[1]!); model.objectType = objects.getType(model.object.typeId); model.objects = pickerObjects();
         if (objectMatch[2] === 'update') {
-          model.objectDraft = { title: fields.get('title') ?? '', body: fields.get('body') ?? model.object.body, revision: fields.get('reviewedRevision') ?? fields.get('revision') ?? '', typeId: fields.get('typeId') ?? model.object.typeId };
-          requireFields(fields, ['csrf', 'revision', 'reviewedRevision', 'typeId', 'title', 'body'], true);
+          model.objectDraft = { title: fields.get('title') ?? '', body: fields.get('body') ?? model.object.body, revision: fields.get('reviewedRevision') ?? fields.get('revision') ?? '', typeId: fields.get('typeId') ?? model.object.typeId, fields: draftFields(fields) };
+          requireFields(fields, ['csrf', 'revision', 'reviewedRevision', 'typeId', 'title', 'body', 'intent'], true);
+          if (fields.get('intent') === 'change-type') {
+            objects.getType(model.objectDraft.typeId!);
+            return page();
+          }
           const write = readWrite(fields, model.object);
           model.objectDraft.properties = write.properties;
           const originalRevision = revision(fields);
@@ -273,6 +323,17 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
       if (!(error instanceof AppError)) throw error;
       if (json) return Response.json({ error: error.message }, { status: error.status, headers: { 'Cache-Control': 'no-store' } });
       model.error = error.message;
+      if (model.objectDraft?.typeId === JOURNAL_TYPE_ID) {
+        const date = model.objectDraft.fields?.[`p:${JOURNAL_DATE_PROPERTY_ID}`]?.[0];
+        if (date) {
+          try {
+            const existing = objects.getJournal(date);
+            if (existing?.id !== model.object?.id) model.journal = existing;
+          } catch (lookupError) {
+            if (!(lookupError instanceof AppError)) throw lookupError;
+          }
+        }
+      }
       if (error.status === 409 && model.object && model.objectDraft?.revision && Number(model.objectDraft.revision) !== model.object.revision) {
         model.error = 'This object changed. Compare the latest saved version with your draft before saving.';
       }

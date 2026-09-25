@@ -9,7 +9,7 @@ import { AppError } from '../src/core.js';
 import { VisitorStore } from '../src/visitors.js';
 import { ObjectRuntime } from '../src/objects/runtime.js';
 import { ViewService } from '../src/objects/views.js';
-import { ObjectLookupSchema, PAGE_TYPE_ID } from '../src/objects/model.js';
+import { ObjectLookupSchema, PAGE_TYPE_ID, TASK_TYPE_ID, TASK_DUE_PROPERTY_ID, JOURNAL_TYPE_ID, JOURNAL_DATE_PROPERTY_ID } from '../src/objects/model.js';
 import type { ObjectLookupResult, ViewConversation, ViewGenerator } from '../src/objects/model.js';
 
 async function setup(t: TestContext, generator: ViewGenerator) {
@@ -41,6 +41,58 @@ function nativeObjectFields(markup: string): Record<string, string> {
   if (textarea) fields.body = decode(textarea[1]!.replace(/^\n/, ''));
   return fields;
 }
+
+test('native type browsing keeps search and trash scope when switching layouts and pages', async t => {
+  const f = await setup(t, async () => { throw new Error('Not used'); });
+  const task = f.objects.createType('Task');
+  const wanted = Array.from({ length: 51 }, (_, index) => f.objects.createObject({
+    typeId: task.id, title: `Needle ${index}`, body: 'Saved writing.', properties: {},
+  }));
+  f.objects.createObject({ typeId: task.id, title: 'Unmatched task', body: '', properties: {} });
+  f.objects.createObject({ typeId: PAGE_TYPE_ID, title: 'Needle page', body: '', properties: {} });
+  const removedTask = f.objects.createObject({ typeId: task.id, title: 'Needle removed task', body: '', properties: {} });
+  const removedPage = f.objects.createObject({ typeId: PAGE_TYPE_ID, title: 'Needle removed page', body: '', properties: {} });
+  f.objects.setTrashed(removedTask.id, removedTask.revision, true);
+  f.objects.setTrashed(removedPage.id, removedPage.revision, true);
+
+  const browse = async (path: string) => {
+    const response = await f.get(path);
+    assert.equal(response.status, 200);
+    const ids: string[] = [];
+    const pages: string[] = [];
+    const layouts: Record<string, string> = {};
+    await new HTMLRewriter()
+      .on('main a', { element(element) {
+        const match = /^\/objects\/([a-f0-9-]{36})$/.exec(element.getAttribute('href') ?? '');
+        if (match) ids.push(match[1]!);
+      } })
+      .on('nav[aria-label="Object layout"] a', { element(element) {
+        const href = element.getAttribute('href')!.replaceAll('&amp;', '&');
+        layouts[new URL(href, f.origin).searchParams.get('layout')!] = href;
+      } })
+      .on('nav[aria-label="Object pages"] a', { element(element) {
+        pages.push(element.getAttribute('href')!.replaceAll('&amp;', '&'));
+      } })
+      .transform(response).text();
+    return { ids, pages, layouts };
+  };
+
+  assert.deepEqual((await browse('/')).ids, []);
+  assert.deepEqual((await browse('/?focus=search')).ids, []);
+  const first = await browse(`/?type=${task.id}&q=Needle`);
+  assert.equal(first.ids.length, 50);
+  const gallery = await browse(first.layouts.gallery!);
+  assert.deepEqual(gallery.ids, first.ids);
+  const second = await browse(gallery.pages[0]!);
+  assert.equal(second.ids.length, 1);
+  assert.deepEqual([...first.ids, ...second.ids].sort(), wanted.map(record => record.id).sort());
+  assert.deepEqual((await browse(second.layouts.list!)).ids, second.ids);
+
+  const trash = await browse(`/?type=${task.id}&q=Needle&trash=1&layout=gallery`);
+  assert.deepEqual(trash.ids, [removedTask.id]);
+  assert.deepEqual((await browse(trash.layouts.list!)).ids, [removedTask.id]);
+  assert.equal((await f.get(`/?type=${task.id}&layout=board`)).status, 422);
+});
 
 test('HTTP saves exact Markdown source and omitted updates preserve writing', async t => {
   const f = await setup(t, async () => { throw new Error('Not used'); });
@@ -248,14 +300,11 @@ test('native object forms and an AI-authored calendar share data without regener
   let calls = 0;
   const f = await setup(t, async (_prompt, catalog) => {
     calls++;
-    const sources = catalog.types.filter(type => ['Task', 'Meeting'].includes(type.name)).map(type => ({ typeId: type.id, bindings: { date: type.propertyIds[0]! } }));
+    const sources = catalog.types.filter(type => type.propertyIds.includes(TASK_DUE_PROPERTY_ID)).map(type => ({ typeId: type.id, bindings: { date: TASK_DUE_PROPERTY_ID } }));
     return { model: 'fixture/contract', spec: { title: 'Schedule', blocks: [{ title: 'Scheduled work', component: 'calendar', sources, editable: true }] } };
   });
-  const taskResponse = await f.post('/types/create', { name: 'Task' });
-  assert.equal(taskResponse.status, 303);
-  const task = f.objects.catalog().types.find(type => type.name === 'Task')!;
-  assert.equal((await f.post(`/types/${task.id}/properties`, { revision: String(task.revision), label: 'Scheduled', kind: 'date' })).status, 303);
-  const property = f.objects.catalog().properties.find(property => property.label === 'Scheduled')!;
+  const task = f.objects.getType(TASK_TYPE_ID);
+  const property = f.objects.getProperty(TASK_DUE_PROPERTY_ID);
   await f.post('/types/create', { name: 'Meeting' });
   const meeting = f.objects.catalog().types.find(type => type.name === 'Meeting')!;
   assert.equal((await f.post(`/types/${meeting.id}/properties`, { revision: String(meeting.revision), propertyId: property.id })).status, 303);
@@ -303,8 +352,8 @@ test('AI failure and invalid generated bindings never publish a fallback or muta
 });
 
 test('view conversations continue saved turns while explicit seeds and new threads stay independent', async t => {
-  const f = await setup(t, async (prompt, catalog) => ({
-    model: 'fixture/contract', spec: { title: prompt, blocks: [{ title: 'Pages', component: 'list', sources: [{ typeId: catalog.types[0]!.id, bindings: {} }] }] },
+  const f = await setup(t, async prompt => ({
+    model: 'fixture/contract', spec: { title: prompt, blocks: [{ title: 'Pages', component: 'list', sources: [{ typeId: PAGE_TYPE_ID, bindings: {} }] }] },
   }));
   const first = await f.post('/views/generate', { prompt: 'Original view' });
   assert.equal(first.status, 303);
@@ -344,10 +393,10 @@ test('view conversations continue saved turns while explicit seeds and new threa
 test('view conversations reject other visitors and deleted latest results without recording failed turns', async t => {
   let unavailable = false;
   let calls = 0;
-  const f = await setup(t, async (_prompt, catalog) => {
+  const f = await setup(t, async () => {
     calls++;
     if (unavailable) throw new AppError(503, 'Provider unavailable');
-    return { model: 'fixture/contract', spec: { title: 'Pages', blocks: [{ title: 'Pages', component: 'list', sources: [{ typeId: catalog.types[0]!.id, bindings: {} }] }] } };
+    return { model: 'fixture/contract', spec: { title: 'Pages', blocks: [{ title: 'Pages', component: 'list', sources: [{ typeId: PAGE_TYPE_ID, bindings: {} }] }] } };
   });
   const created = await f.post('/views/generate', { prompt: 'Show pages' }, 'application/json');
   const result = await created.json() as { conversation: ViewConversation; viewId: string };
@@ -376,8 +425,8 @@ test('view conversations reject other visitors and deleted latest results withou
 });
 
 test('saving a conversation turn is atomic with its generated view and retry remains possible', async t => {
-  const f = await setup(t, async (_prompt, catalog) => ({
-    model: 'fixture/contract', spec: { title: 'Pages', blocks: [{ title: 'Pages', component: 'list', sources: [{ typeId: catalog.types[0]!.id, bindings: {} }] }] },
+  const f = await setup(t, async () => ({
+    model: 'fixture/contract', spec: { title: 'Pages', blocks: [{ title: 'Pages', component: 'list', sources: [{ typeId: PAGE_TYPE_ID, bindings: {} }] }] },
   }));
   const rejectTurn = () => f.objects.db.exec("CREATE TRIGGER reject_generated_turn BEFORE INSERT ON object_view_conversation_turns BEGIN SELECT RAISE(ABORT, 'Fixture write failure'); END");
   rejectTurn();
@@ -396,4 +445,92 @@ test('saving a conversation turn is atomic with its generated view and retry rem
   assert.equal(retried.status, 200);
   const successful = await retried.json() as { conversation: ViewConversation };
   assert.deepEqual(successful.conversation.turns.map(turn => turn.prompt), ['Show pages', 'Refine pages']);
+});
+
+test('daily journal HTTP opening is idempotent and conflicts retain native writing', async t => {
+  const f = await setup(t, async () => { throw new Error('Not used'); });
+  const day = '2026-09-25';
+  const page = await f.get(`/journal?date=${day}`);
+  assert.equal(page.status, 200);
+  assert.deepEqual(f.objects.listObjects({ typeId: JOURNAL_TYPE_ID }), []);
+  const opened = await Promise.all([
+    f.post('/journal/open', { date: day }),
+    f.post('/journal/open', { date: day }),
+  ]);
+  assert.ok(opened.every(response => response.status === 303));
+  const journals = f.objects.listObjects({ typeId: JOURNAL_TYPE_ID });
+  assert.equal(journals.length, 1);
+  const journal = journals[0]!;
+  assert.ok(opened.every(response => response.headers.get('location')?.split('?')[0] === `/objects/${journal.id}`));
+  const written = f.objects.updateObject(journal.id, journal.revision, { ...journal, body: 'Original daily writing' });
+  const draft = { requestId: randomUUID(), typeId: JOURNAL_TYPE_ID, title: 'Keep my draft', body: 'Unsaved **different** writing', [`p:${JOURNAL_DATE_PROPERTY_ID}`]: day };
+  const duplicate = await f.post('/objects/create', draft);
+  assert.equal(duplicate.status, 409);
+  const retained = nativeObjectFields(await duplicate.text());
+  assert.equal(retained.title, draft.title);
+  assert.equal(retained.body, draft.body);
+  assert.equal(retained.requestId, draft.requestId);
+  assert.deepEqual(f.objects.getObject(journal.id), written);
+  const trashed = f.objects.setTrashed(written.id, written.revision, true);
+  assert.equal((await f.post('/journal/open', { date: day })).status, 303);
+  assert.deepEqual(f.objects.getObject(journal.id), trashed);
+  assert.equal((await f.post(`/objects/${journal.id}/restore`, { revision: String(trashed.revision) })).status, 303);
+  assert.equal(f.objects.getObject(journal.id).body, written.body);
+  assert.equal((await f.post('/journal/open', { date: '2026-02-30' })).status, 422);
+  assert.equal((await f.post('/journal/open', { date: day, csrf: 'wrong' })).status, 403);
+});
+
+test('Tasks shortcut follows the built-in identity after renaming and type copies stay independent', async t => {
+  const f = await setup(t, async () => { throw new Error('Not used'); });
+  const task = f.objects.getType(TASK_TYPE_ID);
+  f.objects.renameType(task.id, task.revision, 'Actions');
+  const other = f.objects.createType('Task');
+  const canonical = f.objects.createObject({ typeId: TASK_TYPE_ID, title: 'Canonical action', body: '', properties: {} });
+  const custom = f.objects.createObject({ typeId: other.id, title: 'Custom task', body: '', properties: {} });
+  const browse = await (await f.get('/tasks')).text();
+  assert.ok(browse.includes(`/objects/${canonical.id}`));
+  assert.equal(browse.includes(`/objects/${custom.id}`), false);
+  const copied = await f.post('/types/create', { name: 'Work item', basedOnTypeId: TASK_TYPE_ID });
+  assert.equal(copied.status, 303);
+  const typeId = copied.headers.get('location')!.split('?')[0]!.split('/').at(-1)!;
+  const created = await f.post('/objects/create', { typeId, title: 'Uses the shared date', body: '', [`p:${TASK_DUE_PROPERTY_ID}`]: '2026-10-01' });
+  assert.equal(created.status, 303);
+  const objectId = created.headers.get('location')!.split('?')[0]!.split('/').at(-1)!;
+  const date = f.objects.getProperty(TASK_DUE_PROPERTY_ID);
+  f.objects.renameProperty(date.id, date.revision, 'Deadline');
+  assert.equal(f.objects.getObject(objectId).properties[date.id], '2026-10-01');
+});
+
+test('native type switching retains multiple reference drafts until the selected type is saved', async t => {
+  const f = await setup(t, async () => { throw new Error('Not used'); });
+  let type = f.objects.createType('Reading session');
+  type = f.objects.addProperty(type.id, type.revision, { label: 'Pages', kind: 'reference', targetTypeId: PAGE_TYPE_ID, multiple: true });
+  const propertyId = type.propertyIds[0]!;
+  const pages = ['First page', 'Second page'].map(title => f.objects.createObject({ typeId: PAGE_TYPE_ID, title, body: '', properties: {} }));
+  const draft = { title: 'Unfinished session', body: 'Keep both links and this writing.', requestId: randomUUID() };
+  const send = (fields: URLSearchParams) => {
+    fields.set('csrf', f.visitor.csrf);
+    return fetch(f.origin + '/objects/create', { method: 'POST', headers: { Cookie: `taskdesk=${f.visitor.id}`, Origin: f.origin }, body: fields, redirect: 'manual' });
+  };
+  const away = new URLSearchParams({ ...draft, typeId: PAGE_TYPE_ID, intent: 'change-type' });
+  for (const page of pages) away.append(`p:${propertyId}`, page.id);
+  const changed = await send(away);
+  assert.equal(changed.status, 200);
+  const back = new URLSearchParams({ ...draft, typeId: type.id, intent: 'change-type' });
+  await new HTMLRewriter().on('input[data-inactive-draft]', {
+    element(element) { back.append(element.getAttribute('name')!, element.getAttribute('value')!); },
+  }).transform(changed).text();
+  const returned = await send(back);
+  assert.equal(returned.status, 200);
+  assert.deepEqual(new Set(f.objects.listObjects().map(record => record.id)), new Set(pages.map(record => record.id)));
+  const save = new URLSearchParams({ ...draft, typeId: type.id });
+  await new HTMLRewriter().on(`select[name="p:${propertyId}"] option[selected]`, {
+    element(element) { save.append(`p:${propertyId}`, element.getAttribute('value')!); },
+  }).transform(returned).text();
+  const created = await send(save);
+  assert.equal(created.status, 303);
+  const id = created.headers.get('location')!.split('?')[0]!.split('/').at(-1)!;
+  const saved = f.objects.getObject(id);
+  assert.deepEqual(new Set(saved.properties[propertyId] as string[]), new Set(pages.map(page => page.id)));
+  assert.equal(saved.body, draft.body);
 });

@@ -6,7 +6,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { openDatabase } from '../src/database.js';
-import { PAGE_TYPE_ID } from '../src/objects/model.js';
+import { PAGE_TYPE_ID, TASK_TYPE_ID, TASK_DUE_PROPERTY_ID } from '../src/objects/model.js';
 import { markdownReferences, markdownText } from '../src/objects/markdown.js';
 import { ObjectRuntime } from '../src/objects/runtime.js';
 
@@ -19,22 +19,23 @@ const literal = (text: string, marks?: unknown[]) => ({ type: 'text', text, ...(
 const paragraph = (...content: unknown[]) => ({ type: 'paragraph', attrs: { blockId: crypto.randomUUID() }, ...(content.length ? { content } : {}) });
 const document = (...content: unknown[]) => ({ type: 'doc', content });
 
-function legacyDatabase(db: Database): void {
+function legacyDatabase(db: Database, version: 1 | 2 = 1): void {
   db.exec(`
     CREATE TABLE object_metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT;
-    INSERT INTO object_metadata VALUES ('schema_version', '1');
+    INSERT INTO object_metadata VALUES ('schema_version', '${version}');
     CREATE TABLE object_types (id TEXT PRIMARY KEY, name TEXT NOT NULL, property_ids_json TEXT NOT NULL CHECK(json_valid(property_ids_json)), revision INTEGER NOT NULL CHECK(revision > 0)) STRICT;
     CREATE TABLE object_properties (id TEXT PRIMARY KEY, label TEXT NOT NULL, kind TEXT NOT NULL, options_json TEXT CHECK(options_json IS NULL OR json_valid(options_json)), target_type_id TEXT REFERENCES object_types(id), multiple INTEGER NOT NULL DEFAULT 0 CHECK(multiple IN (0,1)), revision INTEGER NOT NULL CHECK(revision > 0)) STRICT;
     CREATE TABLE objects (
       id TEXT PRIMARY KEY COLLATE NOCASE, type_id TEXT NOT NULL REFERENCES object_types(id), title TEXT NOT NULL,
-      properties_json TEXT NOT NULL CHECK(json_valid(properties_json)), document_json TEXT NOT NULL CHECK(json_valid(document_json)),
-      revision INTEGER NOT NULL CHECK(revision > 0), created_at TEXT NOT NULL, updated_at TEXT NOT NULL, trashed INTEGER NOT NULL CHECK(trashed IN (0,1)), document_text TEXT NOT NULL
+      properties_json TEXT NOT NULL CHECK(json_valid(properties_json)),
+      ${version === 1 ? 'document_json TEXT NOT NULL CHECK(json_valid(document_json))' : "body TEXT NOT NULL DEFAULT ''"},
+      revision INTEGER NOT NULL CHECK(revision > 0), created_at TEXT NOT NULL, updated_at TEXT NOT NULL, trashed INTEGER NOT NULL CHECK(trashed IN (0,1)), ${version === 1 ? 'document_text' : 'body_text'} TEXT NOT NULL
     ) STRICT;
     CREATE INDEX objects_browse ON objects(trashed, updated_at DESC, id);
     CREATE INDEX objects_type_browse ON objects(type_id, trashed, updated_at DESC, id);
     CREATE TABLE object_references (
       source_id TEXT NOT NULL COLLATE NOCASE REFERENCES objects(id), target_id TEXT NOT NULL COLLATE NOCASE REFERENCES objects(id),
-      property_id TEXT NOT NULL DEFAULT '', block_id TEXT NOT NULL DEFAULT '', PRIMARY KEY(source_id, target_id, property_id, block_id)
+      property_id TEXT NOT NULL DEFAULT ''${version === 1 ? ", block_id TEXT NOT NULL DEFAULT ''" : ''}, PRIMARY KEY(source_id, target_id, property_id${version === 1 ? ', block_id' : ''})
     ) STRICT;
     CREATE INDEX object_references_target ON object_references(target_id);
     CREATE TABLE object_revisions (object_id TEXT NOT NULL COLLATE NOCASE REFERENCES objects(id), revision INTEGER NOT NULL, snapshot_json TEXT NOT NULL CHECK(json_valid(snapshot_json)), recorded_at TEXT NOT NULL, PRIMARY KEY(object_id, revision)) STRICT;
@@ -272,4 +273,49 @@ test('unknown marks, malformed lists, missing creation history and oversized con
   db.query('INSERT INTO object_create_requests VALUES (?, ?, ?)').run(requestId, 'original-receipt', sourceId);
   assert.throws(() => new ObjectRuntime(db), /missing its original revision/);
   assert.equal(db.query<{ fingerprint: string }, []>('SELECT fingerprint FROM object_create_requests').get()!.fingerprint, 'original-receipt');
+});
+
+test('version-2 upgrade preserves customized schemas, same-named user types, objects and receipts', t => {
+  const db = openDatabase();
+  t.after(() => db.close());
+  legacyDatabase(db, 2);
+  const customTaskId = crypto.randomUUID();
+  db.query('UPDATE object_types SET name = ?, revision = 4 WHERE id = ?').run('Notes', PAGE_TYPE_ID);
+  db.query('UPDATE object_properties SET label = ?, revision = 3 WHERE id = ?').run('Person', propertyId);
+  db.query('INSERT INTO object_types VALUES (?, ?, ?, 2)').run(customTaskId, 'Task', JSON.stringify([propertyId]));
+  const original = { id: sourceId, typeId: customTaskId, title: 'Original', properties: { [propertyId]: targetId }, body: '  # Exact source\r\n\n', revision: 1, createdAt: timestamp, updatedAt: timestamp, trashed: false };
+  const current = { ...original, title: 'Edited', body: 'Keep **edited** writing.', revision: 2, trashed: true };
+  db.query('INSERT INTO objects VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(targetId, PAGE_TYPE_ID, 'Person', '{}', '', 1, timestamp, timestamp, 0, '');
+  db.query('INSERT INTO objects VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(current.id, current.typeId, current.title, JSON.stringify(current.properties), current.body, current.revision, timestamp, timestamp, 1, 'Keep edited writing.');
+  db.query('INSERT INTO object_revisions VALUES (?, ?, ?, ?)').run(sourceId, 1, JSON.stringify(original), timestamp);
+  db.query('INSERT INTO object_references VALUES (?, ?, ?)').run(sourceId, targetId, propertyId);
+  const digest = new Bun.CryptoHasher('sha256').update(JSON.stringify({ body: original.body, properties: original.properties, title: original.title, typeId: original.typeId })).digest('hex');
+  db.query('INSERT INTO object_create_requests VALUES (?, ?, ?)').run(requestId, digest, sourceId);
+  const tables = ['objects', 'object_revisions', 'object_create_requests', 'object_references', 'visitor_state', 'saved_views'];
+  const before = tables.map(table => db.query(`SELECT * FROM ${table}`).all());
+  const runtime = new ObjectRuntime(db);
+  assert.deepEqual(tables.map(table => db.query(`SELECT * FROM ${table}`).all()), before);
+  assert.deepEqual(runtime.getObject(sourceId), current);
+  assert.deepEqual(runtime.createObject(original, requestId), current);
+  assert.deepEqual(runtime.getType(PAGE_TYPE_ID), { id: PAGE_TYPE_ID, name: 'Notes', propertyIds: [propertyId], revision: 4 });
+  assert.deepEqual(runtime.getType(customTaskId), { id: customTaskId, name: 'Task', propertyIds: [propertyId], revision: 2 });
+  assert.equal(runtime.getType(TASK_TYPE_ID).propertyIds.includes(TASK_DUE_PROPERTY_ID), true);
+  assert.equal(runtime.getProperty(propertyId).label, 'Person');
+  const catalog = runtime.catalog();
+  assert.deepEqual(new ObjectRuntime(db).catalog(), catalog);
+});
+
+test('conflicting reserved property identities abort built-in installation without partial changes', t => {
+  const db = openDatabase();
+  t.after(() => db.close());
+  legacyDatabase(db, 2);
+  db.query("INSERT INTO object_properties VALUES (?, 'Existing data', 'text', NULL, NULL, 0, 1)").run(TASK_DUE_PROPERTY_ID);
+  const schema = db.query('SELECT type, name, sql FROM sqlite_master ORDER BY type, name').all();
+  const properties = db.query('SELECT * FROM object_properties').all();
+  const types = db.query('SELECT * FROM object_types').all();
+  assert.throws(() => new ObjectRuntime(db));
+  assert.deepEqual(db.query('SELECT type, name, sql FROM sqlite_master ORDER BY type, name').all(), schema);
+  assert.deepEqual(db.query('SELECT * FROM object_properties').all(), properties);
+  assert.deepEqual(db.query('SELECT * FROM object_types').all(), types);
+  assert.equal(db.query<{ value: string }, []>("SELECT value FROM object_metadata WHERE key = 'schema_version'").get()!.value, '2');
 });

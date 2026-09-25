@@ -4,6 +4,17 @@ import type { Static, TSchema } from 'typebox';
 const object = <T extends Record<string, TSchema>>(properties: T) => Type.Object(properties, { additionalProperties: false });
 export const IdSchema = Type.String({ pattern: '^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$' });
 export const PAGE_TYPE_ID = '00000000-0000-4000-8000-000000000001';
+export const TASK_TYPE_ID = '00000000-0000-4000-8000-000000000002';
+export const EVENT_TYPE_ID = '00000000-0000-4000-8000-000000000003';
+export const REMINDER_TYPE_ID = '00000000-0000-4000-8000-000000000004';
+export const JOURNAL_TYPE_ID = '00000000-0000-4000-8000-000000000005';
+export const TASK_DONE_PROPERTY_ID = '00000000-0000-4000-8000-000000000101';
+export const TASK_DUE_PROPERTY_ID = '00000000-0000-4000-8000-000000000102';
+export const EVENT_DATES_PROPERTY_ID = '00000000-0000-4000-8000-000000000201';
+export const EVENT_TIME_PROPERTY_ID = '00000000-0000-4000-8000-000000000202';
+export const REMINDER_DATE_PROPERTY_ID = '00000000-0000-4000-8000-000000000301';
+export const REMINDER_TIME_PROPERTY_ID = '00000000-0000-4000-8000-000000000302';
+export const JOURNAL_DATE_PROPERTY_ID = '00000000-0000-4000-8000-000000000401';
 export const PropertyKindSchema = Type.Union([
   Type.Literal('text'), Type.Literal('number'), Type.Literal('boolean'), Type.Literal('date'), Type.Literal('datetime'),
   Type.Literal('select'), Type.Literal('reference'), Type.Literal('date-range'), Type.Literal('time-range'),
@@ -18,6 +29,22 @@ export interface PropertyDefinition {
   targetTypeId?: string;
   multiple?: boolean;
 }
+export const BUILTIN_PROPERTIES: readonly Omit<PropertyDefinition, 'revision'>[] = [
+  { id: TASK_DONE_PROPERTY_ID, label: 'Done', kind: 'boolean' },
+  { id: TASK_DUE_PROPERTY_ID, label: 'Due date', kind: 'date' },
+  { id: EVENT_DATES_PROPERTY_ID, label: 'All-day dates', kind: 'date-range' },
+  { id: EVENT_TIME_PROPERTY_ID, label: 'Event time', kind: 'time-range' },
+  { id: REMINDER_DATE_PROPERTY_ID, label: 'Reminder date', kind: 'date' },
+  { id: REMINDER_TIME_PROPERTY_ID, label: 'Reminder time', kind: 'datetime' },
+  { id: JOURNAL_DATE_PROPERTY_ID, label: 'Journal date', kind: 'date' },
+];
+export const BUILTIN_TYPES: readonly { id: string; name: string; description: string; propertyIds: readonly string[] }[] = [
+  { id: PAGE_TYPE_ID, name: 'Page', description: 'Freeform writing without required fields.', propertyIds: [] },
+  { id: TASK_TYPE_ID, name: 'Task', description: 'Work with a completion state and an optional due date.', propertyIds: [TASK_DONE_PROPERTY_ID, TASK_DUE_PROPERTY_ID] },
+  { id: EVENT_TYPE_ID, name: 'Event', description: 'Exactly one all-day date range or timed range, with an exclusive end.', propertyIds: [EVENT_DATES_PROPERTY_ID, EVENT_TIME_PROPERTY_ID] },
+  { id: REMINDER_TYPE_ID, name: 'Reminder', description: 'A calendar item with exactly one date or time. No notifications or recurrence.', propertyIds: [REMINDER_DATE_PROPERTY_ID, REMINDER_TIME_PROPERTY_ID] },
+  { id: JOURNAL_TYPE_ID, name: 'Journal', description: 'One canonical entry per calendar date, including entries in Trash.', propertyIds: [JOURNAL_DATE_PROPERTY_ID] },
+];
 export interface ObjectType {
   id: string;
   name: string;
@@ -114,14 +141,22 @@ export interface Backlink { object: ObjectRecord; propertyId?: string }
 export interface ObjectPageModel {
   csrf: string;
   path: string;
-  screen: 'objects' | 'types' | 'type' | 'new-object' | 'object' | 'views' | 'view';
+  screen: 'home' | 'objects' | 'types' | 'type' | 'new-object' | 'object' | 'views' | 'view' | 'journal';
   section?: 'calendar' | 'tasks';
   catalog: Catalog;
   views: SavedView[];
   objects: ObjectRecord[];
+  typeCounts?: Record<string, number>;
+  browseLayout?: 'list' | 'gallery';
+  objectExcerpts?: Record<string, string>;
   object?: ObjectRecord;
-  objectDraft?: { title: string; body: string; revision?: string; requestId?: string; typeId?: string; properties?: Record<string, PropertyValue> };
+  objectDraft?: { title: string; body: string; revision?: string; requestId?: string; typeId?: string; properties?: Record<string, PropertyValue>; fields?: Record<string, string[]> };
   objectType?: ObjectType;
+  journalDate?: string;
+  journalDateDefault?: boolean;
+  journal?: ObjectRecord;
+  basedOnTypeId?: string;
+  typeDraft?: { name: string; basedOnTypeId?: string };
   evaluatedView?: EvaluatedView;
   backlinks?: Backlink[];
   search?: string;

@@ -99,6 +99,24 @@
 .object-shell .object-index strong { font-weight: 550; }
 .object-shell .object-index a > span, .object-shell .object-index time { color: var(--muted); font-size: .82rem; }
 .object-shell .object-index time { white-space: nowrap; }
+.object-shell .object-index strong { overflow-wrap: anywhere; }
+.object-shell .browse-toolbar { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 1rem 1.5rem; margin: 1.4rem 0; }
+.object-shell .browse-toolbar .filter-bar { flex: 1 1 280px; margin: 0; }
+.object-shell .layout-switch { display: flex; gap: .2rem; padding: .25rem; border: 1px solid var(--line); border-radius: 9px; background: var(--wash); }
+.object-shell .layout-switch a { display: inline-flex; align-items: center; gap: .45rem; padding: .55rem .75rem; border-radius: 6px; color: var(--muted); text-decoration: none; font-size: .85rem; }
+.object-shell .layout-switch a[aria-current="page"] { color: var(--ink); background: var(--paper); box-shadow: 0 1px 3px #202a211a; font-weight: 600; }
+.object-shell .layout-switch a:hover { color: var(--ink); }
+.object-shell .object-gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 230px), 1fr)); gap: 1rem; list-style: none; padding: 0; margin: 1.5rem 0 2rem; }
+.object-shell .object-gallery > li { min-width: 0; }
+.object-shell .object-card { display: flex; flex-direction: column; gap: .9rem; height: 100%; min-height: 225px; padding: 1.2rem; border: 1px solid var(--line); border-radius: 12px; color: var(--ink); background: var(--paper); text-decoration: none; }
+.object-shell .object-card:hover { border-color: #bbc9b7; background: var(--wash); }
+.object-shell .object-card-heading { display: flex; align-items: flex-start; gap: .65rem; min-width: 0; }
+.object-shell .object-card-heading .icon { flex-shrink: 0; margin-top: .2rem; color: var(--accent); }
+.object-shell .object-card-heading strong { font-size: 1.05rem; font-weight: 600; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+.object-shell .object-card-excerpt { margin: 0; color: var(--muted); font-size: .86rem; line-height: 1.6; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4; overflow: hidden; }
+.object-shell .object-card time { margin-top: auto; padding-top: .5rem; color: var(--muted); font-size: .75rem; }
+.object-shell .browse-footer { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 1rem; }
+.object-shell .browse-footer > a { font-size: .85rem; }
 .object-shell .view-list > li { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 1.1rem 0; border-bottom: 1px solid var(--line); }
 .object-shell .view-list > li > div { flex: 1; min-width: 0; }
 .object-shell .view-list p { font-size: .88rem; margin: .2rem 0 0; }
@@ -134,6 +152,10 @@
 .object-shell .type-card > p { font-size: .86rem; margin: 0 0 1.2rem; }
 .object-shell .type-card-footer { display: flex; flex-wrap: wrap; justify-content: space-between; gap: .6rem; margin-top: auto; border-top: 1px solid var(--line); padding-top: 1rem; font-size: .8rem; }
 .object-shell .type-card-footer a { text-decoration: none; font-weight: 550; }
+.object-shell .type-browser { grid-template-columns: repeat(auto-fill, minmax(min(100%, 230px), 1fr)); }
+.object-shell .type-browse-card { color: var(--ink); text-decoration: none; }
+.object-shell .type-browse-card h2 { overflow-wrap: anywhere; }
+.object-shell .type-browse-card .type-card-footer { color: var(--accent); }
 .object-shell .creation-panel { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: clamp(24px, 5cqi, 64px); padding: clamp(22px, 3cqi, 36px); border: 1px solid var(--line); border-radius: 12px; background: var(--wash); scroll-margin-top: 24px; }
 .object-shell .creation-panel h2 { font-size: 1.5rem; }
 .object-shell .creation-panel form > label { margin-bottom: .4rem; }
@@ -172,6 +194,10 @@
 .object-shell .properties > summary > .fine { margin-left: auto; font-weight: 400; }
 .object-shell .writing-heading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: .6rem; }
 .object-shell .writing-heading label { margin: 0; }
+.object-shell .builtin-rules > p { padding: .8rem 1rem; border-left: 3px solid var(--line); background: var(--wash); }
+.object-shell .journal-discovery { margin: 1rem 0; padding: .8rem 1rem; border: 1px solid var(--line); border-radius: 6px; background: var(--wash); }
+.object-shell .journal-discovery p { margin: 0; }
+.object-shell .property-card-heading { flex-wrap: wrap; }
 .object-shell .notice { border: 1px solid var(--line); background: var(--wash); padding: 1rem; border-radius: 6px; margin: 0 0 1.5rem; }
 .object-shell .error { color: #962c27; }
 .object-shell .notice.error { border-color: #e6b7b3; background: #fff4f2; }

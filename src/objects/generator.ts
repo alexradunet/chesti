@@ -2,7 +2,7 @@ import { createAgentSession, defineTool, ModelRuntime, SessionManager, SettingsM
 import { Value } from 'typebox/value';
 import { AppError } from '../core.js';
 import { isolatedResources } from '../pi.js';
-import { ViewSpecSchema } from './model.js';
+import { BUILTIN_TYPES, ViewSpecSchema } from './model.js';
 import { validateViewSpec } from './views.js';
 import type { ViewGenerator, ViewSpec } from './model.js';
 
@@ -12,6 +12,7 @@ Use only existing type IDs, property IDs, and select option IDs. Names are for u
 Components are list, table, calendar, and board. Table columns must explicitly declare role and label. List columns are optional. Every source must bind exactly the configured column roles plus the component's required role; no hidden bindings. Objects always link to their independent editor, and views never own or copy objects.
 Calendar sources require a date role bound to date, datetime, date-range, or time-range. Multiple types can use different properties for the same date role. Do not exclude missing dates unless requested: unscheduled objects remain visible. Board sources require group bound to single-valued text, select, boolean, or reference. Columns can expose additional properties. Only calendars and boards may set editable:true, and this exposes only the date or group property, respectively. Default to read-only unless editing is requested; structural compatibility never authorizes extra writes.
 Each type may appear at most once per block, so each row and action target is unambiguous. To project the same objects through different properties or filters, use separate meaningful blocks. This does not copy objects.
+Built-in identity is given by builtin metadata, never inferred from editable labels. Task completion uses its boolean core property and its due date is optional. Journal has one required date and one canonical page per day. Event requires exactly one of its all-day range or timed range; Reminder requires exactly one of its date or timestamp. To show both representations, use separate calendar blocks and filter each Event/Reminder source with notEmpty on its bound temporal property; this avoids duplicating the alternative representation as Unscheduled. Keep genuinely undated tasks visible unless requested otherwise. Clearing the sole Event/Reminder date or any Journal date is invalid. Switching between all-day and timed representations requires the object editor because an inline command changes only its bound property. A custom type based on a built-in shares property identities, not built-in lifecycle rules.
 Filters: equals/notEquals support scalar property values of the exact property kind; select values use option IDs. contains supports text substring or membership of a multiple-reference property. before/after support temporal properties and compare the range START for ranges. Use real YYYY-MM-DD dates, or ISO timestamps with seconds and explicit Z or offset. Timestamp comparisons are by instant. empty/notEmpty take no value. Missing properties, empty strings, and empty reference lists are empty; false and zero are not. notEquals excludes empty values. Range equality and whole-array equality are unsupported.
 An input declaration is required for relation views using {input:true}. Every source in an input view must have a filter scoped to that input. Input filters require a reference targeting that type (or an unrestricted reference): equals/notEquals for single references, contains for multiple references. Without a selected input the view returns no objects, never an unfiltered collection.
 Ordering uses a single-valued source property, ascending or descending; missing values are last. Sources are shown in source order, with each source's order followed by stable title and object-ID tie breakers. Each block shows at most 100 projections plus a truncation indication. Use focused filters instead of assuming all records are available.
@@ -31,7 +32,11 @@ export const generateView: ViewGenerator = async (prompt, catalog, options = {})
   let exhausted = false;
   // Explicitly project schema fields so accidental catalog extensions can never send records.
   const metadata = {
-    types: catalog.types.map(type => ({ id: type.id, name: type.name, propertyIds: type.propertyIds })),
+    types: catalog.types.map(type => {
+      const builtin = BUILTIN_TYPES.find(candidate => candidate.id === type.id);
+      return { id: type.id, name: type.name, propertyIds: type.propertyIds,
+        ...(builtin ? { builtin: builtin.name, corePropertyIds: builtin.propertyIds } : {}) };
+    }),
     properties: catalog.properties.map(property => ({ id: property.id, label: property.label, kind: property.kind,
       ...(property.options ? { options: property.options.map(option => ({ id: option.id, label: option.label })) } : {}),
       ...(property.targetTypeId ? { targetTypeId: property.targetTypeId } : {}), ...(property.multiple ? { multiple: true } : {}) })),

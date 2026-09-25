@@ -6,11 +6,12 @@ import { join } from 'node:path';
 import { createApp } from '../src/server.js';
 import { openDatabase } from '../src/database.js';
 import { ObjectRuntime } from '../src/objects/runtime.js';
+import { PAGE_TYPE_ID } from '../src/objects/model.js';
 import type { ViewConversation, ViewGenerator } from '../src/objects/model.js';
 
-const generator: ViewGenerator = async (prompt, catalog) => ({
+const generator: ViewGenerator = async prompt => ({
   model: 'fixture/contract',
-  spec: { title: prompt, blocks: [{ title: 'Pages', component: 'list', sources: [{ typeId: catalog.types[0]!.id, bindings: {} }] }] },
+  spec: { title: prompt, blocks: [{ title: 'Pages', component: 'list', sources: [{ typeId: PAGE_TYPE_ID, bindings: {} }] }] },
 });
 
 async function app(t: TestContext) {
@@ -52,16 +53,16 @@ test('canonical pages and local assets retain strict browser protections', async
 
 test('canonical mutations reject missing ownership, CSRF, cross-origin and unexpected fields', async t => {
   const a = await app(t);
-  const fields = { name: 'Task' };
+  const fields = { name: 'Project' };
   assert.equal((await a.post('/types/create', { ...fields, csrf: 'wrong' })).status, 403);
   assert.equal((await a.post('/types/create', fields, { Cookie: '' })).status, 403);
   assert.equal((await a.post('/types/create', fields, { Cookie: 'taskdesk=unknown' })).status, 403);
   assert.equal((await a.post('/types/create', fields, { Origin: 'https://evil.example' })).status, 403);
   assert.equal((await a.post('/types/create', fields, { 'Sec-Fetch-Site': 'cross-site' })).status, 403);
   assert.equal((await a.post('/types/create', { ...fields, script: 'bad' })).status, 422);
-  assert.equal(a.objects.catalog().types.some(type => type.name === 'Task'), false);
+  assert.equal(a.objects.catalog().types.some(type => type.name === fields.name), false);
   assert.equal((await a.post('/types/create', fields)).status, 303);
-  assert.equal(a.objects.catalog().types.some(type => type.name === 'Task'), true);
+  assert.equal(a.objects.catalog().types.some(type => type.name === fields.name), true);
   const rejected = await a.post('/views/generate', { prompt: 'Pages', csrf: 'wrong' }, { Accept: 'application/json' });
   assert.equal(rejected.status, 403);
   assert.equal(typeof (await rejected.json() as { error: string }).error, 'string');

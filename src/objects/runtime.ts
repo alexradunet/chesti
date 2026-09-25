@@ -1,9 +1,9 @@
 import type { Database } from 'bun:sqlite';
 import { AppError } from '../core.js';
-import { valueError } from './values.js';
+import { validDate, valueError } from './values.js';
 import { markdownReferences, markdownText, validateMarkdown } from './markdown.js';
 import { upgradeObjectMarkdown } from './upgrade-markdown.js';
-import { PAGE_TYPE_ID } from './model.js';
+import { BUILTIN_PROPERTIES, BUILTIN_TYPES, EVENT_DATES_PROPERTY_ID, EVENT_TIME_PROPERTY_ID, EVENT_TYPE_ID, JOURNAL_DATE_PROPERTY_ID, JOURNAL_TYPE_ID, REMINDER_DATE_PROPERTY_ID, REMINDER_TIME_PROPERTY_ID, REMINDER_TYPE_ID, TASK_DONE_PROPERTY_ID, TASK_TYPE_ID } from './model.js';
 import type { Backlink, Catalog, ObjectListOptions, ObjectRecord, ObjectType, ObjectWrite, PropertyDefinition, PropertyKind, PropertyValue } from './model.js';
 
 const ID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
@@ -40,12 +40,90 @@ function fingerprint(input: ObjectWrite): string {
   return new Bun.CryptoHasher('sha256').update(canonical({ typeId: input.typeId, title: input.title, properties: input.properties, body: input.body })).digest('hex');
 }
 
+const JOURNAL_DATE_PATH = `$."${JOURNAL_DATE_PROPERTY_ID}"`;
+
+function installBuiltins(db: Database): void {
+  for (const [index, type] of BUILTIN_TYPES.entries()) {
+    const existing = db.query<TypeRow, [string]>('SELECT * FROM object_types WHERE id = ?').get(type.id);
+    if (existing) {
+      const ids: unknown = JSON.parse(existing.property_ids_json);
+      if (!Array.isArray(ids) || ids.some(id => typeof id !== 'string' || !ID.test(id)) ||
+          new Set(ids).size !== ids.length || type.propertyIds.some(id => !ids.includes(id))) {
+        throw new Error(`Reserved built-in type ${type.id} has an incompatible structure.`);
+      }
+    } else {
+      db.query('INSERT INTO object_types(id, name, property_ids_json, revision) VALUES (?, ?, ?, 1)')
+        .run(type.id, type.name, JSON.stringify(type.propertyIds));
+    }
+    const invalid = [
+      "json_type(NEW.property_ids_json) IS NOT 'array'",
+      ...type.propertyIds.map(id => `(SELECT COUNT(*) FROM json_each(NEW.property_ids_json) WHERE type = 'text' AND value = '${id}') != 1`),
+    ].join(' OR ');
+    db.exec(`
+      CREATE TRIGGER IF NOT EXISTS object_builtin_type_${index}_insert BEFORE INSERT ON object_types
+      WHEN NEW.id = '${type.id}' AND (${invalid})
+      BEGIN SELECT RAISE(ABORT, 'Built-in type core fields are protected.'); END;
+      CREATE TRIGGER IF NOT EXISTS object_builtin_type_${index}_update BEFORE UPDATE ON object_types
+      WHEN (OLD.id = '${type.id}' OR NEW.id = '${type.id}') AND (OLD.id != NEW.id OR ${invalid})
+      BEGIN SELECT RAISE(ABORT, 'Built-in type identity and core fields are protected.'); END;
+      CREATE TRIGGER IF NOT EXISTS object_builtin_type_${index}_delete BEFORE DELETE ON object_types
+      WHEN OLD.id = '${type.id}'
+      BEGIN SELECT RAISE(ABORT, 'Built-in types cannot be deleted.'); END;
+    `);
+  }
+  for (const [index, property] of BUILTIN_PROPERTIES.entries()) {
+    const existing = db.query<PropertyRow, [string]>('SELECT * FROM object_properties WHERE id = ?').get(property.id);
+    if (existing) {
+      if (existing.kind !== property.kind || existing.options_json !== null || existing.target_type_id !== null || existing.multiple !== 0) {
+        throw new Error(`Reserved built-in property ${property.id} has an incompatible structure.`);
+      }
+    } else {
+      db.query('INSERT INTO object_properties(id, label, kind, options_json, target_type_id, multiple, revision) VALUES (?, ?, ?, NULL, NULL, 0, 1)')
+        .run(property.id, property.label, property.kind);
+    }
+    const invalid = `NEW.kind != '${property.kind}' OR NEW.options_json IS NOT NULL OR NEW.target_type_id IS NOT NULL OR NEW.multiple != 0`;
+    db.exec(`
+      CREATE TRIGGER IF NOT EXISTS object_builtin_property_${index}_insert BEFORE INSERT ON object_properties
+      WHEN NEW.id = '${property.id}' AND (${invalid})
+      BEGIN SELECT RAISE(ABORT, 'Built-in property structure is protected.'); END;
+      CREATE TRIGGER IF NOT EXISTS object_builtin_property_${index}_update BEFORE UPDATE ON object_properties
+      WHEN (OLD.id = '${property.id}' OR NEW.id = '${property.id}') AND (OLD.id != NEW.id OR ${invalid})
+      BEGIN SELECT RAISE(ABORT, 'Built-in property identity and structure are protected.'); END;
+      CREATE TRIGGER IF NOT EXISTS object_builtin_property_${index}_delete BEFORE DELETE ON object_properties
+      WHEN OLD.id = '${property.id}'
+      BEGIN SELECT RAISE(ABORT, 'Built-in properties cannot be deleted.'); END;
+    `);
+  }
+  const date = `json_extract(NEW.properties_json, '${JOURNAL_DATE_PATH}')`;
+  const invalidDate = `json_type(NEW.properties_json) IS NOT 'object'
+    OR (SELECT COUNT(*) FROM json_each(NEW.properties_json) WHERE key = '${JOURNAL_DATE_PROPERTY_ID}') != 1
+    OR json_type(NEW.properties_json, '${JOURNAL_DATE_PATH}') IS NOT 'text'
+    OR ${date} NOT GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'
+    OR substr(${date}, 1, 4) = '0000' OR date(${date}, '+0 days') IS NOT ${date}`;
+  // The partial index deliberately includes Trash. These guards work on every
+  // SQLite connection without depending on connection-local JavaScript functions.
+  db.exec(`
+    CREATE UNIQUE INDEX IF NOT EXISTS objects_journal_date
+    ON objects(json_extract(properties_json, '${JOURNAL_DATE_PATH}')) WHERE type_id = '${JOURNAL_TYPE_ID}';
+    CREATE TRIGGER IF NOT EXISTS objects_journal_date_insert BEFORE INSERT ON objects
+    WHEN NEW.type_id = '${JOURNAL_TYPE_ID}' AND (${invalidDate})
+    BEGIN SELECT RAISE(ABORT, 'Journal requires a real calendar date.'); END;
+    CREATE TRIGGER IF NOT EXISTS objects_journal_date_update BEFORE UPDATE ON objects
+    WHEN NEW.type_id = '${JOURNAL_TYPE_ID}' AND (${invalidDate})
+    BEGIN SELECT RAISE(ABORT, 'Journal requires a real calendar date.'); END;
+  `);
+  const invalidJournal = db.query<{ invalid: number }, [string]>(`
+    SELECT 1 AS invalid FROM objects AS NEW WHERE NEW.type_id = ? AND (${invalidDate}) LIMIT 1
+  `).get(JOURNAL_TYPE_ID);
+  if (invalidJournal) throw new Error('Existing Journal has an invalid or missing date.');
+}
+
 export class ObjectRuntime {
   constructor(readonly db: Database) {
     db.transaction(() => {
       db.exec('CREATE TABLE IF NOT EXISTS object_metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT');
       const version = db.query<{ value: string }, []>("SELECT value FROM object_metadata WHERE key = 'schema_version'").get();
-      if (version && version.value !== '1' && version.value !== '2') throw new Error('Unsupported object database schema.');
+      if (version && !['1', '2', '3'].includes(version.value)) throw new Error('Unsupported object database schema.');
       if (version?.value === '1') upgradeObjectMarkdown(db, fingerprint);
       db.exec(`
         CREATE TABLE IF NOT EXISTS object_types (
@@ -76,9 +154,9 @@ export class ObjectRuntime {
           request_id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, object_id TEXT NOT NULL COLLATE NOCASE REFERENCES objects(id)
         ) STRICT;
       `);
-      if (!version) db.query("INSERT INTO object_metadata(key, value) VALUES ('schema_version', '2')").run();
-      db.query('INSERT INTO object_types(id, name, property_ids_json, revision) VALUES (?, ?, ?, 1) ON CONFLICT(id) DO NOTHING').run(PAGE_TYPE_ID, 'Page', '[]');
-    })();
+      installBuiltins(db);
+      db.query("INSERT INTO object_metadata(key, value) VALUES ('schema_version', '3') ON CONFLICT(key) DO UPDATE SET value = excluded.value").run();
+    }).immediate();
   }
 
   catalog(): Catalog {
@@ -97,11 +175,12 @@ export class ObjectRuntime {
     if (!row) throw new AppError(404, 'Property not found.');
     return propertyDefinition(row);
   }
-  createType(name: string): ObjectType {
+  createType(name: string, basedOnTypeId?: string): ObjectType {
     name = label(name, 'Type name');
     return this.db.transaction(() => {
+      const propertyIds = basedOnTypeId === undefined ? [] : this.getType(basedOnTypeId).propertyIds;
       const id = crypto.randomUUID();
-      this.db.query('INSERT INTO object_types(id, name, property_ids_json, revision) VALUES (?, CAST(? AS TEXT), ?, 1)').run(id, Buffer.from(name), '[]');
+      this.db.query('INSERT INTO object_types(id, name, property_ids_json, revision) VALUES (?, CAST(? AS TEXT), ?, 1)').run(id, Buffer.from(name), JSON.stringify(propertyIds));
       return this.getType(id);
     })();
   }
@@ -159,6 +238,18 @@ export class ObjectRuntime {
     if (!row) throw new AppError(404, 'Object not found.');
     return objectRecord(row);
   }
+  getJournal(date: string): ObjectRecord | undefined {
+    if (!validDate(date)) throw new AppError(422, 'Choose a real calendar date in YYYY-MM-DD format.');
+    const row = this.db.query<ObjectRow, [string]>(`SELECT * FROM objects
+      WHERE type_id = '${JOURNAL_TYPE_ID}' AND json_extract(properties_json, '${JOURNAL_DATE_PATH}') = ?`).get(date);
+    return row ? objectRecord(row) : undefined;
+  }
+  openJournal(date: string): ObjectRecord {
+    return this.db.transaction(() => {
+      const existing = this.getJournal(date);
+      return existing ?? this.createObject({ typeId: JOURNAL_TYPE_ID, title: date, properties: { [JOURNAL_DATE_PROPERTY_ID]: date }, body: '' });
+    }).immediate();
+  }
   listObjects(options: ObjectListOptions = {}): ObjectRecord[] {
     const limit = options.limit ?? 50;
     const offset = options.offset ?? 0;
@@ -169,6 +260,21 @@ export class ObjectRuntime {
     const pattern = `%${(options.search ?? '').replace(/[\\%_]/g, '\\$&')}%`;
     return this.db.query<ObjectRow, [number, string | null, string | null, string, string, number, number]>(`SELECT * FROM objects WHERE trashed = ? AND (? IS NULL OR type_id = ?)
       AND (title LIKE ? ESCAPE '\\' OR body_text LIKE ? ESCAPE '\\') ORDER BY updated_at DESC, id LIMIT ? OFFSET ?`).all(options.trashed ? 1 : 0, options.typeId ?? null, options.typeId ?? null, pattern, pattern, limit, offset).map(objectRecord);
+  }
+  countObjectsByType(trashed = false): Record<string, number> {
+    const rows = this.db.query<{ type_id: string; count: number }, [number]>(
+      'SELECT type_id, COUNT(*) AS count FROM objects WHERE trashed = ? GROUP BY type_id',
+    ).all(trashed ? 1 : 0);
+    return Object.fromEntries(rows.map(row => [row.type_id, row.count]));
+  }
+  objectExcerpts(ids: string[]): Record<string, string> {
+    if (ids.length > 50 || ids.some(id => !ID.test(id))) throw new AppError(422, 'Invalid object selection.');
+    if (!ids.length) return {};
+    const rows = this.db.query<{ id: string; excerpt: string }, string[]>(`
+      SELECT id, substr(body_text, 1, 240) || CASE WHEN length(body_text) > 240 THEN '…' ELSE '' END AS excerpt
+      FROM objects WHERE id IN (${ids.map(() => '?').join(',')})
+    `).all(...ids);
+    return Object.fromEntries(rows.map(row => [row.id, row.excerpt]));
   }
   createObject(input: ObjectWrite, requestId?: string): ObjectRecord {
     if (requestId !== undefined && (typeof requestId !== 'string' || !ID.test(requestId))) throw new AppError(422, 'Creation request ID must be a UUID.');
@@ -193,7 +299,7 @@ export class ObjectRuntime {
       this.indexReferences(object);
       if (requestId !== undefined) this.db.query('INSERT INTO object_create_requests(request_id, fingerprint, object_id) VALUES (?, ?, ?)').run(requestId.toLowerCase(), digest!, id);
       return object;
-    })();
+    }).immediate();
   }
   updateObject(id: string, revision: number, input: ObjectWrite): ObjectRecord {
     return this.db.transaction(() => {
@@ -215,7 +321,7 @@ export class ObjectRuntime {
       const object = this.getObject(id);
       this.indexReferences(object);
       return object;
-    })();
+    }).immediate();
   }
   patchProperties(id: string, revision: number, patch: Record<string, PropertyValue | null>): ObjectRecord {
     return this.db.transaction(() => {
@@ -228,7 +334,7 @@ export class ObjectRuntime {
         if (value === null) delete properties[propertyId]; else properties[propertyId] = value;
       }
       return this.updateObject(id, revision, { typeId: previous.typeId, title: previous.title, properties, body: previous.body });
-    })();
+    }).immediate();
   }
   setTrashed(id: string, revision: number, trashed: boolean): ObjectRecord {
     if (typeof trashed !== 'boolean') throw new AppError(422, 'Invalid trash state.');
@@ -236,10 +342,12 @@ export class ObjectRuntime {
       const previous = this.getObject(id);
       revisionIs(previous.revision, revision);
       if (previous.trashed === trashed) return previous;
+      const write = this.validateShape(previous);
+      this.validateValues(write, previous);
       this.remember(previous);
-      this.db.query('UPDATE objects SET trashed = ?, revision = revision + 1, updated_at = ? WHERE id = ? AND revision = ?').run(trashed ? 1 : 0, new Date().toISOString(), id, revision);
+      this.db.query('UPDATE objects SET properties_json = ?, trashed = ?, revision = revision + 1, updated_at = ? WHERE id = ? AND revision = ?').run(JSON.stringify(write.properties), trashed ? 1 : 0, new Date().toISOString(), id, revision);
       return this.getObject(id);
-    })();
+    }).immediate();
   }
   backlinks(id: string): Backlink[] {
     this.getObject(id);
@@ -281,6 +389,26 @@ export class ObjectRuntime {
     for (const targetId of markdownReferences(write.body)) {
       const target = this.getObject(targetId);
       if (target.trashed && !retained.has(target.id.toLowerCase())) throw new AppError(422, 'Cannot add a link to a trashed object.');
+    }
+    this.validateBuiltinValues(write, previous);
+  }
+  private validateBuiltinValues(write: ObjectWrite, previous?: ObjectRecord): void {
+    const has = (id: string): boolean => Object.hasOwn(write.properties, id);
+    if (write.typeId === TASK_TYPE_ID && !has(TASK_DONE_PROPERTY_ID)) {
+      write.properties[TASK_DONE_PROPERTY_ID] = false;
+      if (Object.keys(write.properties).length > 256 || JSON.stringify(write.properties).length > 262_144) throw new AppError(422, 'Invalid or oversized properties.');
+    }
+    if (write.typeId === EVENT_TYPE_ID && has(EVENT_DATES_PROPERTY_ID) === has(EVENT_TIME_PROPERTY_ID)) {
+      throw new AppError(422, 'Event requires exactly one all-day date range or timed range.');
+    }
+    if (write.typeId === REMINDER_TYPE_ID && has(REMINDER_DATE_PROPERTY_ID) === has(REMINDER_TIME_PROPERTY_ID)) {
+      throw new AppError(422, 'Reminder requires exactly one date or time.');
+    }
+    if (write.typeId === JOURNAL_TYPE_ID) {
+      const date = write.properties[JOURNAL_DATE_PROPERTY_ID];
+      if (!validDate(date)) throw new AppError(422, 'Journal requires a real calendar date in YYYY-MM-DD format.');
+      const existing = this.getJournal(date);
+      if (existing && existing.id !== previous?.id) throw new AppError(409, `A Journal already exists for ${date}, including in Trash. Open the existing Journal instead.`);
     }
   }
   private remember(object: ObjectRecord): void {

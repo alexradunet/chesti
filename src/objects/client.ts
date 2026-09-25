@@ -1,5 +1,5 @@
 import { Value } from 'typebox/value';
-import { ObjectLookupSchema } from './model.js';
+import { JOURNAL_TYPE_ID, ObjectLookupSchema } from './model.js';
 import type { ObjectLookupResult, ViewConversation } from './model.js';
 
 const dirtyForms = new Set<HTMLFormElement>();
@@ -456,7 +456,7 @@ for (const form of forms) {
     const submitter = event.submitter;
     if (submitter instanceof HTMLButtonElement && submitter.name) data.append(submitter.name, submitter.value);
     const status = form.querySelector<HTMLElement>('[data-form-state]');
-    const controls = [...form.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement | HTMLButtonElement>('input, select, textarea, button')];
+    const controls = [...form.elements].filter((control): control is HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement | HTMLButtonElement => control instanceof HTMLInputElement || control instanceof HTMLSelectElement || control instanceof HTMLTextAreaElement || control instanceof HTMLButtonElement);
     const previouslyDisabled = controls.map(control => control.disabled);
     if (status) {
       status.setAttribute('role', 'status');
@@ -472,6 +472,11 @@ for (const form of forms) {
       const html = await response.text();
       const page = new DOMParser().parseFromString(html, 'text/html');
       const error = page.querySelector('[role="alert"]')?.textContent?.trim();
+      if (!response.ok && form.hasAttribute('data-object-editor')) {
+        const discovery = form.querySelector('[data-journal-discovery]');
+        const nextDiscovery = page.querySelector('[data-journal-discovery]');
+        if (discovery && nextDiscovery) discovery.replaceWith(document.importNode(nextDiscovery, true));
+      }
       if (response.status === 409 && form.hasAttribute('data-object-editor')) {
         const nextPanel = page.querySelector<HTMLElement>('[data-conflict-panel]:not([hidden])');
         const currentPanel = document.querySelector<HTMLElement>('[data-conflict-panel]');
@@ -521,13 +526,56 @@ if (typeNameInput && typeNamePreview) {
   sync();
 }
 
+function localDate(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+}
+
+for (const link of document.querySelectorAll<HTMLAnchorElement>('[data-journal-today]')) {
+  link.href = `/journal?date=${localDate()}`;
+  link.addEventListener('click', () => { link.href = `/journal?date=${localDate()}`; });
+}
+const journalPicker = document.querySelector<HTMLFormElement>('[data-journal-picker]');
+const pickedDate = journalPicker?.querySelector<HTMLInputElement>('input[name="date"]');
+if (journalPicker && pickedDate) {
+  if (journalPicker.dataset.localDateDefault === 'true' && pickedDate.value === pickedDate.defaultValue && pickedDate.value !== localDate()) {
+    window.location.replace(`/journal?date=${localDate()}`);
+  }
+  pickedDate.addEventListener('input', () => {
+    const date = document.querySelector<HTMLInputElement>('[data-journal-open] input[name="date"]');
+    const label = document.querySelector<HTMLElement>('[data-journal-day]');
+    const discovery = document.querySelector<HTMLElement>('[data-journal-discovery]');
+    if (date) date.value = pickedDate.value;
+    if (label) label.textContent = pickedDate.value;
+    if (discovery) discovery.hidden = true;
+  });
+}
+
 for (const select of document.querySelectorAll<HTMLSelectElement>('[data-new-type]')) {
-  const form = document.querySelector<HTMLFormElement>('[data-object-editor]');
-  const typeId = form?.querySelector<HTMLInputElement>('input[name="typeId"]');
-  if (!form || !typeId) continue;
+  const form = select.form;
+  if (!form) continue;
+  const title = form.querySelector<HTMLInputElement>('input[name="title"]');
+  const journalDate = form.querySelector<HTMLInputElement>('[data-journal-date]');
+  let currentType = select.value;
+  let titleEdited = form.dataset.draft === 'true' || Boolean(title && title.value !== title.defaultValue);
+  title?.addEventListener('input', () => { titleEdited = true; });
+  journalDate?.addEventListener('input', () => {
+    const discovery = form.querySelector<HTMLElement>('[data-journal-discovery]');
+    if (discovery) discovery.hidden = true;
+  });
+  if (form.dataset.localDateDefault === 'true' && journalDate && journalDate.value === journalDate.defaultValue) {
+    const discovery = form.querySelector<HTMLElement>('[data-journal-discovery]');
+    if (discovery && journalDate.value !== localDate()) discovery.hidden = true;
+    journalDate.value = localDate();
+    if (title && !titleEdited && title.dataset.journalTitleDefault === 'true') title.value = journalDate.value;
+  }
   const sync = () => {
-    if (form.dataset.busy === 'true') { select.value = typeId.value; return; }
-    typeId.value = select.value;
+    if (form.dataset.busy === 'true') { select.value = currentType; return; }
+    if (select.value !== currentType) {
+      const discovery = form.querySelector<HTMLElement>('[data-journal-discovery]');
+      if (discovery) discovery.hidden = true;
+    }
+    currentType = select.value;
     const back = document.querySelector<HTMLAnchorElement>('[data-object-back]');
     if (back) {
       back.href = `/?type=${encodeURIComponent(select.value)}`;
@@ -535,11 +583,15 @@ for (const select of document.querySelectorAll<HTMLSelectElement>('[data-new-typ
     }
     let count = 0;
     for (const field of form.querySelectorAll<HTMLFieldSetElement>('[data-type-ids]')) {
-      const active = field.dataset.typeIds?.split(' ').includes(select.value) ?? false;
+      const active = field.dataset.retained === 'true' || (field.dataset.typeIds?.split(' ').includes(select.value) ?? false);
       field.hidden = !active;
       field.disabled = !active;
       if (active) count++;
     }
+    for (const field of form.querySelectorAll<HTMLInputElement>('[data-inactive-draft]')) field.disabled = true;
+    for (const rule of form.querySelectorAll<HTMLElement>('[data-builtin-rule]')) rule.hidden = rule.dataset.builtinRule !== select.value;
+    if (journalDate) journalDate.required = select.value === JOURNAL_TYPE_ID;
+    if (select.value === JOURNAL_TYPE_ID && form.dataset.newObject === 'true' && title && !titleEdited && !title.value) title.value = journalDate?.value || localDate();
     const badge = form.querySelector<HTMLElement>('[data-property-count]');
     if (badge) {
       badge.textContent = String(count);
@@ -554,7 +606,6 @@ for (const select of document.querySelectorAll<HTMLSelectElement>('[data-new-typ
     if (empty) empty.hidden = count > 0;
   };
   select.addEventListener('change', () => { sync(); markDirty(form); });
-  select.form?.addEventListener('submit', event => { event.preventDefault(); sync(); });
   sync();
 }
 
