@@ -221,10 +221,13 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
     try {
       if (req.method === 'GET') {
         if (lookupRoute) {
-          requireFields(url.searchParams, ['q']);
+          requireFields(url.searchParams, ['q', 'typeId']);
           const search = url.searchParams.get('q') ?? '';
+          const typeId = url.searchParams.get('typeId') ?? undefined;
           if (search.length > 200) throw new AppError(422, 'Search must be at most 200 characters.');
-          const rows = objects.listObjects({ search, limit: 51 });
+          if (typeId && !Value.Check(IdSchema, typeId)) throw new AppError(422, 'Invalid type filter.');
+          if (typeId) objects.getType(typeId);
+          const rows = objects.listObjects({ search, typeId, limit: 51 });
           const result: ObjectLookupResult = {
             items: rows.slice(0, 50).map(record => ({ id: record.id, title: record.title, typeName: objects.getType(record.typeId).name })),
             truncated: rows.length > 50,

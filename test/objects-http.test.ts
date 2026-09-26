@@ -312,23 +312,30 @@ test('rejected native writes preserve title and Markdown without replacing saved
   assert.deepEqual(f.objects.getObject(saved.id), latest);
 });
 
-test('lookup searches the entire live collection by title and writing with literal wildcards', async t => {
+test('lookup searches the entire live collection by title and writing with literal wildcards and optional type scope', async t => {
   const f = await setup(t, async () => { throw new Error('Not used'); });
   const type = f.objects.createType('Research');
+  const otherType = f.objects.createType('Other research');
   const older = f.objects.createObject({ typeId: type.id, title: 'Archive %_ title', body: 'A singular body needle.', properties: {} });
   f.objects.db.query('UPDATE objects SET updated_at = ? WHERE id = ?').run('2000-01-01T00:00:00.000Z', older.id);
+  const wrongType = f.objects.createObject({ typeId: otherType.id, title: 'Archive %_ wrong type', body: 'A singular body needle.', properties: {} });
   const trashed = f.objects.createObject({ typeId: type.id, title: 'Archive %_ trash', body: 'A singular body needle.', properties: {} });
   f.objects.setTrashed(trashed.id, trashed.revision, true);
   for (let index = 0; index < 205; index++) f.objects.createObject({ typeId: PAGE_TYPE_ID, title: `Recent ${index}`, body: 'Ordinary writing', properties: {} });
   assert.equal(f.objects.listObjects({ limit: 200 }).some(record => record.id === older.id), false);
   for (const query of ['Archive', 'singular body needle', '%', '_']) {
-    const response = await f.get(`/objects/lookup?q=${encodeURIComponent(query)}`);
+    const response = await f.get(`/objects/lookup?q=${encodeURIComponent(query)}&typeId=${type.id}`);
     assert.equal(response.status, 200);
     assert.equal(response.headers.get('cache-control'), 'no-store');
     const result: unknown = await response.json();
     assert.ok(Value.Check(ObjectLookupSchema, result));
     assert.deepEqual(result, { items: [{ id: older.id, title: older.title, typeName: type.name }], truncated: false });
   }
+  const untyped = await (await f.get('/objects/lookup?q=Archive')).json() as ObjectLookupResult;
+  assert.deepEqual(new Set(untyped.items.map(item => item.id)), new Set([older.id, wrongType.id]));
+  const empty = await (await f.get(`/objects/lookup?q=&typeId=${type.id}`)).json() as ObjectLookupResult;
+  assert.equal(empty.items.length, 1);
+  assert.equal(empty.items[0]!.id, older.id);
 });
 
 test('lookup returns at most fifty results and rejects unsupported, repeated, or oversized queries as uncached JSON', async t => {
@@ -350,9 +357,9 @@ test('lookup returns at most fifty results and rejects unsupported, repeated, or
   const boundary = await f.get(`/objects/lookup?q=${'x'.repeat(200)}`);
   assert.equal(boundary.status, 200);
   assert.deepEqual(await boundary.json(), { items: [], truncated: false });
-  for (const query of [`q=${'x'.repeat(201)}`, 'q=a&q=b', 'limit=100', 'trash=1', 'conversation=not-an-id']) {
+  for (const query of [`q=${'x'.repeat(201)}`, 'q=a&q=b', 'typeId=not-a-uuid', `typeId=${randomUUID()}`, `typeId=${PAGE_TYPE_ID}&typeId=${TASK_TYPE_ID}`, 'limit=100', 'trash=1', 'conversation=not-an-id']) {
     const response = await f.get(`/objects/lookup?${query}`);
-    assert.equal(response.status, 422);
+    assert.equal(response.status === 404 || response.status === 422, true);
     assert.equal(response.headers.get('cache-control'), 'no-store');
     assert.equal(typeof (await response.json() as { error: string }).error, 'string');
   }
@@ -480,6 +487,13 @@ test('published input boards offer reference action choices from the binding tar
   const markup = await response.text();
   assert.deepEqual(selectOptions(markup, 'value').map(option => option.id).sort(), [alice.id, bob.id].sort());
   assert.deepEqual(selectOptions(markup, 'input').map(option => option.id), [project.id]);
+  const controls = await referenceSearchControls(markup);
+  const inputButton = controls.buttons.find(item => controls.selects.get(item.target) === 'input');
+  assert.ok(inputButton);
+  assert.equal(inputButton.typeId, projectType.id);
+  const actionButton = controls.buttons.find(item => controls.selects.get(item.target) === 'value');
+  assert.ok(actionButton);
+  assert.equal(actionButton.typeId, personType.id);
   assert.equal((await f.post(`/views/${view.id}/act`, {
     revision: String(view.revision), objectId: work.id, objectRevision: String(work.revision), blockIndex: '0', role: 'group', inputId: project.id, value: bob.id,
   })).status, 303);
@@ -901,6 +915,22 @@ function referenceOptions(markup: string, propertyId: string) {
   return selectOptions(markup, `p:${propertyId}`);
 }
 
+async function referenceSearchControls(markup: string) {
+  const selects = new Map<string, string>();
+  const buttons: { target: string; typeId: string; label: string }[] = [];
+  await new HTMLRewriter()
+    .on('select', { element(element) {
+      const id = element.getAttribute('id');
+      const name = element.getAttribute('name');
+      if (id && name) selects.set(id, name);
+    } })
+    .on('button[data-reference-search]', { element(element) {
+      buttons.push({ target: element.getAttribute('data-reference-target') ?? '', typeId: element.getAttribute('data-reference-type') ?? '', label: element.getAttribute('aria-label') ?? '' });
+    } })
+    .transform(new Response(markup)).text();
+  return { selects, buttons };
+}
+
 test('reference pickers bound each target type across new, edit, rejected and type-switch forms', async t => {
   const f = await setup(t, async () => { throw new Error('Not used'); });
   const targetType = f.objects.createType('Reference targets');
@@ -919,6 +949,13 @@ test('reference pickers bound each target type across new, edit, rejected and ty
     assert.equal(response.status, 200);
     const markup = await response.text();
     for (const property of [single, multiple]) assert.deepEqual(referenceOptions(markup, property).map(option => option.id), [target.id]);
+    const controls = await referenceSearchControls(markup);
+    for (const property of [single, multiple]) {
+      const button = controls.buttons.find(item => controls.selects.get(item.target) === `p:${property}`);
+      assert.ok(button, `missing search button for ${property}`);
+      assert.equal(button.typeId, targetType.id);
+      assert.match(button.label, /Find object/);
+    }
   }
   for (const path of ['/objects/create', `/objects/${record.id}/update`]) {
     for (const intent of ['', 'change-type']) {
