@@ -1,4 +1,5 @@
 import { Value } from 'typebox/value';
+import { restoreAiState, type AiState } from './ai-state.js';
 import { JOURNAL_TYPE_ID, ObjectLookupSchema } from './model.js';
 import type { ObjectLookupResult, ViewConversation } from './model.js';
 import type { WritingEditor, WritingSelection } from './writing.js';
@@ -24,7 +25,6 @@ if (writingForm) void (async () => {
   }
 })();
 
-interface AiState { open: boolean; draft: string; conversationId?: string; previousId?: string; contextTitle: string }
 const aiPanel = document.querySelector<HTMLElement>('#ai-panel');
 const aiForm = document.querySelector<HTMLFormElement>('[data-ai-form]');
 const aiPrompt = aiForm?.querySelector<HTMLTextAreaElement>('textarea[name="prompt"]');
@@ -52,10 +52,9 @@ let aiState: AiState = {
   contextTitle: document.body.dataset.aiContextTitle || document.body.dataset.aiViewTitle || 'New view',
 };
 try {
-  const stored = JSON.parse(sessionStorage.getItem(storageKey) ?? 'null') as AiState | null;
-  if (!aiState.draft && stored && (!aiState.conversationId || aiState.conversationId === stored.conversationId) && typeof stored.open === 'boolean' && typeof stored.draft === 'string' && typeof stored.contextTitle === 'string') {
-    aiState = { ...stored, open: aiState.open || stored.open };
-  }
+  const stored: unknown = JSON.parse(sessionStorage.getItem(storageKey) ?? 'null');
+  const intent = aiForm?.dataset.aiIntent;
+  aiState = restoreAiState(aiState, stored, intent === 'submitted' || intent === 'explicit' ? intent : 'browse');
 } catch { /* The panel still works when browser storage is unavailable. */ }
 
 function persistAi(): void {
@@ -160,6 +159,7 @@ function startConversation(previousId?: string, title = 'New view'): void {
 }
 
 document.body.classList.add('enhanced');
+persistAi();
 if (aiPrompt) {
   aiPrompt.value = aiState.draft;
   aiPrompt.addEventListener('input', () => { aiState.draft = aiPrompt.value; persistAi(); syncAiSuggestions(); });
@@ -205,7 +205,7 @@ function closeDrawer(): void {
 document.querySelector('[data-nav-close]')?.addEventListener('click', closeDrawer);
 backdrop?.addEventListener('click', closeDrawer);
 document.addEventListener('keydown', event => {
-  if (objectSearch?.open) return;
+  if (document.querySelector('dialog:modal')) return;
   if (event.key === 'Escape' && (navOpen || aiState.open)) { event.preventDefault(); closeDrawer(); }
   const panel = navOpen && mobileScreen.matches ? navigation : aiState.open && narrowScreen.matches ? aiPanel : null;
   if (event.key !== 'Tab' || !panel) return;

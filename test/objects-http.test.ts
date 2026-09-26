@@ -8,6 +8,7 @@ import { openDatabase } from '../src/database.js';
 import { AppError } from '../src/core.js';
 import { VisitorStore } from '../src/visitors.js';
 import { ObjectRuntime } from '../src/objects/runtime.js';
+import { ViewConversationService } from '../src/objects/conversations.js';
 import { ViewService } from '../src/objects/views.js';
 import { ObjectLookupSchema, PAGE_TYPE_ID, TASK_TYPE_ID, TASK_DUE_PROPERTY_ID, JOURNAL_TYPE_ID, JOURNAL_DATE_PROPERTY_ID } from '../src/objects/model.js';
 import type { ObjectLookupResult, ViewConversation, ViewGenerator } from '../src/objects/model.js';
@@ -533,4 +534,45 @@ test('native type switching retains multiple reference drafts until the selected
   const saved = f.objects.getObject(id);
   assert.deepEqual(new Set(saved.properties[propertyId] as string[]), new Set(pages.map(page => page.id)));
   assert.equal(saved.body, draft.body);
+});
+
+test('native assistant forms distinguish browsing, explicit targets, and rejected submissions', async t => {
+  const f = await setup(t, async () => { throw new Error('Must not generate'); });
+  const generated = { model: 'fixture/intent', spec: { title: 'View A', blocks: [{ title: 'Pages', component: 'list' as const, sources: [{ typeId: PAGE_TYPE_ID, bindings: {} }] }] } };
+  const saved = new ViewConversationService(f.objects.db, f.views).save(f.visitor.id, 'Fixture prompt', generated, {});
+  const inspect = async (response: Response) => {
+    const result = { intent: '', fields: {} as Record<string, string>, newHref: '', prompt: '' };
+    await new HTMLRewriter()
+      .on('[data-ai-form]', { element(e) { result.intent = e.getAttribute('data-ai-intent') ?? ''; } })
+      .on('[data-ai-form] input', { element(e) { result.fields[e.getAttribute('name')!] = e.getAttribute('value')!; } })
+      .on('[data-ai-form] textarea', { text(chunk) { result.prompt += chunk.text; } })
+      .on('#ai-panel a[aria-label="Start a new conversation"]', { element(e) { result.newHref = e.getAttribute('href')!; } })
+      .transform(response).text();
+    return result;
+  };
+  const path = `/views/${saved.view.id}`;
+  const ordinary = await inspect(await f.get(path));
+  assert.equal(ordinary.intent, 'browse');
+  assert.equal(ordinary.fields.previousId, saved.view.id);
+  const refine = await inspect(await f.get(path + '?ai=1'));
+  assert.equal(refine.intent, 'explicit');
+  assert.equal(refine.fields.previousId, saved.view.id);
+  assert.equal(refine.newHref, '/views?ai=1');
+  const fresh = await inspect(await f.get('/views?ai=1'));
+  assert.equal(fresh.intent, 'explicit');
+  assert.equal(fresh.fields.previousId, undefined);
+  assert.equal(fresh.fields.conversationId, undefined);
+  const thread = await inspect(await f.get(path + '?conversation=' + saved.conversation.id));
+  assert.equal(thread.intent, 'explicit');
+  assert.equal(thread.fields.conversationId, saved.conversation.id);
+  assert.equal(thread.fields.previousId, undefined);
+  for (const prompt of ['', '  ', '\n  ']) {
+    const rejected = await f.post('/views/generate', { prompt, previousId: saved.view.id });
+    assert.equal(rejected.status, 422);
+    const form = await inspect(rejected);
+    assert.equal(form.intent, 'submitted');
+    // HTML parsing removes the textarea's first newline.
+    assert.equal(form.prompt.replace(/^\n/, ''), prompt);
+    assert.equal(form.fields.previousId, saved.view.id);
+  }
 });
