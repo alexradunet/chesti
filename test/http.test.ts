@@ -93,7 +93,7 @@ test('invalid methods, paths, hosts, body types, duplicates and oversized bodies
     assert.equal(response.status, 422);
   }
   assert.equal((await a.post('/types/create', { name: 'x'.repeat(9000) })).status, 413);
-  assert.equal((await a.post('/views/generate', { prompt: 'x'.repeat(33_000) })).status, 413);
+  assert.equal((await a.post('/views/generate', { prompt: 'x'.repeat(40_000) })).status, 413);
   assert.equal((await a.post('/objects/create', { title: 'Too large', body: 'x'.repeat(1_048_576) })).status, 413);
   const chunked = await fetch(a.base + '/types/create', {
     method: 'POST', headers: { Cookie: a.cookie, 'Content-Type': 'application/x-www-form-urlencoded' },

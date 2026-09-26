@@ -112,7 +112,9 @@ export function createApp(options: { objects?: ObjectRuntime; viewGenerator?: Vi
       const origin = req.headers.get('origin');
       if (origin && origin !== `http://${host}`) throw new AppError(403, 'Cross-origin submissions are not allowed.');
       if (req.headers.get('sec-fetch-site') === 'cross-site') throw new AppError(403, 'Cross-site submissions are not allowed.');
-      const fields = await formBody(req, url.pathname.startsWith('/objects/') ? 1_048_576 : url.pathname === '/views/generate' ? 32_768 : 8192);
+      // A 4000-code-unit prompt needs at most 9 URL-encoded bytes per unit.
+      // Another 1024 bytes covers field names, the 64-byte CSRF token and one context UUID.
+      const fields = await formBody(req, url.pathname.startsWith('/objects/') ? 1_048_576 : url.pathname === '/views/generate' ? 4000 * 9 + 1024 : 8192);
       if (!sameToken(fields.get('csrf'), visitor.csrf)) throw new AppError(403, 'Invalid form token. Reload the page and try again.');
       const objectResponse = await objectRoutes(req, url, visitor, fields);
       if (objectResponse) return objectResponse;

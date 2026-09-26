@@ -508,6 +508,8 @@ test('native type switching retains multiple reference drafts until the selected
   type = f.objects.addProperty(type.id, type.revision, { label: 'Pages', kind: 'reference', targetTypeId: PAGE_TYPE_ID, multiple: true });
   const propertyId = type.propertyIds[0]!;
   const pages = ['First page', 'Second page'].map(title => f.objects.createObject({ typeId: PAGE_TYPE_ID, title, body: '', properties: {} }));
+  for (let index = 0; index < 205; index++) f.objects.createObject({ typeId: TASK_TYPE_ID, title: `Unrelated ${index}`, body: '', properties: {} });
+  f.objects.db.query('UPDATE objects SET updated_at = ? WHERE type_id = ?').run('2099-01-01T00:00:00Z', TASK_TYPE_ID);
   const draft = { title: 'Unfinished session', body: 'Keep both links and this writing.', requestId: randomUUID() };
   const send = (fields: URLSearchParams) => {
     fields.set('csrf', f.visitor.csrf);
@@ -523,7 +525,7 @@ test('native type switching retains multiple reference drafts until the selected
   }).transform(changed).text();
   const returned = await send(back);
   assert.equal(returned.status, 200);
-  assert.deepEqual(new Set(f.objects.listObjects().map(record => record.id)), new Set(pages.map(record => record.id)));
+  assert.deepEqual(new Set(f.objects.listObjects({ typeId: PAGE_TYPE_ID }).map(record => record.id)), new Set(pages.map(record => record.id)));
   const save = new URLSearchParams({ ...draft, typeId: type.id });
   await new HTMLRewriter().on(`select[name="p:${propertyId}"] option[selected]`, {
     element(element) { save.append(`p:${propertyId}`, element.getAttribute('value')!); },
@@ -575,4 +577,116 @@ test('native assistant forms distinguish browsing, explicit targets, and rejecte
     assert.equal(form.prompt.replace(/^\n/, ''), prompt);
     assert.equal(form.fields.previousId, saved.view.id);
   }
+});
+
+function referenceOptions(markup: string, propertyId: string) {
+  const options: { id: string; selected: boolean }[] = [];
+  new HTMLRewriter().on(`select[name="p:${propertyId}"] option`, {
+    element(element) {
+      const id = element.getAttribute('value');
+      if (id) options.push({ id, selected: element.hasAttribute('selected') });
+    },
+  }).transform(markup);
+  return options;
+}
+
+test('reference pickers bound each target type across new, edit, rejected and type-switch forms', async t => {
+  const f = await setup(t, async () => { throw new Error('Not used'); });
+  const targetType = f.objects.createType('Reference targets');
+  let sourceType = f.objects.createType('Reference source');
+  sourceType = f.objects.addProperty(sourceType.id, sourceType.revision, { label: 'Single', kind: 'reference', targetTypeId: targetType.id });
+  sourceType = f.objects.addProperty(sourceType.id, sourceType.revision, { label: 'Multiple', kind: 'reference', targetTypeId: targetType.id, multiple: true });
+  const [single, multiple] = sourceType.propertyIds as [string, string];
+  const make = (typeId: string, title: string) => f.objects.createObject({ typeId, title, body: '', properties: {} });
+  const target = make(targetType.id, 'Wanted target');
+  for (let index = 0; index < 205; index++) make(PAGE_TYPE_ID, `Unrelated ${index}`);
+  // Deterministically place unrelated records ahead of targets in the global query.
+  f.objects.db.query('UPDATE objects SET updated_at = ? WHERE type_id = ?').run('2099-01-01T00:00:00Z', PAGE_TYPE_ID);
+  const record = f.objects.createObject({ typeId: sourceType.id, title: 'Source', body: '', properties: {} });
+  for (const path of [`/objects/new?type=${sourceType.id}`, '/objects/new', `/objects/${record.id}`]) {
+    const response = await f.get(path);
+    assert.equal(response.status, 200);
+    const markup = await response.text();
+    for (const property of [single, multiple]) assert.deepEqual(referenceOptions(markup, property).map(option => option.id), [target.id]);
+  }
+  for (const path of ['/objects/create', `/objects/${record.id}/update`]) {
+    for (const intent of ['', 'change-type']) {
+      const response = await f.post(path, { typeId: sourceType.id, title: '', body: 'Draft', ...(path.endsWith('update') ? { revision: '1' } : { requestId: randomUUID() }), intent });
+      assert.equal(response.status, intent ? 200 : 422);
+      const markup = await response.text();
+      for (const property of [single, multiple]) assert.deepEqual(referenceOptions(markup, property).map(option => option.id), [target.id]);
+    }
+  }
+  for (let index = 0; index < 205; index++) make(targetType.id, `Candidate ${index}`);
+  f.objects.db.query('UPDATE objects SET updated_at = ? WHERE id = ?').run('2000-01-01T00:00:00Z', target.id);
+  const candidates = f.objects.listObjects({ typeId: targetType.id, limit: 200 }).map(item => item.id);
+  assert.ok(!candidates.includes(target.id));
+  const markup = await (await f.get(`/objects/new?type=${sourceType.id}`)).text();
+  assert.deepEqual(referenceOptions(markup, single).map(option => option.id), candidates);
+  const selected = f.objects.updateObject(record.id, record.revision, { typeId: PAGE_TYPE_ID, title: 'Retained properties', body: '', properties: { [single]: target.id, [multiple]: [target.id] } });
+  const edit = await (await f.get(`/objects/${record.id}`)).text();
+  for (const property of [single, multiple]) {
+    const options = referenceOptions(edit, property);
+    assert.equal(options.length, 201);
+    assert.deepEqual(options.filter(option => option.selected).map(option => option.id), [target.id]);
+  }
+  f.objects.setTrashed(target.id, target.revision, true);
+  const trashed = await (await f.get(`/objects/${record.id}`)).text();
+  assert.deepEqual(referenceOptions(trashed, single).filter(option => option.selected).map(option => option.id), [target.id]);
+  const invalid = randomUUID();
+  const fields = new URLSearchParams({ csrf: f.visitor.csrf, typeId: sourceType.id, title: '', body: 'Raw draft', revision: '1', [`p:${single}`]: target.id });
+  fields.append(`p:${multiple}`, target.id);
+  fields.append(`p:${multiple}`, invalid);
+  const rejected = await fetch(`${f.origin}/objects/${record.id}/update`, { method: 'POST', headers: { Cookie: `taskdesk=${f.visitor.id}`, Origin: f.origin }, body: fields });
+  assert.equal(rejected.status, 409);
+  const rejectedMarkup = await rejected.text();
+  assert.equal(nativeObjectFields(rejectedMarkup).revision, '1');
+  assert.deepEqual(referenceOptions(rejectedMarkup, multiple).filter(option => option.selected).map(option => option.id), [target.id, invalid]);
+  assert.equal(referenceOptions(rejectedMarkup, multiple).length, 202);
+  assert.equal(f.objects.getObject(record.id).revision, selected.revision);
+  const invalidCreate = await f.post('/objects/create', { typeId: sourceType.id, title: 'Invalid new link', body: '', requestId: randomUUID(), [`p:${single}`]: target.id });
+  assert.equal(invalidCreate.status, 422);
+});
+
+test('maximum Unicode prompts fit the generation envelope with either context field', async t => {
+  const received: string[] = [];
+  const f = await setup(t, async prompt => {
+    received.push(prompt);
+    return { model: 'fixture/contract', spec: { title: 'Fixture view', blocks: [{ title: 'Pages', component: 'list', sources: [{ typeId: PAGE_TYPE_ID, bindings: {} }] }] } };
+  });
+  const first = await f.post('/views/generate', { prompt: 'Seed' }, 'application/json');
+  assert.equal(first.status, 200);
+  const context = await first.json() as { viewId: string; conversation: ViewConversation };
+  for (const prompt of ['a'.repeat(4000), '界'.repeat(4000), '😀'.repeat(2000), ` ${'界'.repeat(3998)} `]) {
+    assert.equal(prompt.length, 4000);
+    for (const field of ['previousId', 'conversationId']) {
+      const response = await f.post('/views/generate', { prompt, [field]: field === 'previousId' ? context.viewId : context.conversation.id }, 'application/json');
+      assert.equal(response.status, 200);
+      assert.equal(received.at(-1), prompt.trim());
+    }
+  }
+  const count = f.views.list().length;
+  const calls = received.length;
+  const prompt = '界'.repeat(4001);
+  const rejected = await f.post('/views/generate', { prompt });
+  assert.equal(rejected.status, 422);
+  let draft = '';
+  await new HTMLRewriter().on('textarea[name="prompt"]', { text(chunk) { draft += chunk.text; } }).transform(rejected).text();
+  assert.equal(draft, prompt);
+  const payload = new URLSearchParams({ csrf: f.visitor.csrf, prompt: 'x'.repeat(40_000) }).toString();
+  assert.equal((await f.post('/views/generate', { prompt: 'x'.repeat(40_000) })).status, 413);
+  const streamed = await fetch(f.origin + '/views/generate', {
+    method: 'POST', headers: { Cookie: `taskdesk=${f.visitor.id}`, Origin: f.origin, 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new ReadableStream({ start(controller) {
+      const bytes = new TextEncoder().encode(payload);
+      controller.enqueue(bytes.slice(0, 20_000));
+      controller.enqueue(bytes.slice(20_000));
+      controller.close();
+    } }),
+  });
+  assert.equal(streamed.status, 413);
+  assert.equal(received.length, calls);
+  assert.equal(f.views.list().length, count);
+  const unchanged = await (await f.get(`/views/conversations/${context.conversation.id}`)).json() as ViewConversation;
+  assert.equal(unchanged.turns.length, 5);
 });

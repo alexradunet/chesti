@@ -79,7 +79,16 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
     };
     const page = (status = 200) => new Response(renderObjectWorkspace(model), { status, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
     const go = (path: string) => new Response(null, { status: 303, headers: { Location: path } });
-    const pickerObjects = () => objects.listObjects({ limit: 200 });
+    const pickerObjects = () => {
+      // ObjectEditor renders all type fields for enhanced switching, plus retained
+      // properties on existing objects. Match that set, querying each target once.
+      const propertyIds = new Set([...catalog.types.flatMap(type => type.propertyIds), ...Object.keys(model.object?.properties ?? {})]);
+      const targetTypes = new Set<string>();
+      for (const property of catalog.properties) {
+        if (propertyIds.has(property.id) && property.kind === 'reference' && property.targetTypeId) targetTypes.add(property.targetTypeId);
+      }
+      return [...targetTypes].flatMap(typeId => objects.listObjects({ typeId, limit: 200 }));
+    };
     const readWrite = (data: URLSearchParams, current?: ObjectRecord): ObjectWrite => {
       const type = objects.getType(data.get('typeId') ?? current?.typeId ?? PAGE_TYPE_ID);
       const ids = new Set([...type.propertyIds, ...Object.keys(current?.properties ?? {})]);
@@ -175,7 +184,7 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
             for (const id of selected) if (!model.objects.some(item => item.id === id)) { try { model.objects.push(objects.getObject(id)); } catch { /* An imported unresolved link remains in stored content. */ } }
             model.backlinks = objects.backlinks(model.object.id);
           } else {
-            model.screen = 'view'; model.objects = pickerObjects();
+            model.screen = 'view'; model.objects = objects.listObjects({ limit: 200 });
             model.evaluatedView = views.evaluate(match[2]!, url.searchParams.get('input') || undefined);
             const inputType = model.evaluatedView.view.spec.input?.typeId;
             if (inputType) {
