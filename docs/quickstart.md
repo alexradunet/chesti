@@ -112,7 +112,7 @@ The editable title comes first, followed by the always-visible **Properties** pa
 
 If another save has changed the object, your draft stays in the editor. **Compare before saving** shows the latest saved title, type, properties, rendered writing, and copyable Markdown source beside it (below it on small screens). Reconcile all fields you want to retain, then choose **Save reconciled changes**. This explicitly replaces the displayed saved revision; it does not merge automatically. If the object changes again, saving is rejected and the comparison refreshes without discarding the draft. **Back to your draft** returns to the writing field. The same review-and-save flow works without JavaScript.
 
-When adding a type property, rejected native submissions keep the label, format, choices, reference target, multiplicity, and the originally submitted revision in the form so you can correct the error. A stale type revision is not advanced automatically; reload the type setup page, review the latest fields, then resubmit the property you still want to add.
+When adding a type property, rejected native submissions keep the label, format, choices, reference target, multiplicity, and the originally submitted revision in the form so you can correct the error. A stale type revision is not advanced automatically; before reloading, copy the retained draft or review the latest type setup in another tab, because reload discards the draft. Then resubmit the property you still want to add against the latest fields.
 
 Native links and forms, CSRF protection, and the same server-side validation remain authoritative. Only published views that explicitly expose calendar-date or board-group editing have inline write controls.
 

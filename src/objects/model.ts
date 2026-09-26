@@ -64,7 +64,14 @@ export interface ObjectRecord {
   trashed: boolean;
 }
 export interface Catalog { types: ObjectType[]; properties: PropertyDefinition[] }
-export interface NewPropertyDraft { label: string; kind: string; options: string; targetTypeId: string; multiple: boolean; revision: string }
+export interface NewPropertyDraft {
+  label: string;
+  kind: string;
+  options: string;
+  targetTypeId: string;
+  multiple: boolean;
+  revision: string;
+}
 export interface ObjectWrite {
   typeId: string;
   title: string;
