@@ -181,12 +181,14 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
       for (const [propertyId, value] of Object.entries(snapshot.properties)) {
         const property = catalog.properties.find(item => item.id === propertyId);
         if (!property) return false;
-        if (property.kind === 'select') {
+        if (property.kind === 'text') {
+          if (typeof value !== 'string' || /[\r\n]/.test(value)) return false;
+        } else if (property.kind === 'select') {
           if (typeof value !== 'string' || !property.options?.some(option => option.id === value)) return false;
         } else if (property.kind === 'reference') {
           const ids = property.multiple ? value : [value];
           if (!Array.isArray(ids) || ids.length > 256) return false;
-          if (ids.some(id => typeof id !== 'string' || !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(id))) return false;
+          if (ids.some(id => typeof id !== 'string' || !Value.Check(IdSchema, id.toLowerCase()))) return false;
           if (new Set(ids.map(id => String(id).toLowerCase())).size !== ids.length) return false;
         } else if (valueError(property.kind, value)) return false;
       }

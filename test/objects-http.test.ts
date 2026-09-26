@@ -1161,6 +1161,66 @@ test('history recovery uses current reference and journal validation with atomic
   assert.equal(f.objects.getObject(first.id).revision, firstCurrent.revision);
 });
 
+test('history refuses multiline historical text values without lossy drafts or mutations', async t => {
+  const f = await setup(t, async () => { throw new Error('Not used'); });
+  const holder = f.objects.createType('Multiline history holder');
+  const withProperty = f.objects.addProperty(holder.id, holder.revision, { label: 'Historical text', kind: 'text' });
+  const propertyId = withProperty.propertyIds.at(-1)!;
+  const emptyType = f.objects.createType('Empty multiline target');
+  const snapshots = () => f.objects.db.query('SELECT * FROM object_revisions ORDER BY object_id, revision').all();
+  const receipts = () => f.objects.db.query('SELECT * FROM object_create_requests ORDER BY request_id').all();
+
+  for (const value of ['first\nsecond', 'first\r\nsecond']) {
+    const before = f.objects.createObject({ typeId: PAGE_TYPE_ID, title: `Has multiline ${value.length}`, properties: { [propertyId]: value }, body: 'copy multiline source' }, randomUUID());
+    const current = f.objects.updateObject(before.id, before.revision, { ...before, properties: {}, body: 'current multiline' });
+    const beforeSnapshots = snapshots();
+    const beforeReceipts = receipts();
+    const beforeBacklinks = f.objects.backlinks(before.id);
+
+    const history = await f.get(`/objects/${before.id}/history?revision=${before.revision}`);
+    assert.equal(history.status, 200);
+    const historyMarkup = await history.text();
+    assert.ok(historyMarkup.includes('Historical text'));
+    assert.ok(historyMarkup.includes('copy multiline source'));
+    assert.ok(historyMarkup.includes('will not open a lossy restore draft'));
+    assert.equal(historyMarkup.includes('Open unsaved draft'), false);
+
+    const draft = await f.post(`/objects/${before.id}/history/draft`, { revision: String(before.revision), currentRevision: String(current.revision) });
+    assert.equal(draft.status, 422);
+    const draftMarkup = await draft.text();
+    assert.ok(draftMarkup.includes('copy multiline source'));
+    assert.ok(draftMarkup.includes('will not open a lossy restore draft'));
+    assert.equal(draftMarkup.includes('data-object-editor'), false);
+
+    const switched = await f.post(`/objects/${before.id}/update`, {
+      revision: String(current.revision),
+      historyRevision: String(before.revision),
+      intent: 'change-type',
+      typeId: emptyType.id,
+      title: 'Switch refused',
+      body: 'draft body',
+      [`p:${propertyId}`]: value,
+    });
+    assert.equal(switched.status, 422);
+    assert.ok((await switched.text()).includes('will not open a lossy restore draft'));
+
+    const saved = await f.post(`/objects/${before.id}/update`, {
+      revision: String(current.revision),
+      historyRevision: String(before.revision),
+      typeId: PAGE_TYPE_ID,
+      title: 'Save refused',
+      body: 'draft body',
+      [`p:${propertyId}`]: value.replace(/\r?\n/g, ''),
+    });
+    assert.equal(saved.status, 422);
+    assert.ok((await saved.text()).includes('will not open a lossy restore draft'));
+    assert.deepEqual(f.objects.getObject(before.id), current);
+    assert.deepEqual(snapshots(), beforeSnapshots);
+    assert.deepEqual(receipts(), beforeReceipts);
+    assert.deepEqual(f.objects.backlinks(before.id), beforeBacklinks);
+  }
+});
+
 test('history refuses unavailable historical schemas without lossy drafts or mutations', async t => {
   const f = await setup(t, async () => { throw new Error('Not used'); });
   const holder = f.objects.createType('Unavailable property holder');
