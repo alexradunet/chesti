@@ -15,6 +15,10 @@ function revision(fields: URLSearchParams, name = 'revision'): number {
   if (!/^[1-9][0-9]*$/.test(value) || !Number.isSafeInteger(Number(value))) throw new AppError(422, 'A current revision is required. Reload and try again.');
   return Number(value);
 }
+function positiveInteger(value: string | null, message: string): number {
+  if (!value || !/^[1-9][0-9]*$/.test(value) || !Number.isSafeInteger(Number(value))) throw new AppError(422, message);
+  return Number(value);
+}
 function requireFields(fields: URLSearchParams, allowed: string[], properties = false): void {
   for (const name of fields.keys()) {
     if (!allowed.includes(name) && !(properties && /^(?:draft:)?p:[a-f0-9-]{36}(?::(?:start|end|timeZone))?$/.test(name))) throw new AppError(422, 'Unexpected form field.');
@@ -91,8 +95,9 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
     const go = (path: string) => new Response(null, { status: 303, headers: { Location: path } });
     const pickerObjects = () => {
       // ObjectEditor renders all type fields for enhanced switching, plus retained
-      // properties on existing objects. Match that set, querying each target once.
-      const propertyIds = new Set([...catalog.types.flatMap(type => type.propertyIds), ...Object.keys(model.object?.properties ?? {})]);
+      // properties on existing objects and historical drafts. Match that set,
+      // querying each target once.
+      const propertyIds = new Set([...catalog.types.flatMap(type => type.propertyIds), ...Object.keys(model.object?.properties ?? {}), ...Object.keys(model.objectDraft?.properties ?? {})]);
       const targetTypes = new Set<string>();
       for (const property of catalog.properties) {
         if (propertyIds.has(property.id) && property.kind === 'reference' && property.targetTypeId) targetTypes.add(property.targetTypeId);
@@ -137,11 +142,16 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
       }
       return [...byId.values()];
     };
+    const historyDraftProperties = (current: ObjectRecord, value?: string | null): Record<string, PropertyValue> | undefined => {
+      if (!value) return undefined;
+      return { ...objects.getObjectRevision(current.id, positiveInteger(value, 'Choose a historical revision.')).properties };
+    };
     const readWrite = (data: URLSearchParams, current?: ObjectRecord): ObjectWrite => {
       const type = objects.getType(data.get('typeId') ?? current?.typeId ?? PAGE_TYPE_ID);
-      const ids = new Set([...type.propertyIds, ...Object.keys(current?.properties ?? {})]);
+      const historyRevision = data.has('historyRevision') && current ? objects.getObjectRevision(current.id, positiveInteger(data.get('historyRevision'), 'Choose a historical revision.')) : undefined;
+      const ids = new Set([...type.propertyIds, ...Object.keys(current?.properties ?? {}), ...Object.keys(historyRevision?.properties ?? {})]);
       for (const key of data.keys()) if (key.startsWith('p:') && !ids.has(key.split(':')[1]!)) throw new AppError(422, 'This property is not attached to the object or its type.');
-      const properties: Record<string, PropertyValue> = { ...current?.properties };
+      const properties: Record<string, PropertyValue> = historyRevision ? {} : { ...current?.properties };
       for (const id of ids) {
         const property = objects.getProperty(id);
         const value = formValue(property, data, `p:${id}`);
@@ -220,6 +230,20 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
           model.screen = 'views';
           if (url.pathname === '/calendar') model.section = 'calendar';
         } else {
+          const historyMatch = /^\/objects\/([a-f0-9-]{36})\/history$/.exec(url.pathname);
+          if (historyMatch) {
+            requireFields(url.searchParams, ['offset', 'revision']);
+            model.screen = 'object-history';
+            model.object = objects.getObject(historyMatch[1]!);
+            model.objectType = objects.getType(model.object.typeId);
+            const offsetValue = url.searchParams.get('offset') ?? '0';
+            if (!/^\d{1,7}$/.test(offsetValue) || Number(offsetValue) > 1_000_000) throw new AppError(422, 'Invalid history page.');
+            const listed = objects.listObjectHistory(model.object.id, { offset: Number(offsetValue) });
+            model.history = { revisions: listed.revisions, offset: Number(offsetValue), hasMore: listed.hasMore };
+            if (url.searchParams.has('revision')) model.history.selected = objects.getObjectRevision(model.object.id, positiveInteger(url.searchParams.get('revision'), 'Choose a historical revision.'));
+            model.objects = pickerObjects();
+            return page();
+          }
           const match = /^\/(types|objects|views)\/([a-f0-9-]{36})$/.exec(url.pathname);
           if (!match) throw new AppError(404, 'Page not found.');
           if (match[1] === 'types') { model.screen = 'type'; model.objectType = objects.getType(match[2]!); }
@@ -228,7 +252,7 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
             model.objectType = objects.getType(model.object.typeId);
             model.objects = pickerObjects();
             const selected = new Map<string, string>();
-            for (const [id, value] of Object.entries(model.object.properties)) {
+            for (const [id, value] of Object.entries({ ...model.object.properties, ...model.objectDraft?.properties })) {
               if (objects.getProperty(id).kind !== 'reference') continue;
               for (const target of Array.isArray(value) ? value : [value]) {
                 if (typeof target === 'string') selected.set(target.toLowerCase(), target);
@@ -311,12 +335,26 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
         const record = objects.createObject(write, fields.get('requestId') || undefined);
         return go(`/objects/${record.id}?saved=1`);
       }
+      const historyDraftMatch = /^\/objects\/([a-f0-9-]{36})\/history\/draft$/.exec(url.pathname);
+      if (historyDraftMatch) {
+        requireFields(fields, ['csrf', 'revision', 'currentRevision']);
+        model.screen = 'object';
+        model.object = objects.getObject(historyDraftMatch[1]!);
+        const snapshot = objects.getObjectRevision(model.object.id, positiveInteger(fields.get('revision'), 'Choose a historical revision.'));
+        model.objectType = objects.getType(snapshot.typeId);
+        const currentRevision = revision(fields, 'currentRevision');
+        model.objectDraft = { title: snapshot.title, body: snapshot.body, revision: String(currentRevision), typeId: snapshot.typeId, properties: { ...snapshot.properties }, historyRevision: String(snapshot.revision) };
+        model.objects = pickerObjects();
+        model.backlinks = objects.backlinks(model.object.id);
+        return page();
+      }
       const objectMatch = /^\/objects\/([a-f0-9-]{36})\/(update|trash|restore)$/.exec(url.pathname);
       if (objectMatch) {
         model.screen = 'object'; model.object = objects.getObject(objectMatch[1]!); model.objectType = objects.getType(model.object.typeId); model.objects = pickerObjects();
         if (objectMatch[2] === 'update') {
-          model.objectDraft = { title: fields.get('title') ?? '', body: fields.get('body') ?? model.object.body, revision: fields.get('reviewedRevision') ?? fields.get('revision') ?? '', typeId: fields.get('typeId') ?? model.object.typeId, fields: draftFields(fields) };
-          requireFields(fields, ['csrf', 'revision', 'reviewedRevision', 'typeId', 'title', 'body', 'intent'], true);
+          model.objectDraft = { title: fields.get('title') ?? '', body: fields.get('body') ?? model.object.body, revision: fields.get('reviewedRevision') ?? fields.get('revision') ?? '', typeId: fields.get('typeId') ?? model.object.typeId, fields: draftFields(fields), historyRevision: fields.get('historyRevision') ?? undefined };
+          if (model.objectDraft.historyRevision) model.objectDraft.properties = historyDraftProperties(model.object, model.objectDraft.historyRevision);
+          requireFields(fields, ['csrf', 'revision', 'reviewedRevision', 'typeId', 'title', 'body', 'intent', 'historyRevision'], true);
           if (fields.get('intent') === 'change-type') {
             objects.getType(model.objectDraft.typeId!);
             return page();

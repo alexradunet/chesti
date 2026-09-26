@@ -100,7 +100,7 @@ Choose **Search**, or press **Ctrl+K** (**Command+K** on Mac), to search without
 
 To insert a link, place the cursor or select text in your writing, then choose **Insert object link**. The object-search dialog opens with the heading **Insert an object link**. Search a title or phrase, press Enter, then choose a result with the mouse or arrow keys and Enter. The result replaces only the selection with a link and returns focus to writing; it does not navigate or save. Formatted insertion is undoable, and the source fallback inserts escaped Markdown. Escape cancels without changing the writing or selection. Searches cover every live object and return up to 50 matches; narrow the query if more exist.
 
-Use **Writing** and **Linked from** to move around an object. The formatted editor is the primary writing surface. The native fallback's saved reader shows the last saved version, never a live draft preview.
+Use **Writing**, **Linked from**, and **History** to move around an object. History lists saved snapshots without changing the object. Select a revision to read its rendered writing and exact Markdown source, then choose **Open unsaved draft** only if you want to copy that snapshot into the editor for this same object. The draft still saves through the normal revision check and current validation; it is not a force restore, it does not restore Trash, and it can conflict if the object changed. The formatted editor is the primary writing surface. The native fallback's saved reader shows the last saved version, never a live draft preview.
 
 ## Forms and conflicts
 

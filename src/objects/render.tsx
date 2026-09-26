@@ -361,7 +361,7 @@ function ObjectEditor({ model }: { model: ObjectPageModel }) {
   const draft = model.objectDraft;
   const type = model.catalog.types.find(item => item.id === draft?.typeId) ?? (record ? model.catalog.types.find(item => item.id === record.typeId) : model.objectType ?? model.catalog.types.find(item => item.id === model.selectedTypeId) ?? model.catalog.types[0]);
   if (!type) return <p>Create a <a href="/types">type</a> before creating an object.</p>;
-  const retainedIds = Object.keys(record?.properties ?? {});
+  const retainedIds = [...new Set([...Object.keys(record?.properties ?? {}), ...Object.keys(draft?.properties ?? {})])];
   const propertyIds = [...new Set([...model.catalog.types.flatMap(item => item.propertyIds), ...retainedIds])];
   const activeIds = new Set([...type.propertyIds, ...retainedIds]);
   const body = draft?.body ?? record?.body ?? '';
@@ -369,13 +369,13 @@ function ObjectEditor({ model }: { model: ObjectPageModel }) {
   const journalDate = !record ? model.journalDate : undefined;
   let state = 'Not saved yet.';
   if (record) state = model.notice ? 'Saved. Further edits need saving.' : 'Save to apply edits.';
-  if (draft) state = 'Unsaved changes';
+  if (draft) state = draft.historyRevision ? `Unsaved draft from revision ${draft.historyRevision}` : 'Unsaved changes';
   if (model.error) state = model.error;
   const conflict = Boolean(record && draft?.revision && Number(draft.revision) !== record.revision);
   return <><h1 class="sr-only">{record ? 'Edit object' : 'New object'}</h1><a class="back-link" data-object-back="" href={`/?type=${type.id}`}>← {type.name} objects</a>{record?.trashed && <Badge tone="warning">In trash</Badge>}
-    {record && <nav class="object-sections" aria-label="Object sections"><a href="#writing-area">Writing</a><a href="#object-backlinks">Linked from</a></nav>}
+    {record && <nav class="object-sections" aria-label="Object sections"><a href="#writing-area">Writing</a><a href="#object-backlinks">Linked from</a><a href={`/objects/${record.id}/history`}>History</a></nav>}
     <div class={`object-editing${conflict ? ' has-conflict' : ''}`}>
-    <form id="object-editor" class="object-editor" method="post" action={record ? `/objects/${record.id}/update` : '/objects/create'} data-enhance="" data-object-editor="" data-new-object={!record ? 'true' : undefined} data-local-date-default={!record && !draft && model.journalDateDefault ? 'true' : undefined} data-draft={draft ? 'true' : undefined}><Token model={model} />{record ? <Hidden name="revision" value={draft?.revision ?? record.revision} /> : <Hidden name="requestId" value={draft?.requestId ?? crypto.randomUUID()} />}
+    <form id="object-editor" class="object-editor" method="post" action={record ? `/objects/${record.id}/update` : '/objects/create'} data-enhance="" data-object-editor="" data-new-object={!record ? 'true' : undefined} data-local-date-default={!record && !draft && model.journalDateDefault ? 'true' : undefined} data-draft={draft ? 'true' : undefined}><Token model={model} />{record ? <Hidden name="revision" value={draft?.revision ?? record.revision} /> : <Hidden name="requestId" value={draft?.requestId ?? crypto.randomUUID()} />}{draft?.historyRevision && <Hidden name="historyRevision" value={draft.historyRevision} />}
       <label class="title-field"><span class="sr-only">Title</span><input name="title" value={draft?.title ?? record?.title ?? (type.id === JOURNAL_TYPE_ID ? journalDate ?? '' : '')} data-journal-title-default={!record && !draft && type.id === JOURNAL_TYPE_ID ? 'true' : undefined} required maxlength={500} autocomplete="off" placeholder="Untitled" /></label>
       <section class="properties" aria-labelledby="object-properties-heading">
         <header class={record ? 'properties-heading' : 'properties-heading sr-only'}><h2 id="object-properties-heading">Properties <Badge data-property-count="" hidden={!propertyCount}>{propertyCount}</Badge></h2><span class="fine" data-object-type-label="">{type.name}</span></header>
@@ -397,7 +397,7 @@ function ObjectEditor({ model }: { model: ObjectPageModel }) {
               <legend class="sr-only">{property.label}</legend>
               {property.kind === 'boolean' && <Hidden name={`draft:p:${id}`} value="false" />}
               {property.kind === 'reference' && property.multiple && <Hidden name={`draft:p:${id}`} value="" />}
-              <PropertyControl model={model} property={property} required={id === JOURNAL_DATE_PROPERTY_ID && type.id === JOURNAL_TYPE_ID} value={(draft?.properties ?? record?.properties)?.[id] ?? (id === JOURNAL_DATE_PROPERTY_ID ? journalDate : undefined)} />
+              <PropertyControl model={model} property={property} required={id === JOURNAL_DATE_PROPERTY_ID && type.id === JOURNAL_TYPE_ID} value={(draft?.properties ? draft.properties[id] : record?.properties?.[id]) ?? (id === JOURNAL_DATE_PROPERTY_ID ? journalDate : undefined)} />
             </fieldset>
           </>;
         })}</div>
@@ -451,6 +451,31 @@ function ObjectEditor({ model }: { model: ObjectPageModel }) {
         <Button type="submit" variant={record.trashed ? 'secondary' : 'danger'}>{record.trashed ? 'Restore object' : 'Move to trash'}</Button><State />
       </form>
     </>}
+  </>;
+}
+
+function ObjectHistory({ model }: { model: ObjectPageModel }) {
+  const record = model.object;
+  const history = model.history;
+  if (!record || !history) return <p class="empty">Object history not found.</p>;
+  const selected = history.selected;
+  const selectedType = selected ? model.catalog.types.find(type => type.id === selected.typeId) : undefined;
+  const selectedTypeIds = selectedType?.propertyIds ?? [];
+  const selectedIds = selected ? [...new Set([...selectedTypeIds, ...Object.keys(selected.properties)])] : [];
+  const unavailable = Boolean(selected && (!selectedType || selectedIds.some(id => !propertyOf(model, id))));
+  const pageUrl = (offset: number) => `/objects/${record.id}/history?offset=${offset}`;
+  return <><a class="back-link" href={objectUrl(record.id)}>← Current object</a>
+    <PageHeading eyebrow="Read-only history" title={`${titleOf(record)} history`} description="Saved snapshots are read-only. Opening one loads an unsaved draft for this same object; nothing is restored until you explicitly save." />
+    <section class="panel history-current"><h2>Current version</h2><dl class="saved-details"><dt>Revision</dt><dd>{record.revision}</dd><dt>Type</dt><dd>{typeName(model, record.typeId)}</dd><dt>Updated</dt><dd>{record.updatedAt}</dd><dt>Trash</dt><dd>{record.trashed ? 'In trash' : 'Active'}</dd></dl></section>
+    <div class="history-layout">
+      <section class="panel"><h2>Historical revisions</h2>{history.revisions.length ? <ul class="history-list">{history.revisions.map(item => <li><a href={`/objects/${record.id}/history?revision=${item.revision}${history.offset ? `&offset=${history.offset}` : ''}`} aria-current={selected?.revision === item.revision ? 'page' : undefined}><strong>Revision {item.revision}</strong><span>{item.title || 'Untitled'} · {typeName(model, item.typeId)} · {item.recordedAt.slice(0, 10)}{item.trashed ? ' · in trash' : ''}</span></a></li>)}</ul> : <p class="empty">No historical revisions yet. History starts after the first edit or trash change.</p>}
+        <nav class="pagination" aria-label="History pages">{history.offset > 0 && <a href={pageUrl(Math.max(0, history.offset - 20))}>Previous</a>}{history.hasMore && <a href={pageUrl(history.offset + 20)}>Next</a>}</nav></section>
+      <section class="panel history-snapshot"><h2>{selected ? `Revision ${selected.revision}` : 'Select a revision'}</h2>{selected ? <>
+        <dl class="saved-details"><dt>Title</dt><dd>{titleOf(selected)}</dd><dt>Type</dt><dd>{selectedType ? selectedType.name : `Unavailable type ${selected.typeId}`}</dd><dt>Saved at object time</dt><dd>{selected.updatedAt}</dd>{selected.trashed && <><dt>Trash</dt><dd>Snapshot was in trash. Opening a draft does not restore trash.</dd></>}{selectedIds.map(id => <><dt>{propertyOf(model, id)?.label ?? `Unavailable property ${id}`}</dt><dd><Value model={model} propertyId={id} value={selected.properties[id]} /></dd></>)}</dl>
+        <h3>Rendered writing</h3><div class="markdown-content">{raw(renderMarkdown(selected.body))}</div><details open><summary>Exact Markdown source</summary><pre class="saved-source">{`\n${selected.body}`}</pre></details>
+        {unavailable ? <p class="notice error">This revision uses a type or property that is no longer available. Copy the source manually; Taskdesk will not open a lossy restore draft.</p> : <form method="post" action={`/objects/${record.id}/history/draft`}><Token model={model} /><Hidden name="revision" value={selected.revision} /><Hidden name="currentRevision" value={record.revision} /><Button type="submit" variant="primary">Open unsaved draft from revision {selected.revision}</Button><State /></form>}
+      </> : <p class="muted">Choose a historical revision to inspect its title, type, fields, rendered writing, and exact Markdown source.</p>}</section>
+    </div>
   </>;
 }
 
@@ -528,7 +553,7 @@ export function renderObjectWorkspace(model: ObjectPageModel): string {
   if (model.section === 'calendar') title = 'Calendar';
   else if (model.screen === 'journal') title = 'Journal';
   else if (model.trashed) title = model.selectedTypeId ? `${typeName(model, model.selectedTypeId)} · Trash` : 'Trash';
-  else if (model.screen === 'object') title = model.object?.title || 'Object';
+  else if (model.screen === 'object' || model.screen === 'object-history') title = model.object?.title || 'Object';
   else if (model.screen === 'new-object') title = 'New object';
   else if (model.screen === 'type') title = model.objectType?.name || 'Type';
   else if (model.screen === 'types') title = 'Manage types';
@@ -541,6 +566,6 @@ export function renderObjectWorkspace(model: ObjectPageModel): string {
   return '<!doctype html>' + (<html lang="en"><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><meta name="color-scheme" content="light" /><title>{title} · Taskdesk</title><link rel="stylesheet" href="/tokens.css" /><link rel="stylesheet" href="/objects.css" />{objectEditor && <link rel="stylesheet" href="/writing.css" />}</head><body class={`object-shell${model.aiOpen ? ' ai-open' : ''}`} data-ai-view-id={currentView?.id} data-ai-view-title={currentView?.spec.title} data-ai-context-title={model.aiContextTitle} data-ai-prompt={suggestedPrompt}>
     <a class="skip-link" href="#main">Skip to content</a><div class="workspace-layout"><WorkspaceNav model={model} />
     <div class="workspace-content"><header class="workspace-header"><div class="workspace-breadcrumb"><Button class="icon-button js-only nav-toggle" type="button" data-nav-toggle="" aria-label="Open navigation" aria-controls="workspace-nav" aria-expanded="false"><Icon name="menu" /></Button><a href="/">Workspace</a><span aria-hidden="true">/</span><span class="breadcrumb-title">{title}</span></div><ButtonLink class="ai-toggle" href="/views?ai=1" data-ai-toggle="" aria-controls="ai-panel" aria-expanded={model.aiOpen ? 'true' : 'false'}><Icon name="ai" /><span>View assistant</span></ButtonLink></header>
-    <main id="main" tabindex={-1}>{model.error && !objectEditor && <div class="notice error" role="alert">{model.error}</div>}{model.notice && !objectEditor && <div class="notice" role="status">{model.notice}</div>}{model.screen === 'journal' ? <Journal model={model} /> : model.screen === 'home' ? <ObjectHome model={model} /> : model.screen === 'objects' ? <Objects model={model} /> : model.screen === 'types' ? <Types model={model} /> : model.screen === 'type' ? <TypeEditor model={model} /> : model.screen === 'new-object' || model.screen === 'object' ? <ObjectEditor model={model} /> : model.screen === 'views' ? <Views model={model} /> : <View model={model} />}</main><footer class="workspace-footer">Objects are yours. Views are ways to see them.</footer></div>
+    <main id="main" tabindex={-1}>{model.error && !objectEditor && <div class="notice error" role="alert">{model.error}</div>}{model.notice && !objectEditor && <div class="notice" role="status">{model.notice}</div>}{model.screen === 'journal' ? <Journal model={model} /> : model.screen === 'home' ? <ObjectHome model={model} /> : model.screen === 'objects' ? <Objects model={model} /> : model.screen === 'types' ? <Types model={model} /> : model.screen === 'type' ? <TypeEditor model={model} /> : model.screen === 'object-history' ? <ObjectHistory model={model} /> : model.screen === 'new-object' || model.screen === 'object' ? <ObjectEditor model={model} /> : model.screen === 'views' ? <Views model={model} /> : <View model={model} />}</main><footer class="workspace-footer">Objects are yours. Views are ways to see them.</footer></div>
     <button class="panel-backdrop" data-panel-backdrop="" type="button" aria-label="Close open panel" hidden></button><AiPanel model={model} /></div><ObjectSearch /><script type="module" src="/objects-client.js"></script></body></html>).toString();
 }

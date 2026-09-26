@@ -1002,3 +1002,161 @@ test('maximum Unicode prompts fit the generation envelope with either context fi
   const unchanged = await (await f.get(`/views/conversations/${context.conversation.id}`)).json() as ViewConversation;
   assert.equal(unchanged.turns.length, 5);
 });
+
+test('native history opens historical snapshots as same-object drafts without mutating until explicit save', async t => {
+  const f = await setup(t, async () => { throw new Error('Not used'); });
+  const holder = f.objects.createType('Historical property holder');
+  const type = f.objects.addProperty(holder.id, holder.revision, { label: 'Historical note', kind: 'text' });
+  const propertyId = type.propertyIds.at(-1)!;
+  const before = f.objects.createObject({ typeId: PAGE_TYPE_ID, title: 'Before', properties: { [propertyId]: 'old value' }, body: 'Line 1\r\n\r\n**Keep source**.' });
+  const current = f.objects.updateObject(before.id, before.revision, { typeId: PAGE_TYPE_ID, title: 'After', properties: {}, body: 'Current body' });
+  const history = await f.get(`/objects/${before.id}/history?revision=${before.revision}`);
+  assert.equal(history.status, 200);
+  const historyMarkup = await history.text();
+  assert.ok(historyMarkup.includes('Read-only history'));
+  assert.ok(historyMarkup.includes('Exact Markdown source'));
+  assert.ok(historyMarkup.includes('old value'));
+  assert.ok(historyMarkup.includes('Open unsaved draft from revision 1'));
+  assert.deepEqual(f.objects.getObject(before.id), current);
+  const noCsrf = await f.post(`/objects/${before.id}/history/draft`, { csrf: 'bad', revision: String(before.revision), currentRevision: String(current.revision) });
+  assert.equal(noCsrf.status, 403);
+  assert.deepEqual(f.objects.getObject(before.id), current);
+  const draft = await f.post(`/objects/${before.id}/history/draft`, { revision: String(before.revision), currentRevision: String(current.revision) });
+  assert.equal(draft.status, 200);
+  const fields = nativeObjectFields(await draft.text());
+  assert.equal(fields.title, 'Before');
+  assert.equal(fields.body, before.body);
+  assert.equal(fields.revision, String(current.revision));
+  assert.equal(fields.historyRevision, String(before.revision));
+  assert.equal(fields[`p:${propertyId}`], 'old value');
+  assert.deepEqual(f.objects.getObject(before.id), current);
+  const emptyType = f.objects.createType('Empty target type');
+  const switched = await f.post(`/objects/${before.id}/update`, {
+    revision: fields.revision,
+    historyRevision: fields.historyRevision,
+    intent: 'change-type',
+    typeId: emptyType.id,
+    title: fields.title!,
+    body: fields.body!,
+    [`p:${propertyId}`]: fields[`p:${propertyId}`]!,
+  });
+  assert.equal(switched.status, 200);
+  const switchedFields = nativeObjectFields(await switched.text());
+  assert.equal(switchedFields.historyRevision, String(before.revision));
+  assert.equal(switchedFields[`p:${propertyId}`], 'old value');
+  assert.deepEqual(f.objects.getObject(before.id), current);
+  const saved = await f.post(`/objects/${before.id}/update`, {
+    revision: fields.revision,
+    historyRevision: fields.historyRevision,
+    typeId: PAGE_TYPE_ID,
+    title: 'Recovered title',
+    body: fields.body,
+    [`p:${propertyId}`]: 'restored value',
+  });
+  assert.equal(saved.status, 303);
+  const recovered = f.objects.getObject(before.id);
+  assert.equal(recovered.id, before.id);
+  assert.equal(recovered.revision, current.revision + 1);
+  assert.equal(recovered.title, 'Recovered title');
+  assert.equal(recovered.body, before.body);
+  assert.equal(recovered.properties[propertyId], 'restored value');
+  assert.equal(recovered.trashed, false);
+});
+
+test('history drafts keep stale expected revisions and reject forged history context', async t => {
+  const f = await setup(t, async () => { throw new Error('Not used'); });
+  const holder = f.objects.createType('Past property holder');
+  const type = f.objects.addProperty(holder.id, holder.revision, { label: 'Past field', kind: 'text' });
+  const propertyId = type.propertyIds.at(-1)!;
+  const before = f.objects.createObject({ typeId: PAGE_TYPE_ID, title: 'Before', properties: { [propertyId]: 'past' }, body: 'Past body' });
+  const current = f.objects.updateObject(before.id, before.revision, { typeId: PAGE_TYPE_ID, title: 'Current', properties: {}, body: 'Current body' });
+  const other = f.objects.createObject({ typeId: PAGE_TYPE_ID, title: 'Other', properties: { [propertyId]: 'other' }, body: '' });
+  const otherChanged = f.objects.updateObject(other.id, other.revision, { ...other, title: 'Other changed' });
+  const otherCurrent = f.objects.updateObject(otherChanged.id, otherChanged.revision, { ...otherChanged, title: 'Other changed again' });
+  const concurrent = f.objects.updateObject(current.id, current.revision, { ...current, title: 'Concurrent' });
+  const staleDraft = await f.post(`/objects/${before.id}/history/draft`, { revision: String(before.revision), currentRevision: String(current.revision) });
+  assert.equal(staleDraft.status, 200);
+  const staleMarkup = await staleDraft.text();
+  assert.ok(staleMarkup.includes('Compare before saving'));
+  const staleFields = nativeObjectFields(staleMarkup);
+  assert.equal(staleFields.revision, String(current.revision));
+  assert.equal(staleFields.historyRevision, String(before.revision));
+  assert.equal(staleFields[`p:${propertyId}`], 'past');
+  assert.deepEqual(f.objects.getObject(before.id), concurrent);
+  const rejected = await f.post(`/objects/${before.id}/update`, {
+    revision: staleFields.revision!,
+    historyRevision: staleFields.historyRevision!,
+    typeId: PAGE_TYPE_ID,
+    title: staleFields.title!,
+    body: staleFields.body!,
+    [`p:${propertyId}`]: staleFields[`p:${propertyId}`]!,
+  });
+  assert.equal(rejected.status, 409);
+  const rejectedMarkup = await rejected.text();
+  assert.ok(rejectedMarkup.includes('Compare before saving'));
+  assert.ok(rejectedMarkup.includes('past'));
+  assert.deepEqual(f.objects.getObject(before.id), concurrent);
+  const forged = await f.post(`/objects/${before.id}/update`, {
+    revision: String(concurrent.revision),
+    historyRevision: String(otherCurrent.revision),
+    typeId: PAGE_TYPE_ID,
+    title: 'Forged',
+    body: '',
+    [`p:${propertyId}`]: 'forged',
+  });
+  assert.equal(forged.status, 404);
+  assert.deepEqual(f.objects.getObject(before.id), concurrent);
+  assert.deepEqual(f.objects.getObject(other.id), otherCurrent);
+});
+
+test('history recovery uses current reference and journal validation with atomic backlinks', async t => {
+  const f = await setup(t, async () => { throw new Error('Not used'); });
+  const people = f.objects.createType('History person');
+  const ada = f.objects.createObject({ typeId: people.id, title: 'Ada', properties: {}, body: '' });
+  const grace = f.objects.createObject({ typeId: people.id, title: 'Grace', properties: {}, body: '' });
+  const holder = f.objects.createType('Reference holder');
+  const withReference = f.objects.addProperty(holder.id, holder.revision, { label: 'Historical people', kind: 'reference', targetTypeId: people.id, multiple: true });
+  const referenceId = withReference.propertyIds.at(-1)!;
+  const before = f.objects.createObject({ typeId: PAGE_TYPE_ID, title: 'Referenced past', properties: { [referenceId]: [ada.id] }, body: '' });
+  const current = f.objects.updateObject(before.id, before.revision, { ...before, properties: {} });
+  assert.equal(f.objects.backlinks(ada.id).length, 0);
+  f.objects.setTrashed(grace.id, grace.revision, true);
+  const invalid = await f.post(`/objects/${before.id}/update`, {
+    revision: String(current.revision),
+    historyRevision: String(before.revision),
+    typeId: PAGE_TYPE_ID,
+    title: 'Invalid reference restore',
+    body: '',
+    [`p:${referenceId}`]: grace.id,
+  });
+  assert.equal(invalid.status, 422);
+  assert.equal(f.objects.getObject(before.id).revision, current.revision);
+  assert.equal(f.objects.backlinks(grace.id).length, 0);
+  const valid = await f.post(`/objects/${before.id}/update`, {
+    revision: String(current.revision),
+    historyRevision: String(before.revision),
+    typeId: PAGE_TYPE_ID,
+    title: 'Valid reference restore',
+    body: '',
+    [`p:${referenceId}`]: ada.id,
+  });
+  assert.equal(valid.status, 303);
+  const recovered = f.objects.getObject(before.id);
+  assert.deepEqual(recovered.properties[referenceId], [ada.id]);
+  assert.equal(f.objects.backlinks(ada.id).length, 1);
+
+  const first = f.objects.openJournal('2026-09-25');
+  const second = f.objects.openJournal('2026-09-26');
+  const firstEdited = f.objects.updateObject(first.id, first.revision, { ...first, title: 'Past journal' });
+  const firstCurrent = f.objects.updateObject(firstEdited.id, firstEdited.revision, { ...firstEdited, properties: { [JOURNAL_DATE_PROPERTY_ID]: '2026-09-27' } });
+  const conflict = await f.post(`/objects/${first.id}/update`, {
+    revision: String(firstCurrent.revision),
+    historyRevision: String(firstEdited.revision),
+    typeId: JOURNAL_TYPE_ID,
+    title: 'Restore occupied day',
+    body: firstEdited.body,
+    [`p:${JOURNAL_DATE_PROPERTY_ID}`]: second.properties[JOURNAL_DATE_PROPERTY_ID] as string,
+  });
+  assert.equal(conflict.status, 409);
+  assert.equal(f.objects.getObject(first.id).revision, firstCurrent.revision);
+});
