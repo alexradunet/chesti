@@ -337,6 +337,92 @@ test('native object forms and an AI-authored calendar share data without regener
   assert.equal(f.objects.listObjects().length, 3);
 });
 
+test('published input boards offer reference action choices from the binding target type only', async t => {
+  const f = await setup(t, async () => { throw new Error('Not used'); });
+  const projectType = f.objects.createType('Project');
+  const personType = f.objects.createType('Person');
+  let workType = f.objects.createType('Work');
+  workType = f.objects.addProperty(workType.id, workType.revision, { label: 'Project', kind: 'reference', targetTypeId: projectType.id });
+  workType = f.objects.addProperty(workType.id, workType.revision, { label: 'Assignee', kind: 'reference', targetTypeId: personType.id });
+  const [projectProperty, assigneeProperty] = workType.propertyIds as [string, string];
+  const project = f.objects.createObject({ typeId: projectType.id, title: 'Website', body: '', properties: {} });
+  const alice = f.objects.createObject({ typeId: personType.id, title: 'Alice', body: '', properties: {} });
+  const bob = f.objects.createObject({ typeId: personType.id, title: 'Bob', body: '', properties: {} });
+  const work = f.objects.createObject({ typeId: workType.id, title: 'Build launch page', body: '', properties: { [projectProperty]: project.id, [assigneeProperty]: alice.id } });
+  const draft = f.views.create({ model: 'fixture/contract', spec: {
+    title: 'Project board',
+    input: { label: 'Project', typeId: projectType.id },
+    blocks: [{
+      title: 'Work by assignee', component: 'board', editable: true,
+      columns: [{ role: 'project', label: 'Project' }],
+      sources: [{ typeId: workType.id, bindings: { group: assigneeProperty, project: projectProperty }, where: [{ propertyId: projectProperty, operator: 'equals', value: { input: true } }] }],
+    }],
+  } }, 'Show project work by assignee');
+  const view = f.views.publish(draft.id, draft.revision);
+  const response = await f.get(`/views/${view.id}?input=${project.id}`);
+  assert.equal(response.status, 200);
+  const markup = await response.text();
+  assert.deepEqual(selectOptions(markup, 'value').map(option => option.id).sort(), [alice.id, bob.id].sort());
+  assert.deepEqual(selectOptions(markup, 'input').map(option => option.id), [project.id]);
+  assert.equal((await f.post(`/views/${view.id}/act`, {
+    revision: String(view.revision), objectId: work.id, objectRevision: String(work.revision), blockIndex: '0', role: 'group', inputId: project.id, value: bob.id,
+  })).status, 303);
+  assert.equal(f.objects.getObject(work.id).properties[assigneeProperty], bob.id);
+  assert.equal((await f.post(`/views/${view.id}/act`, {
+    revision: String(view.revision), objectId: work.id, objectRevision: String(work.revision), blockIndex: '0', role: 'group', inputId: bob.id, value: alice.id,
+  })).status, 422);
+});
+
+test('published boards bound reference choices per target type and retain selected references', async t => {
+  const f = await setup(t, async () => { throw new Error('Not used'); });
+  const personType = f.objects.createType('Board people');
+  const milestoneType = f.objects.createType('Milestones');
+  let workType = f.objects.createType('Board work');
+  workType = f.objects.addProperty(workType.id, workType.revision, { label: 'Assignee', kind: 'reference', targetTypeId: personType.id });
+  workType = f.objects.addProperty(workType.id, workType.revision, { label: 'Milestone', kind: 'reference', targetTypeId: milestoneType.id });
+  const [assigneeProperty, milestoneProperty] = workType.propertyIds as [string, string];
+  for (let index = 0; index < 205; index++) f.objects.createObject({ typeId: PAGE_TYPE_ID, title: `Crowd ${index}`, body: '', properties: {} });
+  f.objects.db.query('UPDATE objects SET updated_at = ? WHERE type_id = ?').run('2099-01-01T00:00:00Z', PAGE_TYPE_ID);
+  const retained = f.objects.createObject({ typeId: personType.id, title: 'Retained assignee', body: '', properties: {} });
+  const trashed = f.objects.createObject({ typeId: personType.id, title: 'Former assignee', body: '', properties: {} });
+  for (let index = 0; index < 205; index++) f.objects.createObject({ typeId: personType.id, title: `Person ${index}`, body: '', properties: {} });
+  const milestone = f.objects.createObject({ typeId: milestoneType.id, title: 'Beta', body: '', properties: {} });
+  f.objects.db.query('UPDATE objects SET updated_at = ? WHERE id IN (?, ?)').run('2000-01-01T00:00:00Z', retained.id, trashed.id);
+  const activePeople = f.objects.listObjects({ typeId: personType.id, limit: 200 }).map(item => item.id);
+  assert.equal(activePeople.length, 200);
+  assert.ok(!activePeople.includes(retained.id));
+  assert.ok(!activePeople.includes(trashed.id));
+  const retainedWork = f.objects.createObject({ typeId: workType.id, title: 'Retained work', body: '', properties: { [assigneeProperty]: retained.id, [milestoneProperty]: milestone.id } });
+  f.objects.createObject({ typeId: workType.id, title: 'Former work', body: '', properties: { [assigneeProperty]: trashed.id, [milestoneProperty]: milestone.id } });
+  f.objects.setTrashed(trashed.id, trashed.revision, true);
+  const draft = f.views.create({ model: 'fixture/contract', spec: {
+    title: 'Reference board',
+    blocks: [{ title: 'Assignments', component: 'board', editable: true, columns: [{ role: 'milestone', label: 'Milestone' }], sources: [{ typeId: workType.id, bindings: { group: assigneeProperty, milestone: milestoneProperty } }] }],
+  } }, 'Show assignments');
+  const view = f.views.publish(draft.id, draft.revision);
+  const response = await f.get(`/views/${view.id}`);
+  assert.equal(response.status, 200);
+  const markup = await response.text();
+  const choices = selectOptions(markup, 'value');
+  const choiceIds = choices.map(option => option.id);
+  const uniqueChoiceIds = [...new Set(choiceIds)];
+  assert.equal(uniqueChoiceIds.length, 202);
+  assert.deepEqual(uniqueChoiceIds.filter(id => activePeople.includes(id)).sort(), activePeople.sort());
+  assert.ok(uniqueChoiceIds.includes(retained.id));
+  assert.ok(uniqueChoiceIds.includes(trashed.id));
+  assert.ok(!uniqueChoiceIds.includes(milestone.id));
+  assert.deepEqual(choices.filter(option => option.selected).map(option => option.id).sort(), [retained.id, trashed.id].sort());
+  const target = activePeople[0]!;
+  assert.equal((await f.post(`/views/${view.id}/act`, {
+    revision: String(view.revision), objectId: retainedWork.id, objectRevision: String(retainedWork.revision), blockIndex: '0', role: 'group', value: target,
+  })).status, 303);
+  assert.equal(f.objects.getObject(retainedWork.id).properties[assigneeProperty], target);
+  assert.equal(f.objects.getObject(retainedWork.id).properties[milestoneProperty], milestone.id);
+  assert.equal((await f.post(`/views/${view.id}/act`, {
+    revision: String(view.revision), objectId: retainedWork.id, objectRevision: String(retainedWork.revision), blockIndex: '0', role: 'group', value: activePeople[1]!,
+  })).status, 409);
+});
+
 test('AI failure and invalid generated bindings never publish a fallback or mutate objects', async t => {
   let invalid = false;
   const f = await setup(t, async () => {
@@ -579,15 +665,19 @@ test('native assistant forms distinguish browsing, explicit targets, and rejecte
   }
 });
 
-function referenceOptions(markup: string, propertyId: string) {
+function selectOptions(markup: string, name: string) {
   const options: { id: string; selected: boolean }[] = [];
-  new HTMLRewriter().on(`select[name="p:${propertyId}"] option`, {
+  new HTMLRewriter().on(`select[name="${name}"] option`, {
     element(element) {
       const id = element.getAttribute('value');
       if (id) options.push({ id, selected: element.hasAttribute('selected') });
     },
   }).transform(markup);
   return options;
+}
+
+function referenceOptions(markup: string, propertyId: string) {
+  return selectOptions(markup, `p:${propertyId}`);
 }
 
 test('reference pickers bound each target type across new, edit, rejected and type-switch forms', async t => {
