@@ -463,7 +463,7 @@ function ObjectHistory({ model }: { model: ObjectPageModel }) {
   const selectedType = selected ? model.catalog.types.find(type => type.id === selected.typeId) : undefined;
   const selectedTypeIds = selectedType?.propertyIds ?? [];
   const selectedIds = selected ? [...new Set([...selectedTypeIds, ...Object.keys(selected.properties)])] : [];
-  const unavailable = Boolean(selected && (!selectedType || selectedIds.some(id => !propertyOf(model, id))));
+  const unavailable = Boolean(selected && (model.error || !selectedType || selectedIds.some(id => !propertyOf(model, id))));
   const pageUrl = (offset: number) => `/objects/${record.id}/history?offset=${offset}`;
   const selectedUrl = (revision: number) => `/objects/${record.id}/history?revision=${revision}${history.offset ? `&offset=${history.offset}` : ''}`;
 

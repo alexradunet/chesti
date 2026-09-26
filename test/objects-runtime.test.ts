@@ -303,7 +303,7 @@ test('object history browsing is bounded, object-scoped and nonmutating', t => {
   assert.equal(page.hasMore, true);
   assert.equal(page.revisions[0]!.revision, current.revision);
   assert.equal(page.revisions[0]!.trashed, false);
-  const next = runtime.listObjectHistory(first.id, { offset: 20 });
+  const next = runtime.listObjectHistory(first.id, 20);
   assert.equal(next.revisions.length, 5);
   assert.equal(next.hasMore, false);
   assert.deepEqual(runtime.getObjectRevision(first.id, first.revision), first);
@@ -315,8 +315,7 @@ test('object history browsing is bounded, object-scoped and nonmutating', t => {
   assert.equal(runtime.getObject(first.id).trashed, true);
   assert.deepEqual(runtime.getObject(first.id), trashed);
   assert.throws(() => runtime.listObjectHistory('not-an-id'), status(422));
-  assert.throws(() => runtime.listObjectHistory(first.id, { limit: 21 }), status(422));
-  assert.throws(() => runtime.listObjectHistory(first.id, { offset: -1 }), status(422));
+  assert.throws(() => runtime.listObjectHistory(first.id, -1), status(422));
   assert.throws(() => runtime.getObjectRevision(first.id, 0), status(422));
   assert.throws(() => runtime.getObjectRevision(first.id, 999), status(404));
   assert.throws(() => runtime.getObjectRevision(other.id, first.revision), status(404));

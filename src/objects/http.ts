@@ -2,6 +2,7 @@ import { Value } from 'typebox/value';
 import { AppError } from '../core.js';
 import type { Visitor } from '../visitors.js';
 import { validateMarkdown } from './markdown.js';
+import { valueError } from './values.js';
 import { IdSchema, JOURNAL_DATE_PROPERTY_ID, JOURNAL_TYPE_ID, PAGE_TYPE_ID, TASK_TYPE_ID } from './model.js';
 import type { EvaluatedView, ObjectLookupResult, ObjectPageModel, ObjectRecord, ObjectWrite, PropertyDefinition, PropertyKind, PropertyValue, SavedView, ViewConversation, ViewGenerator } from './model.js';
 import type { ObjectRuntime } from './runtime.js';
@@ -110,6 +111,14 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
           }
         }
       }
+      for (const [name, values] of Object.entries(model.objectDraft?.fields ?? {})) {
+        const match = /^p:([a-f0-9-]{36})$/i.exec(name);
+        if (!match) continue;
+        const property = catalog.properties.find(item => item.id === match[1]);
+        if (property?.kind !== 'reference') continue;
+        propertyIds.add(property.id);
+        for (const target of values) if (target) selectedIds.set(target.toLowerCase(), target);
+      }
       const targetTypes = new Set<string>();
       for (const property of catalog.properties) {
         if (propertyIds.has(property.id) && property.kind === 'reference' && property.targetTypeId) targetTypes.add(property.targetTypeId);
@@ -166,13 +175,22 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
       }
       return [...byId.values()];
     };
-    const unavailableHistoryMessage = 'This historical revision uses a type or property that is no longer available. Copy its source manually; Taskdesk will not open a lossy restore draft.';
+    const unavailableHistoryMessage = 'This historical revision uses a type, property, or value that is no longer editable. Copy its source manually; Taskdesk will not open a lossy restore draft.';
     const historyAvailable = (snapshot: ObjectRecord): boolean => {
       if (!catalog.types.some(type => type.id === snapshot.typeId)) return false;
-      return Object.keys(snapshot.properties).every(id => catalog.properties.some(property => property.id === id));
-    };
-    const requireHistoryAvailable = (snapshot: ObjectRecord): void => {
-      if (!historyAvailable(snapshot)) throw new AppError(422, unavailableHistoryMessage);
+      for (const [propertyId, value] of Object.entries(snapshot.properties)) {
+        const property = catalog.properties.find(item => item.id === propertyId);
+        if (!property) return false;
+        if (property.kind === 'select') {
+          if (typeof value !== 'string' || !property.options?.some(option => option.id === value)) return false;
+        } else if (property.kind === 'reference') {
+          const ids = property.multiple ? value : [value];
+          if (!Array.isArray(ids) || ids.length > 256) return false;
+          if (ids.some(id => typeof id !== 'string' || !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(id))) return false;
+          if (new Set(ids.map(id => String(id).toLowerCase())).size !== ids.length) return false;
+        } else if (valueError(property.kind, value)) return false;
+      }
+      return true;
     };
     const historyFallbackPage = (current: ObjectRecord, snapshot: ObjectRecord, status = 422): Response => {
       model.screen = 'object-history';
@@ -180,14 +198,9 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
       model.objectType = objects.getType(current.typeId);
       const listed = objects.listObjectHistory(current.id);
       model.history = { revisions: listed.revisions, selected: snapshot, offset: 0, hasMore: listed.hasMore };
+      model.objects = pickerObjects([current.properties, snapshot.properties]);
       model.error = unavailableHistoryMessage;
       return page(status);
-    };
-    const historyDraftProperties = (current: ObjectRecord, value?: string | null): Record<string, PropertyValue> | undefined => {
-      if (!value) return undefined;
-      const snapshot = objects.getObjectRevision(current.id, positiveInteger(value, 'Choose a historical revision.'));
-      requireHistoryAvailable(snapshot);
-      return { ...snapshot.properties };
     };
     const readWrite = (data: URLSearchParams, current?: ObjectRecord): ObjectWrite => {
       const type = objects.getType(data.get('typeId') ?? current?.typeId ?? PAGE_TYPE_ID);
@@ -281,10 +294,13 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
             model.objectType = objects.getType(model.object.typeId);
             const offsetValue = url.searchParams.get('offset') ?? '0';
             if (!/^\d{1,7}$/.test(offsetValue) || Number(offsetValue) > 1_000_000) throw new AppError(422, 'Invalid history page.');
-            const listed = objects.listObjectHistory(model.object.id, { offset: Number(offsetValue) });
+            const listed = objects.listObjectHistory(model.object.id, Number(offsetValue));
             model.history = { revisions: listed.revisions, offset: Number(offsetValue), hasMore: listed.hasMore };
-            if (url.searchParams.has('revision')) model.history.selected = objects.getObjectRevision(model.object.id, positiveInteger(url.searchParams.get('revision'), 'Choose a historical revision.'));
-            model.objects = pickerObjects();
+            if (url.searchParams.has('revision')) {
+              model.history.selected = objects.getObjectRevision(model.object.id, positiveInteger(url.searchParams.get('revision'), 'Choose a historical revision.'));
+              if (!historyAvailable(model.history.selected)) model.error = unavailableHistoryMessage;
+            }
+            model.objects = pickerObjects([model.object.properties, model.history.selected?.properties]);
             return page();
           }
           const match = /^\/(types|objects|views)\/([a-f0-9-]{36})$/.exec(url.pathname);
@@ -294,25 +310,6 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
             model.screen = 'object'; model.object = objects.getObject(match[2]!);
             model.objectType = objects.getType(model.object.typeId);
             model.objects = pickerObjects();
-            const selected = new Map<string, string>();
-            for (const [id, value] of Object.entries({ ...model.object.properties, ...model.objectDraft?.properties })) {
-              if (objects.getProperty(id).kind !== 'reference') continue;
-              for (const target of Array.isArray(value) ? value : [value]) {
-                if (typeof target === 'string') selected.set(target.toLowerCase(), target);
-              }
-            }
-            const loaded = new Set(model.objects.map(item => item.id.toLowerCase()));
-            for (const [key, id] of selected) {
-              if (loaded.has(key)) continue;
-              try {
-                const object = objects.getObject(id);
-                model.objects.push(object);
-                loaded.add(object.id.toLowerCase());
-              } catch (error) {
-                if (!(error instanceof AppError && error.status === 404)) throw error;
-                // An imported unresolved link remains in stored content.
-              }
-            }
             model.backlinks = objects.backlinks(model.object.id);
           } else {
             model.screen = 'view';

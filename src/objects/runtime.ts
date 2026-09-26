@@ -11,7 +11,7 @@ const KINDS: Record<PropertyKind, true> = { text: true, number: true, boolean: t
 interface TypeRow { id: string; name: string; property_ids_json: string; revision: number }
 interface PropertyRow { id: string; label: string; kind: PropertyKind; options_json: string | null; target_type_id: string | null; multiple: number; revision: number }
 interface ObjectRow { id: string; type_id: string; title: string; properties_json: string; body: string; revision: number; created_at: string; updated_at: string; trashed: number }
-interface RevisionRow { revision: number; snapshot_json?: string; recorded_at: string }
+interface RevisionRow { revision: number; snapshot_json: string; recorded_at: string }
 interface RevisionSummaryRow { revision: number; recorded_at: string; title: string; type_id: string; trashed: number }
 
 function objectRecord(row: ObjectRow): ObjectRecord {
@@ -248,12 +248,11 @@ export class ObjectRuntime {
     if (!row) throw new AppError(404, 'Object not found.');
     return objectRecord(row);
   }
-  listObjectHistory(id: string, options: { limit?: number; offset?: number } = {}): { revisions: ObjectRevisionSummary[]; hasMore: boolean } {
+  listObjectHistory(id: string, offset = 0): { revisions: ObjectRevisionSummary[]; hasMore: boolean } {
     if (typeof id !== 'string' || !ID.test(id)) throw new AppError(422, 'Invalid object ID.');
     this.getObject(id);
-    const limit = options.limit ?? 20;
-    const offset = options.offset ?? 0;
-    if (!Number.isInteger(limit) || limit < 1 || limit > 20 || !Number.isInteger(offset) || offset < 0 || offset > 1_000_000) throw new AppError(422, 'Invalid history page.');
+    const limit = 20;
+    if (!Number.isInteger(offset) || offset < 0 || offset > 1_000_000) throw new AppError(422, 'Invalid history page.');
     const rows = this.db.query<RevisionSummaryRow, [string, number, number]>(`SELECT revision, recorded_at,
         json_extract(snapshot_json, '$.title') AS title,
         json_extract(snapshot_json, '$.typeId') AS type_id,
@@ -273,7 +272,7 @@ export class ObjectRuntime {
     this.getObject(id);
     const row = this.db.query<RevisionRow, [string, number]>('SELECT revision, snapshot_json, recorded_at FROM object_revisions WHERE object_id = ? AND revision = ?').get(id, revision);
     if (!row) throw new AppError(404, 'Historical revision not found.');
-    const snapshot = snapshotRecord(row.snapshot_json!);
+    const snapshot = snapshotRecord(row.snapshot_json);
     if (snapshot.id.toLowerCase() !== id.toLowerCase() || snapshot.revision !== revision) throw new AppError(500, 'Historical snapshot does not match this object.');
     return snapshot;
   }

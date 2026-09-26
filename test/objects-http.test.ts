@@ -1202,6 +1202,40 @@ test('history refuses unavailable historical schemas without lossy drafts or mut
   const typedDraft = await f.post(`/objects/${typed.id}/history/draft`, { revision: String(typed.revision), currentRevision: String(typedCurrent.revision) });
   assert.equal(typedDraft.status, 422);
   assert.deepEqual(f.objects.getObject(typed.id), typedCurrent);
+
+  const kindHolder = f.objects.createType('Changed kind holder');
+  const withText = f.objects.addProperty(kindHolder.id, kindHolder.revision, { label: 'Changed kind', kind: 'text' });
+  const changedKindId = withText.propertyIds.at(-1)!;
+  const kindBefore = f.objects.createObject({ typeId: PAGE_TYPE_ID, title: 'Changed kind before', properties: { [changedKindId]: 'Unrepresentable text' }, body: 'changed kind source' });
+  const kindCurrent = f.objects.updateObject(kindBefore.id, kindBefore.revision, { ...kindBefore, properties: {} });
+  f.objects.db.query('UPDATE object_properties SET kind = ? WHERE id = ?').run('number', changedKindId);
+  const kindHistory = await f.get(`/objects/${kindBefore.id}/history?revision=${kindBefore.revision}`);
+  assert.equal(kindHistory.status, 200);
+  const kindMarkup = await kindHistory.text();
+  assert.ok(kindMarkup.includes('Unrepresentable text'));
+  assert.ok(kindMarkup.includes('changed kind source'));
+  assert.ok(kindMarkup.includes('will not open a lossy restore draft'));
+  const kindDraft = await f.post(`/objects/${kindBefore.id}/history/draft`, { revision: String(kindBefore.revision), currentRevision: String(kindCurrent.revision) });
+  assert.equal(kindDraft.status, 422);
+  assert.deepEqual(f.objects.getObject(kindBefore.id), kindCurrent);
+
+  const selectHolder = f.objects.createType('Removed option holder');
+  const withSelect = f.objects.addProperty(selectHolder.id, selectHolder.revision, { label: 'Removed option', kind: 'select', options: ['Keep', 'Remove'] });
+  const selectPropertyId = withSelect.propertyIds.at(-1)!;
+  const removedOption = f.objects.getProperty(selectPropertyId).options!.find(option => option.label === 'Remove')!;
+  const keepOption = f.objects.getProperty(selectPropertyId).options!.find(option => option.label === 'Keep')!;
+  const selectBefore = f.objects.createObject({ typeId: PAGE_TYPE_ID, title: 'Removed option before', properties: { [selectPropertyId]: removedOption.id }, body: 'removed option source' });
+  const selectCurrent = f.objects.updateObject(selectBefore.id, selectBefore.revision, { ...selectBefore, properties: {} });
+  f.objects.db.query('UPDATE object_properties SET options_json = ? WHERE id = ?').run(JSON.stringify([keepOption]), selectPropertyId);
+  const selectHistory = await f.get(`/objects/${selectBefore.id}/history?revision=${selectBefore.revision}`);
+  assert.equal(selectHistory.status, 200);
+  const selectMarkup = await selectHistory.text();
+  assert.ok(selectMarkup.includes(removedOption.id));
+  assert.ok(selectMarkup.includes('removed option source'));
+  assert.ok(selectMarkup.includes('will not open a lossy restore draft'));
+  const selectDraft = await f.post(`/objects/${selectBefore.id}/history/draft`, { revision: String(selectBefore.revision), currentRevision: String(selectCurrent.revision) });
+  assert.equal(selectDraft.status, 422);
+  assert.deepEqual(f.objects.getObject(selectBefore.id), selectCurrent);
 });
 
 test('history HTTP boundaries reject unsupported query and forged draft context', async t => {
@@ -1246,14 +1280,22 @@ test('historical extra reference selections survive draft open, type switch and 
   const people = f.objects.createType('History reference person');
   const ada = f.objects.createObject({ typeId: people.id, title: 'Ada Selected', properties: {}, body: '' });
   const grace = f.objects.createObject({ typeId: people.id, title: 'Grace Modified', properties: {}, body: '' });
+  for (let index = 0; index < 205; index++) {
+    f.objects.createObject({ typeId: people.id, title: `Newer candidate ${index}`, properties: {}, body: '' });
+  }
   const holder = f.objects.createType('History reference holder');
   const withRef = f.objects.addProperty(holder.id, holder.revision, { label: 'Past person', kind: 'reference', targetTypeId: people.id });
   const withNumber = f.objects.addProperty(holder.id, withRef.revision, { label: 'Past score', kind: 'number' });
   const referenceId = withRef.propertyIds[0]!;
   const numberId = withNumber.propertyIds[1]!;
-  const before = f.objects.createObject({ typeId: PAGE_TYPE_ID, title: 'Reference before', properties: { [referenceId]: ada.id, [numberId]: 1 }, body: '' });
+  const before = f.objects.createObject({ typeId: PAGE_TYPE_ID, title: 'Reference before', properties: { [referenceId]: ada.id.toUpperCase(), [numberId]: 1 }, body: '' });
   const current = f.objects.updateObject(before.id, before.revision, { ...before, properties: {} });
   f.objects.setTrashed(ada.id, ada.revision, true);
+
+  const history = await f.get(`/objects/${before.id}/history?revision=${before.revision}`);
+  assert.equal(history.status, 200);
+  const historyMarkup = await history.text();
+  assert.ok(historyMarkup.includes('Ada Selected'));
 
   const draft = await f.post(`/objects/${before.id}/history/draft`, { revision: String(before.revision), currentRevision: String(current.revision) });
   assert.equal(draft.status, 200);
