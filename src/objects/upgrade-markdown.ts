@@ -141,10 +141,25 @@ function inline(nodes: LegacyNode[]): string {
   }
   return result + inlineMarks(nodes.slice(start));
 }
-function inlineMarks(nodes: LegacyNode[], level = 0): string {
+// Different emphasis runs can put punctuation beside letters or merge adjacent
+// asterisk delimiters. Entities make text boundaries punctuation to the Markdown
+// parser without changing their rendered characters; distinct delimiters keep
+// nested strong/em runs from consuming each other's opening/closing markers.
+function emphasisText(value: string): string {
+  const first = String.fromCodePoint(value.codePointAt(0)!);
+  const last = value.match(/.$/su)![0];
+  const entity = (character: string) => `&#${character.codePointAt(0)!};`;
+  if (first.length === value.length) return entity(first);
+  return entity(first) + text(value.slice(first.length, -last.length)) + entity(last);
+}
+function mixedEmphasis(nodes: LegacyNode[]): boolean {
+  const signatures = nodes.map(node => ['strong', 'em'].filter(type => node.marks.some(mark => mark.type === type)).join(','));
+  return signatures.some(Boolean) && new Set(signatures).size > 1;
+}
+function inlineMarks(nodes: LegacyNode[], level = 0, mixed = mixedEmphasis(nodes)): string {
   const order = ['link', 'strong', 'em', 'code'];
   if (level === order.length) return nodes.map(node => {
-    if (node.type === 'text') return text(node.text!);
+    if (node.type === 'text') return mixed ? emphasisText(node.text!) : text(node.text!);
     if (node.type === 'object_link') return `[${text(String(node.attrs.label ?? 'Linked object'))}](/objects/${String(node.attrs.objectId).toLowerCase()})`;
     if (node.type === 'image') return `![${text(String(node.attrs.alt ?? ''))}](${destination(String(node.attrs.src))}${title(node.attrs.title)})`;
     return fail(`unexpected inline node ${node.type}`);
@@ -164,11 +179,12 @@ function inlineMarks(nodes: LegacyNode[], level = 0): string {
       if (group.some(node => node.type !== 'text')) fail('code mark on a non-text node');
       result += code(group.map(node => node.text!).join(''));
     } else {
-      const content = inlineMarks(group, level + 1);
+      const content = inlineMarks(group, level + 1, mixed);
       if (!mark) result += content;
       else if (mark.type === 'link') result += `[${content}](${destination(String(mark.attrs.href))}${title(mark.attrs.title)})`;
       else {
-        const delimiter = mark.type === 'strong' ? '**' : '*';
+        const emphasisDelimiter = mixed ? '_' : '*';
+        const delimiter = mark.type === 'strong' ? '**' : emphasisDelimiter;
         result += `${delimiter}${content}${delimiter}`;
       }
     }

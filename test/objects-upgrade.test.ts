@@ -118,6 +118,84 @@ test('version-1 upgrade preserves writing formats, UUID links, revisions and unr
   assert.deepEqual(new ObjectRuntime(db).getObject(sourceId), converted);
 });
 
+test('emphasis survives punctuation, whitespace and changing marks in live and historical writing', t => {
+  const db = fixture(t);
+  const strong = [{ type: 'strong' }];
+  const em = [{ type: 'em' }];
+  const both = [...strong, ...em];
+  const cases = [
+    { nodes: [literal('a'), literal('!', strong), literal('b')], html: 'a<strong>!</strong>b' },
+    { nodes: [literal('a'), literal('!', em), literal('b')], html: 'a<em>!</em>b' },
+    { nodes: [literal('a'), literal('—“”', strong), literal('b')], html: 'a<strong>—“”</strong>b' },
+    { nodes: [literal('a'), literal('！？', em), literal('b')], html: 'a<em>！？</em>b' },
+    { nodes: [literal('é'), literal('🚀', both), literal('文')], html: 'é<strong><em>🚀</em></strong>文' },
+    { nodes: [literal('a'), literal(' padded ', both), literal('b')], html: 'a<strong><em> padded </em></strong>b' },
+    { nodes: [literal('a', strong), literal('!', em), literal('b', strong)], html: '<strong>a</strong><em>!</em><strong>b</strong>' },
+    { nodes: [literal('a', strong), literal('!', both), literal('b', strong)], html: '<strong>a<em>!</em>b</strong>' },
+    { nodes: [literal('a', both), literal('!', em), literal('b', both)], html: '<strong><em>a</em></strong><em>!</em><strong><em>b</em></strong>' },
+    { nodes: [literal(' ', strong), literal('\t', em)], html: '<strong> </strong><em>\t</em>' },
+  ];
+  // Exercise every three-run transition, including marks that start/end inside
+  // another mark and punctuation on either side of an otherwise plain run.
+  for (const first of [[], strong, em, both]) {
+    for (const middle of [[], strong, em, both]) {
+      for (const last of [[], strong, em, both]) {
+        const marks = [first, middle, last];
+        const characters = ['a', '!', 'b'];
+        const nodes = characters.map((value, index) => literal(value, marks[index]));
+        // Adjacent equal marks may share elements, so compare per-character
+        // formatting below rather than requiring particular element boundaries.
+        cases.push({ nodes, html: '' });
+      }
+    }
+  }
+  insert(db, targetId, document(paragraph()));
+  const writing = document(...cases.map(value => paragraph(...value.nodes)), paragraph({ type: 'object_link', attrs: { objectId: targetId, label: 'Target' } }));
+  const current = insert(db, sourceId, writing, 2, { [propertyId]: targetId });
+  db.query('INSERT INTO object_references VALUES (?, ?, ?, ?)').run(sourceId, targetId, propertyId, '');
+  const original = { ...current, revision: 1, title: 'Created emphasis' };
+  db.query('INSERT INTO object_revisions VALUES (?, 1, ?, ?)').run(sourceId, JSON.stringify(original), timestamp);
+  db.query('INSERT INTO object_create_requests VALUES (?, ?, ?)').run(requestId, 'legacy-digest', sourceId);
+  const runtime = new ObjectRuntime(db);
+  const converted = runtime.getObject(sourceId);
+  const history = JSON.parse(db.query<{ snapshot_json: string }, []>('SELECT snapshot_json FROM object_revisions').get()!.snapshot_json);
+  for (const body of [converted.body, history.body]) {
+    const html = Bun.markdown.html(body, { noHtmlBlocks: true, noHtmlSpans: true });
+    for (const value of cases.filter(value => value.html)) {
+      assert.ok(html.includes(`<p>${value.html}</p>`), `${value.html} missing from ${html}`);
+    }
+    const actual: { text: string; strong: boolean; em: boolean }[] = [];
+    let strongDepth = 0;
+    let emDepth = 0;
+    new HTMLRewriter()
+      .on('strong', { element(element) {
+        strongDepth++;
+        element.onEndTag(() => { strongDepth--; });
+      } })
+      .on('em', { element(element) {
+        emDepth++;
+        element.onEndTag(() => { emDepth--; });
+      } })
+      .on('p', { text(chunk) {
+        for (const character of chunk.text) actual.push({ text: character, strong: strongDepth > 0, em: emDepth > 0 });
+      } })
+      .transform(html);
+    const expected = cases.flatMap(value => value.nodes.flatMap(node => Array.from(node.text, character => ({
+      text: character,
+      strong: Boolean(node.marks?.some(mark => (mark as { type: string }).type === 'strong')),
+      em: Boolean(node.marks?.some(mark => (mark as { type: string }).type === 'em')),
+    }))));
+    expected.push(...Array.from('Target', text => ({ text, strong: false, em: false })));
+    assert.deepEqual(actual, expected);
+  }
+  const { document: _currentDocument, ...metadata } = current;
+  const { document: _originalDocument, ...originalMetadata } = original;
+  assert.deepEqual(converted, { ...metadata, body: converted.body });
+  assert.deepEqual(history, { ...originalMetadata, body: converted.body });
+  assert.deepEqual(runtime.backlinks(targetId).map(link => link.propertyId ?? 'writing').sort(), [propertyId, 'writing'].sort());
+  assert.deepEqual(runtime.createObject({ ...originalMetadata, body: history.body }, requestId), converted);
+});
+
 test('blank paragraphs preserve source boundaries without merging nested items or independent lists', t => {
   const db = fixture(t);
   insert(db, targetId, document(paragraph()), 1, {}, 'Person');
@@ -251,6 +329,25 @@ test('an unknown historical node rolls back every schema and content change', t 
   assert.throws(() => new ObjectRuntime(db), /unknown node unknown_widget/);
   assert.deepEqual(tables.map(table => db.query(`SELECT * FROM ${table}`).all()), before);
   assert.deepEqual(db.query('SELECT type, name, sql FROM sqlite_master ORDER BY type, name').all(), schema);
+});
+
+test('oversized emphasis conversion rolls back current or historical data, schema and receipts', t => {
+  const oversized = document(paragraph(literal('x'.repeat(262_130)), literal('!!!', [{ type: 'strong' }]), literal('b')));
+  const valid = document(paragraph(literal('a'), literal('!', [{ type: 'strong' }]), literal('b')));
+  for (const historical of [false, true]) {
+    const db = fixture(t);
+    const current = insert(db, sourceId, historical ? valid : oversized, 2);
+    const original = { ...current, revision: 1, document: historical ? oversized : valid };
+    db.query('INSERT INTO object_revisions VALUES (?, 1, ?, ?)').run(sourceId, JSON.stringify(original), timestamp);
+    db.query('INSERT INTO object_create_requests VALUES (?, ?, ?)').run(requestId, 'original-receipt', sourceId);
+    const tables = ['objects', 'object_revisions', 'object_create_requests', 'object_metadata', 'object_references', 'visitor_state', 'saved_views'];
+    // Fresh statements avoid Bun's cached SELECT * column names after rolled-back DDL.
+    const before = tables.map(table => db.prepare(`SELECT * FROM ${table}`).all());
+    const schema = db.query('SELECT type, name, sql FROM sqlite_master ORDER BY type, name').all();
+    assert.throws(() => new ObjectRuntime(db), /no larger than 256 KiB/);
+    assert.deepEqual(tables.map(table => db.prepare(`SELECT * FROM ${table}`).all()), before);
+    assert.deepEqual(db.query('SELECT type, name, sql FROM sqlite_master ORDER BY type, name').all(), schema);
+  }
 });
 
 test('unknown marks, malformed lists, missing creation history and oversized conversions cannot be partially upgraded', t => {
