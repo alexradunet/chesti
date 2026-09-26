@@ -336,6 +336,11 @@ test('lookup searches the entire live collection by title and writing with liter
   const empty = await (await f.get(`/objects/lookup?q=&typeId=${type.id}`)).json() as ObjectLookupResult;
   assert.equal(empty.items.length, 1);
   assert.equal(empty.items[0]!.id, older.id);
+  for (let index = 0; index < 55; index++) f.objects.createObject({ typeId: type.id, title: `Archive typed overflow ${index}`, body: '', properties: {} });
+  const typedOverflow = await (await f.get(`/objects/lookup?q=Archive&typeId=${type.id}`)).json() as ObjectLookupResult;
+  assert.equal(typedOverflow.items.length, 50);
+  assert.equal(typedOverflow.truncated, true);
+  assert.ok(typedOverflow.items.every(item => item.typeName === type.name));
 });
 
 test('lookup returns at most fifty results and rejects unsupported, repeated, or oversized queries as uncached JSON', async t => {
@@ -357,12 +362,17 @@ test('lookup returns at most fifty results and rejects unsupported, repeated, or
   const boundary = await f.get(`/objects/lookup?q=${'x'.repeat(200)}`);
   assert.equal(boundary.status, 200);
   assert.deepEqual(await boundary.json(), { items: [], truncated: false });
-  for (const query of [`q=${'x'.repeat(201)}`, 'q=a&q=b', 'typeId=not-a-uuid', `typeId=${randomUUID()}`, `typeId=${PAGE_TYPE_ID}&typeId=${TASK_TYPE_ID}`, 'limit=100', 'trash=1', 'conversation=not-an-id']) {
+  const invalidQueries = [`q=${'x'.repeat(201)}`, 'q=a&q=b', 'typeId=not-a-uuid', 'typeId=', `typeId=${PAGE_TYPE_ID}&typeId=${TASK_TYPE_ID}`, 'limit=100', 'trash=1', 'conversation=not-an-id'];
+  for (const query of invalidQueries) {
     const response = await f.get(`/objects/lookup?${query}`);
-    assert.equal(response.status === 404 || response.status === 422, true);
+    assert.equal(response.status, 422, query);
     assert.equal(response.headers.get('cache-control'), 'no-store');
     assert.equal(typeof (await response.json() as { error: string }).error, 'string');
   }
+  const unknownType = await f.get(`/objects/lookup?typeId=${randomUUID()}`);
+  assert.equal(unknownType.status, 404);
+  assert.equal(unknownType.headers.get('cache-control'), 'no-store');
+  assert.equal(typeof (await unknownType.json() as { error: string }).error, 'string');
 });
 
 test('explicit review still conflicts with subsequent writes and preserves the reconciled draft until saved', async t => {
@@ -994,6 +1004,40 @@ test('reference pickers bound each target type across new, edit, rejected and ty
   assert.equal(f.objects.getObject(record.id).revision, selected.revision);
   const invalidCreate = await f.post('/objects/create', { typeId: sourceType.id, title: 'Invalid new link', body: '', requestId: randomUUID(), [`p:${single}`]: target.id });
   assert.equal(invalidCreate.status, 422);
+});
+
+test('submitted out-of-window reference drafts keep known labels on rejection and type switch', async t => {
+  const f = await setup(t, async () => { throw new Error('Not used'); });
+  const targetType = f.objects.createType('Label targets');
+  let sourceType = f.objects.createType('Label source');
+  sourceType = f.objects.addProperty(sourceType.id, sourceType.revision, { label: 'Linked', kind: 'reference', targetTypeId: targetType.id });
+  sourceType = f.objects.addProperty(sourceType.id, sourceType.revision, { label: 'Count', kind: 'number' });
+  const [referenceId, numberId] = sourceType.propertyIds as [string, string];
+  const oldTarget = f.objects.createObject({ typeId: targetType.id, title: 'OLD TARGET LABEL', body: '', properties: {} });
+  f.objects.db.query('UPDATE objects SET updated_at = ? WHERE id = ?').run('2000-01-01T00:00:00Z', oldTarget.id);
+  for (let index = 0; index < 205; index++) f.objects.createObject({ typeId: targetType.id, title: `New label target ${index}`, body: '', properties: {} });
+  assert.ok(!f.objects.listObjects({ typeId: targetType.id, limit: 200 }).some(record => record.id === oldTarget.id));
+  const saved = f.objects.createObject({ typeId: PAGE_TYPE_ID, title: 'Saved source', body: 'Saved body', properties: {} });
+  const requestId = randomUUID();
+  const draft = { typeId: sourceType.id, title: 'Draft title', body: 'Unsaved body', [`p:${referenceId}`]: oldTarget.id };
+
+  const assertRetained = async (response: Response, expectedStatus: number, expected: Record<string, string>) => {
+    assert.equal(response.status, expectedStatus);
+    const markup = await response.text();
+    const fields = nativeObjectFields(markup);
+    for (const [name, value] of Object.entries(expected)) assert.equal(fields[name], value, name);
+    const selected = referenceOptions(markup, referenceId).filter(option => option.selected);
+    assert.deepEqual(selected.map(option => option.id), [oldTarget.id]);
+    assert.equal(selected[0]!.label, 'OLD TARGET LABEL · Label targets');
+  };
+
+  await assertRetained(await f.post('/objects/create', { requestId, ...draft, [`p:${numberId}`]: 'not a number' }), 422, { title: draft.title, body: draft.body, requestId });
+  await assertRetained(await f.post('/objects/create', { requestId, ...draft, intent: 'change-type' }), 200, { title: draft.title, body: draft.body, requestId });
+  assert.equal(f.objects.listObjects({ typeId: sourceType.id }).length, 0);
+
+  await assertRetained(await f.post(`/objects/${saved.id}/update`, { revision: String(saved.revision), ...draft, [`p:${numberId}`]: 'not a number' }), 422, { title: draft.title, body: draft.body, revision: String(saved.revision) });
+  await assertRetained(await f.post(`/objects/${saved.id}/update`, { revision: String(saved.revision), ...draft, intent: 'change-type' }), 200, { title: draft.title, body: draft.body, revision: String(saved.revision) });
+  assert.deepEqual(f.objects.getObject(saved.id), saved);
 });
 
 test('maximum Unicode prompts fit the generation envelope with either context field', async t => {

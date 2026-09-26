@@ -223,11 +223,11 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
         if (lookupRoute) {
           requireFields(url.searchParams, ['q', 'typeId']);
           const search = url.searchParams.get('q') ?? '';
-          const typeId = url.searchParams.get('typeId') ?? undefined;
+          const typeId = url.searchParams.get('typeId');
           if (search.length > 200) throw new AppError(422, 'Search must be at most 200 characters.');
-          if (typeId && !Value.Check(IdSchema, typeId)) throw new AppError(422, 'Invalid type filter.');
-          if (typeId) objects.getType(typeId);
-          const rows = objects.listObjects({ search, typeId, limit: 51 });
+          if (typeId !== null && !Value.Check(IdSchema, typeId)) throw new AppError(422, 'Invalid type filter.');
+          if (typeId !== null) objects.getType(typeId);
+          const rows = objects.listObjects({ search, typeId: typeId ?? undefined, limit: 51 });
           const result: ObjectLookupResult = {
             items: rows.slice(0, 50).map(record => ({ id: record.id, title: record.title, typeName: objects.getType(record.typeId).name })),
             truncated: rows.length > 50,
@@ -367,9 +367,10 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
         return go(type ? `/types/${type.id}?saved=1` : '/types?saved=1');
       }
       if (url.pathname === '/objects/create') {
-        model.screen = 'new-object'; model.objects = pickerObjects();
+        model.screen = 'new-object';
         model.objectDraft = { title: fields.get('title') ?? '', body: fields.get('body') ?? '', requestId: fields.get('requestId') ?? '', typeId: fields.get('typeId') ?? PAGE_TYPE_ID, fields: draftFields(fields) };
         model.objectType = objects.getType(model.objectDraft.typeId!);
+        model.objects = pickerObjects();
         requireFields(fields, ['csrf', 'requestId', 'typeId', 'title', 'body', 'intent'], true);
         if (fields.get('intent') === 'change-type') {
           model.journalDate = localDate();
@@ -396,9 +397,10 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
       }
       const objectMatch = /^\/objects\/([a-f0-9-]{36})\/(update|trash|restore)$/.exec(url.pathname);
       if (objectMatch) {
-        model.screen = 'object'; model.object = objects.getObject(objectMatch[1]!); model.objectType = objects.getType(model.object.typeId); model.objects = pickerObjects();
+        model.screen = 'object'; model.object = objects.getObject(objectMatch[1]!); model.objectType = objects.getType(model.object.typeId);
         if (objectMatch[2] === 'update') {
           model.objectDraft = { title: fields.get('title') ?? '', body: fields.get('body') ?? model.object.body, revision: fields.get('reviewedRevision') ?? fields.get('revision') ?? '', typeId: fields.get('typeId') ?? model.object.typeId, fields: draftFields(fields), historyRevision: fields.has('historyRevision') ? fields.get('historyRevision') ?? '' : undefined };
+          model.objects = pickerObjects();
           requireFields(fields, ['csrf', 'revision', 'reviewedRevision', 'typeId', 'title', 'body', 'intent', 'historyRevision'], true);
           if (model.objectDraft.historyRevision !== undefined) {
             const snapshot = objects.getObjectRevision(model.object.id, positiveInteger(model.objectDraft.historyRevision, 'Choose a historical revision.'));
@@ -417,6 +419,7 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
           objects.updateObject(objectMatch[1]!, expectedRevision, write);
           return go(`/objects/${objectMatch[1]}?saved=1`);
         }
+        model.objects = pickerObjects();
         requireFields(fields, ['csrf', 'revision']);
         objects.setTrashed(objectMatch[1]!, revision(fields), objectMatch[2] === 'trash');
         return go(objectMatch[2] === 'trash' ? '/?trash=1' : `/objects/${objectMatch[1]}?saved=1`);

@@ -597,7 +597,21 @@ function View({ model }: { model: ObjectPageModel }) {
   const input = view.spec.input;
   return <><a class="back-link" href="/views">All views</a><PageHeading title={view.spec.title} description={view.spec.description}><Badge tone={view.status === 'draft' ? 'warning' : 'success'}>{view.status === 'draft' ? 'Draft preview' : 'Published'}</Badge></PageHeading>
     <div class="view-actions">{view.status === 'draft' && <form method="post" action={`/views/${view.id}/publish`} data-enhance=""><Token model={model} /><Hidden name="revision" value={view.revision} /><Button type="submit" variant="primary">Publish view</Button><State /></form>}<ButtonLink href={`/views/${view.id}?ai=1`} data-ai-context="" data-previous-id={view.id} data-context-title={view.spec.title}><Icon name="ai" />Refine with AI</ButtonLink><Button class="js-only" type="button" data-pin-view="" data-view-id={view.id} aria-pressed="false">Pin view</Button><form method="post" action={`/views/${view.id}/delete`} data-enhance=""><Token model={model} /><Hidden name="revision" value={view.revision} /><Button type="submit" variant="danger">Delete view</Button><State /></form><p class="muted">Deleting a view does not delete its objects.</p></div>
-    {input && <form class="filter-bar" method="get" action={`/views/${view.id}`}><div class="reference-control"><label for="view-input-object">{input.label}</label><select id="view-input-object" name="input" required><option value="">Choose an object</option>{model.objects.filter(record => record.typeId === input.typeId && !record.trashed).map(record => <option value={record.id} selected={record.id === evaluated.input?.id}>{titleOf(record)}</option>)}</select><Button class="js-only reference-search-button" type="button" data-reference-search="" data-reference-target="view-input-object" data-reference-type={input.typeId} aria-label={`Find object for ${input.label}`}>Find object</Button></div><Button type="submit">Show view</Button></form>}
+    {input &&
+      <form class="filter-bar" method="get" action={`/views/${view.id}`}>
+        <div class="reference-control">
+          <label for="view-input-object">{input.label}</label>
+          <select id="view-input-object" name="input" required>
+            <option value="">Choose an object</option>
+            {model.objects
+              .filter(record => record.typeId === input.typeId && !record.trashed)
+              .map(record => <option value={record.id} selected={record.id === evaluated.input?.id}>{titleOf(record)}</option>)}
+          </select>
+          <Button class="js-only reference-search-button" type="button" data-reference-search="" data-reference-target="view-input-object" data-reference-type={input.typeId} aria-label={`Find object for ${input.label}`}>Find object</Button>
+        </div>
+        <Button type="submit">Show view</Button>
+      </form>}
+
     {input && !evaluated.input ? <p class="empty">Choose a {typeName(model, input.typeId)} above to show this view.</p> : evaluated.blocks.map((block, index) => <section class="view-block"><h2>{block.definition.title}</h2><ViewBlockContent model={model} block={block} blockIndex={index} view={view} />{block.truncated && <p class="muted">This section reached its result limit. Narrow the view by refining your prompt.</p>}</section>)}
     <p class="fine">Source: {view.model}. Draft actions are read-only; object links always open the object editor.</p>
   </>;
