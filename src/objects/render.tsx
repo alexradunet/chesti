@@ -347,11 +347,11 @@ function ObjectEditor({ model }: { model: ObjectPageModel }) {
     <form id="object-editor" class="object-editor" method="post" action={record ? `/objects/${record.id}/update` : '/objects/create'} data-enhance="" data-object-editor="" data-new-object={!record ? 'true' : undefined} data-local-date-default={!record && !draft && model.journalDateDefault ? 'true' : undefined} data-draft={draft ? 'true' : undefined}><Token model={model} />{record ? <Hidden name="revision" value={draft?.revision ?? record.revision} /> : <Hidden name="requestId" value={draft?.requestId ?? crypto.randomUUID()} />}
       <label class="title-field"><span class="sr-only">Title</span><input name="title" value={draft?.title ?? record?.title ?? (type.id === JOURNAL_TYPE_ID ? journalDate ?? '' : '')} data-journal-title-default={!record && !draft && type.id === JOURNAL_TYPE_ID ? 'true' : undefined} required maxlength={500} autocomplete="off" placeholder="Untitled" /></label>
       <section class="properties" aria-labelledby="object-properties-heading">
-        <header class="properties-heading"><h2 id="object-properties-heading">Properties <Badge data-property-count="" hidden={!propertyCount}>{propertyCount}</Badge></h2><span class="fine" data-object-type-label="">{type.name}</span></header>
+        <header class={record ? 'properties-heading' : 'properties-heading sr-only'}><h2 id="object-properties-heading">Properties <Badge data-property-count="" hidden={!propertyCount}>{propertyCount}</Badge></h2><span class="fine" data-object-type-label="">{type.name}</span></header>
         <div class="object-type-picker">
           <label>Object type<select name="typeId" data-new-type="">{model.catalog.types.map(item => <option value={item.id} selected={item.id === type.id}>{item.name}</option>)}</select></label>
           {!record && <a href="/types#create-type">Create a new type</a>}
-          <p class="fine">{record ? 'Changing type keeps existing values.' : 'Choose a type, then add its details.'}<span class="native-only"> Choose Use type below to load its fields without saving or losing your writing.</span></p>
+          <p class={record ? 'fine' : 'fine native-only'}>{record && 'Changing type keeps existing values.'}<span class="native-only"> Choose Use type below to load its fields without saving or losing your writing.</span></p>
         </div>
         <p class="fine" data-properties-empty="" hidden={propertyCount > 0}>No additional properties. <a href={`/types/${type.id}`} data-type-setup="">Manage type</a></p>
         <BuiltinRules model={model} typeId={type.id} />

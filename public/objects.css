@@ -309,6 +309,63 @@
 .object-shell .backlinks { border-top: 1px solid var(--border-subtle); padding-top: var(--space-6); }
 .object-shell .trash-form { margin-top: var(--space-8); }
 
+/* New objects keep metadata compact so writing starts near the title. */
+.object-shell main:has([data-new-object]) { padding-top: var(--space-5); }
+.object-shell main:has([data-new-object]) > .back-link { margin-bottom: var(--space-3); }
+.object-shell [data-new-object] .title-field input {
+  padding: var(--space-2) 0 !important;
+  background: transparent;
+}
+.object-shell [data-new-object] .title-field input:not(:focus) { border-color: transparent; }
+.object-shell [data-new-object] .properties {
+  margin: var(--space-3) 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.object-shell [data-new-object] .object-type-picker {
+  align-items: center;
+  margin: 0 0 var(--space-2);
+}
+.object-shell [data-new-object] .object-type-picker label {
+  flex: 1 1 240px;
+  flex-direction: row;
+  align-items: center;
+}
+.object-shell [data-new-object] .object-type-picker select { flex: 1; min-width: 0; }
+.object-shell [data-new-object] .object-type-picker > a { padding: 0; }
+.object-shell [data-new-object] .property-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
+  gap: 0 var(--space-5);
+  align-items: start;
+}
+.object-shell [data-new-object] .object-property:has(.range-field) { grid-column: auto; }
+.object-shell [data-new-object] .object-property {
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.object-shell [data-new-object] .object-property > label:not(.check) {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+  align-items: center;
+  gap: var(--space-1) var(--space-3);
+}
+.object-shell [data-new-object] .object-property > label > small { grid-column: 2; }
+.object-shell [data-new-object] .range-field { border: 0; padding: 0; }
+.object-shell [data-new-object] .range-field legend { padding: 0; }
+.object-shell [data-new-object] .range-field small { margin-top: var(--space-1); }
+.object-shell [data-new-object] .range-inputs { gap: var(--space-2); }
+.object-shell [data-new-object] .range-inputs label { flex-basis: 100px; gap: var(--space-1); }
+.object-shell [data-new-object] .builtin-rules > p { margin: var(--space-2) 0; padding: var(--space-2) var(--space-3); }
+.object-shell [data-new-object] .writing { margin-top: var(--space-4); }
+.object-shell [data-new-object] .writing-toolbar { flex-wrap: nowrap; overflow-x: auto; padding: var(--space-1); }
+.object-shell [data-new-object] .writing-toolbar :is(button, select) {
+  min-height: var(--space-8);
+  padding: var(--space-1) var(--space-2);
+}
+.object-shell [data-new-object] .writing-toolbar > * { flex-shrink: 0; }
+.object-shell [data-new-object] .writing-toolbar button { white-space: nowrap; }
+
 /* Search uses a native modal dialog, including its focus and Escape semantics. */
 .object-shell .object-search { width: min(640px, calc(100% - var(--space-8))); max-height: calc(100dvh - var(--space-8)); padding: var(--space-6); color: var(--text-primary); background: var(--surface-canvas); border: 1px solid var(--border-subtle); border-radius: var(--radius-xl); box-shadow: var(--shadow-overlay); overscroll-behavior: contain; }
 .object-shell .object-search::backdrop { background: var(--overlay-scrim); backdrop-filter: blur(3px); }
