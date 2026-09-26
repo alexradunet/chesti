@@ -64,6 +64,7 @@ export interface ObjectRecord {
   trashed: boolean;
 }
 export interface Catalog { types: ObjectType[]; properties: PropertyDefinition[] }
+export interface NewPropertyDraft { label: string; kind: string; options: string; targetTypeId: string; multiple: boolean; revision: string }
 export interface ObjectWrite {
   typeId: string;
   title: string;
@@ -157,6 +158,7 @@ export interface ObjectPageModel {
   journal?: ObjectRecord;
   basedOnTypeId?: string;
   typeDraft?: { name: string; basedOnTypeId?: string };
+  newPropertyDraft?: NewPropertyDraft;
   evaluatedView?: EvaluatedView;
   backlinks?: Backlink[];
   search?: string;
