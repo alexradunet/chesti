@@ -1,0 +1,41 @@
+{
+  "id": "a442a41b-6db9-4f11-91d6-d9176dee4d06",
+  "ok": true,
+  "result": {
+    "runId": "run_47533ecf4333",
+    "deliveryId": "delivery_af370967da06",
+    "messages": [
+      {
+        "id": "msg_33ff1b2e737f",
+        "run_id": "run_47533ecf4333",
+        "delivery_contract": "current_delivery",
+        "from_handle": "term_f9328897-5f63-4ee1-bebe-bcb052a27370",
+        "to_handle": "run:run_47533ecf4333",
+        "subject": "native acceptance root starting",
+        "body": "Model gpt-5.5; available pi tools: read,bash,edit,write,web_search,source_check,fetch_content,get_search_content,multi_tool_use.parallel. Orca CLI resolved to orca-ide. Old coordination tools pi-subagents/intercom not present in tool namespace or PATH. Loaded native Orca CLI/orchestration guides; proceeding with explicit native Run and exactly two supervised pi workers.",
+        "type": "status",
+        "priority": "normal",
+        "thread_id": null,
+        "payload": null,
+        "read": 0,
+        "sequence": 83,
+        "created_at": "2026-09-26T13:12:40Z",
+        "delivered_at": null,
+        "sender_pane_key": "96761446-d7b8-4c21-a061-153d2c4a8532:2974bd8e-4dbb-4223-be7d-f4476d083e2c"
+      }
+    ],
+    "count": 1,
+    "replayed": false,
+    "acknowledged": "delivery_799cc9843e50",
+    "timedOut": false,
+    "cancelled": false,
+    "connectionLost": false,
+    "mutation": {
+      "requestId": "8b689cab-0550-4df9-a7bc-842ab187124d",
+      "replayed": false
+    }
+  },
+  "_meta": {
+    "runtimeId": "6de3d050-4947-49ff-89e7-4c83ce42f720"
+  }
+}

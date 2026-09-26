@@ -1,0 +1,30 @@
+{
+  "id": "fb830052-50dd-45ee-8270-4fca59bd678c",
+  "ok": true,
+  "result": {
+    "task": {
+      "id": "task_e0669165e7ab",
+      "run_id": "run_47533ecf4333",
+      "parent_id": null,
+      "created_by_terminal_handle": "term_eda81010-6ce6-4a9c-9803-755eeb8617a6",
+      "created_by_pane_key": "bd6396a2-5bfc-4216-b19c-662833c94d77:f0ab7669-002f-4ba6-b908-d27d75487f48",
+      "created_by_process_incarnation": "b3370624-2ad4-49a2-9089-fd9968ef51fe::/home/alex/Work/GenUIExperiment@@1d4ad000:28f6ac93-ddff-46cf-9a2a-7ac2f202c13a",
+      "created_by_run_generation": 1,
+      "task_title": "Publish pi-orca as an explicitly experimental implementation candidate. USER...",
+      "display_name": "Publish pi-orca as an explicitly experimental implementation candidate. USER...",
+      "spec": "Publish pi-orca as an explicitly experimental implementation candidate. USER NOW AUTHORIZES continuation and push to https://github.com/alexradunet/pi-orca-subagents.git; this supersedes the earlier no-publication gate ONLY for that repo. You are sole integration/publishing writer in /home/alex/Work/pi-orca (main baseline bd73766). Candidate implement-orca-bridge at fd52e23be8fbe5dd8003f54e05e2812d3b6c27ed is clean in /home/alex/orca/workspaces/pi-orca/implement-orca-bridge. Do not modify that retained user-owned checkout. Inspect git status and exact remote first; parent ls-remote returned success with no refs. STOP if unrelated changes, nonempty conflicting remote/history, or wrong target. You may fast-forward local main to the candidate with --ff-only; no reset, force push, branch deletion, or history rewrite. Inspect ALL tracked files/history for accidentally committed credentials/private payloads before push; do not print secret values. Keep package narrow. Add a prominent short README experimental/not-yet-live-accepted warning and portable clone/install paths for the supplied GitHub URL (no claims that automatic wakeup, recovery, or old-extension replacement has passed). Preserve detailed evidence and candid live NOT RUN gates. User approval is for publishing source, NOT global install/removal or Taskdesk changes. No npm publish, GitHub release, broad visibility changes, extra dependencies, or source behavior changes. Run bun install --frozen-lockfile if needed, bun run check, bun test, git diff --check. Commit only the narrow publication docs, add origin if absent with the exact supplied HTTPS URL, and push main normally with upstream, never --force. Verify remote main hash via ls-remote. Return actual commit/remote/test evidence, modified files and remaining live gate. No nested workers; no paid trials, fixture writes, or global settings. Read version-matched Orca orchestration skill, use injected question/done lifecycle, process guidance at boundaries. Parent is independently performing live trials in a separate fixture repo; do not claim their results.",
+      "status": "ready",
+      "deps": "[]",
+      "result": null,
+      "created_at": "2026-09-26 12:24:45",
+      "completed_at": null
+    },
+    "mutation": {
+      "requestId": "e331fa1a-af10-43dd-a775-afa286da1138",
+      "replayed": false
+    }
+  },
+  "_meta": {
+    "runtimeId": "6de3d050-4947-49ff-89e7-4c83ce42f720"
+  }
+}

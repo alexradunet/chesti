@@ -1,0 +1,30 @@
+{
+  "id": "da7e6924-4b4c-41e5-ba72-b8211d97cb6c",
+  "ok": true,
+  "result": {
+    "task": {
+      "id": "task_cfd6376551ec",
+      "run_id": "run_47533ecf4333",
+      "parent_id": null,
+      "created_by_terminal_handle": "term_eda81010-6ce6-4a9c-9803-755eeb8617a6",
+      "created_by_pane_key": "bd6396a2-5bfc-4216-b19c-662833c94d77:f0ab7669-002f-4ba6-b908-d27d75487f48",
+      "created_by_process_incarnation": "b3370624-2ad4-49a2-9089-fd9968ef51fe::/home/alex/Work/GenUIExperiment@@1d4ad000:28f6ac93-ddff-46cf-9a2a-7ac2f202c13a",
+      "created_by_run_generation": 1,
+      "task_title": "Inspect isolated Pi launch options",
+      "display_name": "Inspect isolated Pi launch options",
+      "spec": "You are a READ-ONLY specialist for the approved Pi-Orca bridge workflow. Do not edit any files/configuration, spawn agents, install/remove packages, consume coordinator deliveries, or use pi-subagents/intercom. Read the version-matched Orca CLI and orchestration guides. Determine the smallest publicly supported way to launch a dedicated Pi lead and Pi workers in the disposable repo /tmp/pi-orca-smoke-WExO6Nvw (Orca repo 82d45ea7-e3a7-4510-adf0-aa98dbca44eb) with pi-subagents and pi-intercom NOT LOADED while preserving Orca hook/terminal identity. Pi CLI supports --no-extensions -e /path/bridge/src/index.ts for the lead; worker-start --model does not support Pi. Investigate supported scoped launcher/default-argument settings or documented low-level terminal create then worker-start --terminal, preserving setup policy (this fixture has no setup hook and start-immediately). Use public CLI help/guide/state only; do not inspect auth, raw environment values, Orca databases or private source. Find exact commands/settings needed; do not invent schema or globally change launcher defaults. Explain whether low-level reused terminals remain supervised and how safe cleanup works. Also inspect the public command for confirming answered question status after a Pi reload, if available, because explicit ack must not rely only on volatile memory. Return concise verified commands/capabilities/remaining blockers through injected worker_done then idle. Actual provider defaults are gpt-5.5 medium; no more model runs should be launched by you.",
+      "status": "ready",
+      "deps": "[]",
+      "result": null,
+      "created_at": "2026-09-26 11:40:09",
+      "completed_at": null
+    },
+    "mutation": {
+      "requestId": "3ab328d6-df27-4452-89e5-bda6a5048db9",
+      "replayed": false
+    }
+  },
+  "_meta": {
+    "runtimeId": "6de3d050-4947-49ff-89e7-4c83ce42f720"
+  }
+}

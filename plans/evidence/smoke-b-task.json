@@ -1,0 +1,30 @@
+{
+  "id": "3648b35b-a27f-4513-b3c2-f5ff0682461f",
+  "ok": true,
+  "result": {
+    "task": {
+      "id": "task_10c6e7a71f14",
+      "run_id": "run_47533ecf4333",
+      "parent_id": null,
+      "created_by_terminal_handle": "term_eda81010-6ce6-4a9c-9803-755eeb8617a6",
+      "created_by_pane_key": "bd6396a2-5bfc-4216-b19c-662833c94d77:f0ab7669-002f-4ba6-b908-d27d75487f48",
+      "created_by_process_incarnation": "b3370624-2ad4-49a2-9089-fd9968ef51fe::/home/alex/Work/GenUIExperiment@@1d4ad000:28f6ac93-ddff-46cf-9a2a-7ac2f202c13a",
+      "created_by_run_generation": 1,
+      "task_title": "Smoke B: write independent fixture",
+      "display_name": "Smoke B: write independent fixture",
+      "spec": "Native Orca coordination smoke test B. You are an executor in a disposable Git worktree. Do not load improve, invoke pi-subagents/intercom, spawn workers, read application data or credentials, install packages, or publish. Record git status --short and your PI_PROVIDER, PI_MODEL, PI_REASONING_LEVEL names only. Write only smoke-b.md containing heading Parallel fixture and one sentence identifying independent worktree editing. Verify file contents and that no other tracked file changed, commit just smoke-b.md with message Add smoke B fixture, then report commit/ref/cwd and checks actually run. Send worker_done once with injected IDs and explicit outcome succeeded, then idle. Keep this small. Any lifecycle command failure means STOP and report exact evidence, not a fallback.",
+      "status": "ready",
+      "deps": "[]",
+      "result": null,
+      "created_at": "2026-09-26 11:37:34",
+      "completed_at": null
+    },
+    "mutation": {
+      "requestId": "09bc391b-d239-4e4c-8111-b3c029374c2f",
+      "replayed": false
+    }
+  },
+  "_meta": {
+    "runtimeId": "6de3d050-4947-49ff-89e7-4c83ce42f720"
+  }
+}

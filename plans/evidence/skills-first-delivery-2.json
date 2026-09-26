@@ -1,0 +1,41 @@
+{
+  "id": "23ad46b7-09d6-4ef6-b78c-f04cc1b13708",
+  "ok": true,
+  "result": {
+    "runId": "run_47533ecf4333",
+    "deliveryId": "delivery_52767bb8dbce",
+    "messages": [
+      {
+        "id": "msg_1e8d677e919e",
+        "run_id": "run_47533ecf4333",
+        "delivery_contract": "current_delivery",
+        "from_handle": "term_4f3007fd-f517-441a-be83-95452bf9911c",
+        "to_handle": "run:run_47533ecf4333",
+        "subject": "fixture parent trusted",
+        "body": "Used the existing /trust UI in terminal term_2375cb5a-2ef4-4d09-b24b-9c9d21dc0abf, sent one Down, verified selection was Trust parent folder (/home/alex/orca/workspaces/pi-orca-smoke-WExO6Nvw), then pressed Enter. I found the exact resulting trust entry is /home/alex/orca/workspaces/pi-orca-smoke-WExO6Nvw: true, with no exact entries for /tmp/pi-orca-smoke-WExO6Nvw, /tmp, or /home/alex/orca/workspaces, and the fixture repo remains unchanged except the pre-existing untracked live-lead-report.md. What remains is the parent native-launch test; narrow rollback is to use /trust from that fixture scope and choose Do not trust for /home/alex/orca/workspaces/pi-orca-smoke-WExO6Nvw or remove only that exact trust entry.",
+        "type": "worker_done",
+        "priority": "normal",
+        "thread_id": null,
+        "payload": "{\"taskId\":\"task_318de586afb3\",\"dispatchId\":\"ctx_dfd16f0f61b7\",\"outcome\":\"succeeded\"}",
+        "read": 0,
+        "sequence": 81,
+        "created_at": "2026-09-26T13:10:35Z",
+        "delivered_at": null,
+        "sender_pane_key": "c4faf0a5-7e04-4f65-a5c4-3559d99882b3:04aa6561-4298-48de-88a6-b10bbfa2ea1e"
+      }
+    ],
+    "count": 1,
+    "replayed": false,
+    "acknowledged": "delivery_d97de909bb84",
+    "timedOut": false,
+    "cancelled": false,
+    "connectionLost": false,
+    "mutation": {
+      "requestId": "3144ec56-722e-4506-9585-c7a78d50812e",
+      "replayed": false
+    }
+  },
+  "_meta": {
+    "runtimeId": "6de3d050-4947-49ff-89e7-4c83ce42f720"
+  }
+}

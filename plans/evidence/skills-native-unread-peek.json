@@ -1,0 +1,11 @@
+{
+  "id": "99c74f8b-b7ad-4a40-bf3d-52e16582d264",
+  "ok": false,
+  "error": {
+    "code": "consumer_fenced",
+    "message": "This coordinator terminal is bound to run_47533ecf4333, not run_3ff08c7bb1c0."
+  },
+  "_meta": {
+    "runtimeId": "6de3d050-4947-49ff-89e7-4c83ce42f720"
+  }
+}

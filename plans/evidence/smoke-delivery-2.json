@@ -1,0 +1,41 @@
+{
+  "id": "5eace064-5d5b-4b7f-8bde-0856f64b66f4",
+  "ok": true,
+  "result": {
+    "runId": "run_47533ecf4333",
+    "deliveryId": "delivery_fb81d757eada",
+    "messages": [
+      {
+        "id": "msg_a3ec26fefc7d",
+        "run_id": "run_47533ecf4333",
+        "delivery_contract": "current_delivery",
+        "from_handle": "term_81a5dc95-5e17-4eb2-b0b1-28e3a37050f2",
+        "to_handle": "run:run_47533ecf4333",
+        "subject": "Smoke B fixture committed",
+        "body": "Created smoke-b.md in /home/alex/orca/workspaces/pi-orca-smoke-WExO6Nvw/pi-orca-smoke-b and committed it as 4902649d36c6c565c0d7ee3fe607ce505b810f8c on ref pi-orca-smoke-b. Checks run were pwd, git status --short before and after commit, PI_PROVIDER/PI_MODEL/PI_REASONING_LEVEL name print, read smoke-b.md, and git rev-parse; git status showed only smoke-b.md before commit and clean after, with PI_PROVIDER=openai-codex, PI_MODEL=gpt-5.5, PI_REASONING_LEVEL=medium. Nothing is left for this task.",
+        "type": "worker_done",
+        "priority": "normal",
+        "thread_id": null,
+        "payload": "{\"taskId\":\"task_10c6e7a71f14\",\"dispatchId\":\"ctx_09ad05a15567\",\"outcome\":\"succeeded\",\"filesModified\":[\"smoke-b.md\"]}",
+        "read": 0,
+        "sequence": 51,
+        "created_at": "2026-09-26T11:38:13Z",
+        "delivered_at": null,
+        "sender_pane_key": "41806577-6a15-4d39-91a2-5a4b8007cd67:2a120bf1-034d-4d6d-abdb-4cd2dc999efb"
+      }
+    ],
+    "count": 1,
+    "replayed": false,
+    "acknowledged": null,
+    "timedOut": false,
+    "cancelled": false,
+    "connectionLost": false,
+    "mutation": {
+      "requestId": "baff85f6-0f15-4ad3-a817-1c919568ab36",
+      "replayed": false
+    }
+  },
+  "_meta": {
+    "runtimeId": "6de3d050-4947-49ff-89e7-4c83ce42f720"
+  }
+}

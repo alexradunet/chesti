@@ -1,0 +1,30 @@
+{
+  "id": "94b3806d-e3de-4069-9655-9115329d838e",
+  "ok": true,
+  "result": {
+    "task": {
+      "id": "task_e77e26aa394d",
+      "run_id": "run_47533ecf4333",
+      "parent_id": null,
+      "created_by_terminal_handle": "term_eda81010-6ce6-4a9c-9803-755eeb8617a6",
+      "created_by_pane_key": "bd6396a2-5bfc-4216-b19c-662833c94d77:f0ab7669-002f-4ba6-b908-d27d75487f48",
+      "created_by_process_incarnation": "b3370624-2ad4-49a2-9089-fd9968ef51fe::/home/alex/Work/GenUIExperiment@@1d4ad000:28f6ac93-ddff-46cf-9a2a-7ac2f202c13a",
+      "created_by_run_generation": 1,
+      "task_title": "Smoke A: ask the lead then write fixture",
+      "display_name": "Smoke A: ask the lead then write fixture",
+      "spec": "Native Orca coordination smoke test A. You are an executor in a disposable Git worktree. Do not load improve, invoke pi-subagents/intercom, spawn workers, read application data or credentials, install packages, or publish. First record git status --short and your PI_PROVIDER, PI_MODEL, PI_REASONING_LEVEL names only. Use the injected Orca orchestration ask contract to ask your coordinator: Should the heading in smoke-a.md be Alpha or Beta? Wait for the actual answer; do not guess or ask via chat/Intercom. Write only smoke-a.md containing the answered heading and a sentence confirming you used the coordinator answer. Verify that no other tracked file changed, commit just smoke-a.md with message Add smoke A fixture, report commit/ref/cwd and ask reply evidence. Send worker_done once with the injected IDs and explicit outcome succeeded, then idle. Keep this small. Any lifecycle command failure means STOP and report exact evidence, not a fallback.",
+      "status": "ready",
+      "deps": "[]",
+      "result": null,
+      "created_at": "2026-09-26 11:37:34",
+      "completed_at": null
+    },
+    "mutation": {
+      "requestId": "d836b40d-4437-4a4c-ad26-9407ec550da5",
+      "replayed": false
+    }
+  },
+  "_meta": {
+    "runtimeId": "6de3d050-4947-49ff-89e7-4c83ce42f720"
+  }
+}

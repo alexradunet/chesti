@@ -1,0 +1,71 @@
+{
+  "id": "818fb376-9316-4d93-bcaf-ad9012a81c7f",
+  "ok": true,
+  "result": {
+    "runId": "run_47533ecf4333",
+    "taskId": "task_639b96f4000e",
+    "dispatchId": "ctx_a48dd0f7dab9",
+    "state": "ready",
+    "stage": "input_accepted",
+    "setup": {
+      "requested": "run",
+      "effective": "run",
+      "source": "explicit_request",
+      "hookFound": false,
+      "startupPolicy": "start-immediately",
+      "state": "not_configured"
+    },
+    "launch": {
+      "requested": {
+        "agent": "pi",
+        "model": null,
+        "effort": null
+      },
+      "effective": {
+        "agent": "pi",
+        "model": null,
+        "effort": null
+      }
+    },
+    "timeoutMs": 60000,
+    "effects": [
+      {
+        "kind": "worktree",
+        "action": "created_top_level",
+        "id": "86bab9b0-aa0f-477f-b7cf-017aadd9f55a::/home/alex/orca/workspaces/pi-orca/skills-first"
+      },
+      {
+        "kind": "terminal",
+        "role": "agent",
+        "action": "reused_agent_terminal",
+        "id": "term_1594f27d-aaf8-4ae4-a81a-fda95f6777c0",
+        "tabId": "f36a0802-8727-467c-9f43-fa063f7528fb",
+        "leafId": "d3c44dfe-9cb1-4642-b1a3-eee669d45c20"
+      },
+      {
+        "kind": "setup",
+        "action": "run",
+        "requested": "run",
+        "effective": "run",
+        "source": "explicit_request",
+        "hookFound": false,
+        "startupPolicy": "start-immediately",
+        "state": "not_configured"
+      },
+      {
+        "kind": "dispatch_input",
+        "role": "agent",
+        "id": "term_1594f27d-aaf8-4ae4-a81a-fda95f6777c0",
+        "state": "accepted"
+      }
+    ],
+    "residualResources": [],
+    "mutation": {
+      "requestId": "0d247cf7-8ad0-48d1-81b4-0d3b4447661e",
+      "replayed": false
+    }
+  },
+  "_meta": {
+    "runtimeId": "6de3d050-4947-49ff-89e7-4c83ce42f720"
+  }
+}

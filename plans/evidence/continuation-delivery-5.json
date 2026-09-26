@@ -1,0 +1,41 @@
+{
+  "id": "d255a892-76dd-4be3-8067-b0e2fe3cc557",
+  "ok": true,
+  "result": {
+    "runId": "run_47533ecf4333",
+    "deliveryId": "delivery_61b594968ba3",
+    "messages": [
+      {
+        "id": "msg_a92d1d5a6770",
+        "run_id": "run_47533ecf4333",
+        "delivery_contract": "current_delivery",
+        "from_handle": "term_6be78f4a-60b6-425b-8900-74e9de386328",
+        "to_handle": "run:run_47533ecf4333",
+        "subject": "Docs correction pushed",
+        "body": "I changed only docs/live-verification.md to mark the explicit worker-stop gate NOT RUN and to clarify that no retained cancelled=true receipt was captured. I verified the checkout was clean at ea5c3366ab6ba254880733e1486075be266dd679, checked the two-line diff with git diff --check, committed 8d98328fd93a7e6c9311503cede5ba8861732aa1, and pushed origin main over HTTPS with the remote ref matching that hash. Nothing is left for this docs-only correction.",
+        "type": "worker_done",
+        "priority": "normal",
+        "thread_id": null,
+        "payload": "{\"taskId\":\"task_038f8ad8c18e\",\"dispatchId\":\"ctx_4ca50325b7a5\",\"outcome\":\"succeeded\",\"filesModified\":[\"docs/live-verification.md\"]}",
+        "read": 0,
+        "sequence": 75,
+        "created_at": "2026-09-26T12:39:00Z",
+        "delivered_at": null,
+        "sender_pane_key": "0b8ee60b-22da-4d9f-92c3-8271bbc5aad0:1241d864-041b-43de-a406-94ed98c2232f"
+      }
+    ],
+    "count": 1,
+    "replayed": false,
+    "acknowledged": null,
+    "timedOut": false,
+    "cancelled": false,
+    "connectionLost": false,
+    "mutation": {
+      "requestId": "0e58a667-bbeb-43dd-b852-417b1df236e4",
+      "replayed": false
+    }
+  },
+  "_meta": {
+    "runtimeId": "6de3d050-4947-49ff-89e7-4c83ce42f720"
+  }
+}

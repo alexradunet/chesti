@@ -1,0 +1,65 @@
+{
+  "id": "5f37b1b5-874e-420c-a5e5-daafaaeffff4",
+  "ok": true,
+  "result": {
+    "runId": "run_47533ecf4333",
+    "taskId": "task_282e5bc614e5",
+    "dispatchId": "ctx_912ac69a8b08",
+    "state": "ready",
+    "stage": "input_accepted",
+    "setup": {
+      "requested": "not_applicable",
+      "effective": "not_applicable",
+      "source": "existing_worktree",
+      "hookFound": false,
+      "startupPolicy": "start-immediately",
+      "state": "not_applicable"
+    },
+    "launch": {
+      "requested": {
+        "agent": "pi",
+        "model": null,
+        "effort": null
+      },
+      "effective": {
+        "agent": "pi",
+        "model": null,
+        "effort": null
+      }
+    },
+    "timeoutMs": 60000,
+    "effects": [
+      {
+        "kind": "worktree",
+        "action": "reused",
+        "id": "86bab9b0-aa0f-477f-b7cf-017aadd9f55a::/home/alex/orca/workspaces/pi-orca/skills-first"
+      },
+      {
+        "kind": "setup",
+        "action": "not_applicable",
+        "state": "not_applicable"
+      },
+      {
+        "kind": "terminal",
+        "role": "agent",
+        "action": "created",
+        "id": "term_c8c7e273-7a4a-46ec-b5d5-6b259d051336",
+        "surface": "visible"
+      },
+      {
+        "kind": "dispatch_input",
+        "role": "agent",
+        "id": "term_c8c7e273-7a4a-46ec-b5d5-6b259d051336",
+        "state": "accepted"
+      }
+    ],
+    "residualResources": [],
+    "mutation": {
+      "requestId": "1a4e7ded-2719-4aae-86d4-4a7b4934d903",
+      "replayed": false
+    }
+  },
+  "_meta": {
+    "runtimeId": "6de3d050-4947-49ff-89e7-4c83ce42f720"
+  }
+}

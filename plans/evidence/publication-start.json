@@ -1,0 +1,65 @@
+{
+  "id": "d366631e-37ee-411e-9a4a-fb08b6d768ce",
+  "ok": true,
+  "result": {
+    "runId": "run_47533ecf4333",
+    "taskId": "task_e0669165e7ab",
+    "dispatchId": "ctx_3ae1cad8d694",
+    "state": "ready",
+    "stage": "input_accepted",
+    "setup": {
+      "requested": "not_applicable",
+      "effective": "not_applicable",
+      "source": "existing_worktree",
+      "hookFound": false,
+      "startupPolicy": "start-immediately",
+      "state": "not_applicable"
+    },
+    "launch": {
+      "requested": {
+        "agent": "pi",
+        "model": null,
+        "effort": null
+      },
+      "effective": {
+        "agent": "pi",
+        "model": null,
+        "effort": null
+      }
+    },
+    "timeoutMs": 60000,
+    "effects": [
+      {
+        "kind": "worktree",
+        "action": "reused",
+        "id": "86bab9b0-aa0f-477f-b7cf-017aadd9f55a::/home/alex/Work/pi-orca"
+      },
+      {
+        "kind": "setup",
+        "action": "not_applicable",
+        "state": "not_applicable"
+      },
+      {
+        "kind": "terminal",
+        "role": "agent",
+        "action": "created",
+        "id": "term_0db1ddbc-bd08-4d76-a4a5-98a7ce7c03b3",
+        "surface": "visible"
+      },
+      {
+        "kind": "dispatch_input",
+        "role": "agent",
+        "id": "term_0db1ddbc-bd08-4d76-a4a5-98a7ce7c03b3",
+        "state": "accepted"
+      }
+    ],
+    "residualResources": [],
+    "mutation": {
+      "requestId": "df7c8b28-8049-4e17-9c15-ca91628adaa2",
+      "replayed": false
+    }
+  },
+  "_meta": {
+    "runtimeId": "6de3d050-4947-49ff-89e7-4c83ce42f720"
+  }
+}

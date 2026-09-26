@@ -1,0 +1,22 @@
+[
+  {
+    "timestamp": "2026-09-26T13:12:08.433Z",
+    "role": "user",
+    "summary": "initial owner-approved test prompt"
+  },
+  {
+    "timestamp": "2026-09-26T13:13:13.062Z",
+    "role": "assistant",
+    "summary": "Model/tools reported; old coordination tools absent.\n\nCreated native Run `run_3ff08c7bb1c0`, tasks, and launched exactly two supervised Pi workers:\n- A: `native-skill-a`, dispatch `ctx_b5f48cb10b98`\n- B: `native-skill-b`, dispatch `ctx_80c6cd5137d2`\n\nBoth starts returned `ready`. Ending turn now to await native Orca inbox notification."
+  },
+  {
+    "timestamp": "2026-09-26T13:20:32.676Z",
+    "role": "user",
+    "summary": "manual parent continuation after idle wake not observed"
+  },
+  {
+    "timestamp": "2026-09-26T13:21:46.267Z",
+    "role": "assistant",
+    "summary": "Final status sent to outer run.\n\nRecorded and committed evidence in `native-acceptance.md`:\n- Lead commit: `fa6197d`\n- A succeeded with exact `Beta`: `a6004860`\n- B intentionally failed and remains failed: `1c4b6e7`\n- Automatic idle wake: **FAILED / not observed**\n- Worker resources accounted as settled/exited; `worker-release` returned `release_unknown/tab_not_found`, recovery followed, worktrees preserved."
+  }
+]

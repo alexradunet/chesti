@@ -1,0 +1,59 @@
+{
+  "id": "66a2e101-0492-409d-a640-50f7f8270090",
+  "ok": true,
+  "result": {
+    "runId": "run_47533ecf4333",
+    "deliveryId": "delivery_a53f5b48a9a5",
+    "messages": [
+      {
+        "id": "msg_c6ca2d565add",
+        "run_id": "run_47533ecf4333",
+        "delivery_contract": "current_delivery",
+        "from_handle": "term_e2d8160a-c9f1-4d11-8cbd-c41806bd08d9",
+        "to_handle": "run:run_47533ecf4333",
+        "subject": "live bridge checkpoint",
+        "body": "Processed run_97fa33433029 delivery_f3b67e47e63b: Task B worker_done failed as instructed after committing live-b.md (commit 6efda3a); exact intentional assertion failure was AssertionError [ERR_ASSERTION]: 1 == 2. Re-ran worker-release for ctx_55f6a9e43f0f: retained external_terminal processAction=none, mutation 66bc7a2e-dbe1-42a5-bae1-0c60c939665b. Acked delivery; updated live-lead-report.md.",
+        "type": "status",
+        "priority": "normal",
+        "thread_id": null,
+        "payload": null,
+        "read": 0,
+        "sequence": 71,
+        "created_at": "2026-09-26T12:31:14Z",
+        "delivered_at": null,
+        "sender_pane_key": "b414f207-4faa-4c31-9ef8-e390c528fb25:b95e456a-f648-4a9a-a942-d3b3ceecac8d"
+      },
+      {
+        "id": "msg_94d514ce9852",
+        "run_id": "run_47533ecf4333",
+        "delivery_contract": "current_delivery",
+        "from_handle": "term_e2d8160a-c9f1-4d11-8cbd-c41806bd08d9",
+        "to_handle": "run:run_47533ecf4333",
+        "subject": "live bridge checkpoint",
+        "body": "FINAL/PAUSED: stopping live test per owner. No retries or new workers/worktrees. Correcting classification: later deliveries were manually consumed/acked with raw orca-ide check/ack after user prompts, while orca_inbox pending reported No active Delivery; therefore bridge injection/wake/ack cleanup remains unverified and not a pass. Both starts had agent_prompt_stalled; A ask failed because active supervised Dispatch was unavailable. B final read-only state: terminal idle/running, preserved; commit 6efda3a modifies live-b.md only and reported intentional AssertionError [ERR_ASSERTION]: 1 == 2. Releases retained external terminals with processAction=none. Updated live-lead-report.md and leaving paused.",
+        "type": "status",
+        "priority": "normal",
+        "thread_id": null,
+        "payload": null,
+        "read": 0,
+        "sequence": 72,
+        "created_at": "2026-09-26T12:32:09Z",
+        "delivered_at": null,
+        "sender_pane_key": "b414f207-4faa-4c31-9ef8-e390c528fb25:b95e456a-f648-4a9a-a942-d3b3ceecac8d"
+      }
+    ],
+    "count": 2,
+    "replayed": false,
+    "acknowledged": "delivery_a20fddb28d2d",
+    "timedOut": false,
+    "cancelled": false,
+    "connectionLost": false,
+    "mutation": {
+      "requestId": "68af0a8d-b710-41ee-acc1-2adf3d69ed83",
+      "replayed": false
+    }
+  },
+  "_meta": {
+    "runtimeId": "6de3d050-4947-49ff-89e7-4c83ce42f720"
+  }
+}

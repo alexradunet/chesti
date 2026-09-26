@@ -1,0 +1,80 @@
+[
+  {
+    "timestamp": "2026-09-26T12:25:20.719Z",
+    "event": "checkpoint",
+    "paused": null,
+    "deliveryId": null,
+    "recovery": null
+  },
+  {
+    "timestamp": "2026-09-26T12:25:20.913Z",
+    "event": "checkpoint",
+    "paused": null,
+    "deliveryId": null,
+    "recovery": null
+  },
+  {
+    "timestamp": "2026-09-26T12:25:20.913Z",
+    "event": "checkpoint",
+    "paused": true,
+    "deliveryId": null,
+    "recovery": null
+  },
+  {
+    "timestamp": "2026-09-26T12:25:21.635Z",
+    "event": "checkpoint",
+    "paused": false,
+    "deliveryId": null,
+    "recovery": null
+  },
+  {
+    "timestamp": "2026-09-26T12:27:41.004Z",
+    "event": "raw_cli_run_use"
+  },
+  {
+    "timestamp": "2026-09-26T12:27:41.203Z",
+    "event": "checkpoint",
+    "paused": true,
+    "deliveryId": null,
+    "recovery": null
+  },
+  {
+    "timestamp": "2026-09-26T12:29:56.029Z",
+    "event": "native_runtime_nudge"
+  },
+  {
+    "timestamp": "2026-09-26T12:29:59.404Z",
+    "event": "orca_inbox",
+    "operation": "pending"
+  },
+  {
+    "timestamp": "2026-09-26T12:30:00.169Z",
+    "event": "checkpoint",
+    "paused": true,
+    "deliveryId": null,
+    "recovery": null
+  },
+  {
+    "timestamp": "2026-09-26T12:30:20.414Z",
+    "event": "checkpoint",
+    "paused": true,
+    "deliveryId": null,
+    "recovery": null
+  },
+  {
+    "timestamp": "2026-09-26T12:30:55.327Z",
+    "event": "native_runtime_nudge"
+  },
+  {
+    "timestamp": "2026-09-26T12:30:57.094Z",
+    "event": "orca_inbox",
+    "operation": "pending"
+  },
+  {
+    "timestamp": "2026-09-26T12:30:57.835Z",
+    "event": "checkpoint",
+    "paused": true,
+    "deliveryId": null,
+    "recovery": null
+  }
+]

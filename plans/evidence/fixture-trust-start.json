@@ -1,0 +1,26 @@
+{
+  "id": "408f5eb5-9995-4420-9049-3e7a68f4290f",
+  "ok": false,
+  "error": {
+    "code": "terminal_worktree_mismatch",
+    "message": "Terminal term_4f3007fd-f517-441a-be83-95452bf9911c does not belong to worktree b3370624-2ad4-49a2-9089-fd9968ef51fe::/home/alex/Work/GenUIExperiment. Orchestration mutation request ID: 7b7489c7-702e-412e-bb51-6c144dac88a9.",
+    "data": {
+      "orchestrationRequestId": "7b7489c7-702e-412e-bb51-6c144dac88a9",
+      "originalCommand": [
+        "orca-ide",
+        "orchestration",
+        "worker-start",
+        "--run",
+        "run_47533ecf4333",
+        "--task",
+        "task_318de586afb3",
+        "--terminal",
+        "term_4f3007fd-f517-441a-be83-95452bf9911c",
+        "--json"
+      ]
+    }
+  },
+  "_meta": {
+    "runtimeId": "6de3d050-4947-49ff-89e7-4c83ce42f720"
+  }
+}

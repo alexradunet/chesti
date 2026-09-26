@@ -1,0 +1,41 @@
+{
+  "id": "b7da99d9-b0ce-437d-851c-44608873eb2f",
+  "ok": true,
+  "result": {
+    "runId": "run_47533ecf4333",
+    "deliveryId": "delivery_f59e86e4436d",
+    "messages": [
+      {
+        "id": "msg_9b1466ddf6d3",
+        "run_id": "run_47533ecf4333",
+        "delivery_contract": "current_delivery",
+        "from_handle": "term_0fe31b0e-307e-4e39-9197-c8b7c8231de0",
+        "to_handle": "run:run_47533ecf4333",
+        "subject": "Docs published",
+        "body": "Updated README.md, docs/live-verification.md, and skills/orca-development/SKILL.md to record the failed live bridge trial honestly, distinguishing successful extension load/binding from unverified wakeup, inbox ack, and recovery. Checks passed with bun run check, bun test, and git diff --check, and the docs-only commit ea5c3366ab6ba254880733e1486075be266dd679 was pushed to origin/main after overriding a stale local gh credential-helper path for that push only. What remains is the documented next step: diagnose supported Pi launcher/input readiness and avoid double-binding before any newly approved short retry; no live retry or source/dependency change was made.",
+        "type": "worker_done",
+        "priority": "normal",
+        "thread_id": null,
+        "payload": "{\"taskId\":\"task_e66d374feb1f\",\"dispatchId\":\"ctx_c803a75bb87c\",\"outcome\":\"succeeded\",\"filesModified\":[\"README.md\",\"docs/live-verification.md\",\"skills/orca-development/SKILL.md\"]}",
+        "read": 0,
+        "sequence": 74,
+        "created_at": "2026-09-26T12:35:31Z",
+        "delivered_at": null,
+        "sender_pane_key": "cefc5cbf-d19d-4c84-b4b6-3e713fadf999:b6ece306-f5dd-46b4-9bf4-f3c2f3f76bdf"
+      }
+    ],
+    "count": 1,
+    "replayed": false,
+    "acknowledged": null,
+    "timedOut": false,
+    "cancelled": false,
+    "connectionLost": false,
+    "mutation": {
+      "requestId": "53f6c573-64c8-4d89-911e-9c6f50e8a410",
+      "replayed": false
+    }
+  },
+  "_meta": {
+    "runtimeId": "6de3d050-4947-49ff-89e7-4c83ce42f720"
+  }
+}

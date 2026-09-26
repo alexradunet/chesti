@@ -1,0 +1,30 @@
+{
+  "id": "7c0a225a-1d02-4f2d-b1cb-0ad496891796",
+  "ok": true,
+  "result": {
+    "task": {
+      "id": "task_038f8ad8c18e",
+      "run_id": "run_47533ecf4333",
+      "parent_id": null,
+      "created_by_terminal_handle": "term_eda81010-6ce6-4a9c-9803-755eeb8617a6",
+      "created_by_pane_key": "bd6396a2-5bfc-4216-b19c-662833c94d77:f0ab7669-002f-4ba6-b908-d27d75487f48",
+      "created_by_process_incarnation": "b3370624-2ad4-49a2-9089-fd9968ef51fe::/home/alex/Work/GenUIExperiment@@1d4ad000:28f6ac93-ddff-46cf-9a2a-7ac2f202c13a",
+      "created_by_run_generation": 1,
+      "task_title": "Final two-line documentation accuracy correction; publication authorized, no...",
+      "display_name": "Final two-line documentation accuracy correction; publication authorized, no...",
+      "spec": "Final two-line documentation accuracy correction; publication authorized, no live work. Sole writer in /home/alex/Work/pi-orca main at ea5c3366ab6ba254880733e1486075be266dd679. Parent review found docs/live-verification.md falsely marks the explicit stop gate OBSERVED merely because fixtures were preserved. No worker-stop was executed: keeping files intact is not an explicit-stop test. Change ONLY that table State to NOT RUN: no explicit worker-stop test; fixture preservation alone is not acceptance. Also change the sentence about the exact cause of the cancelled receipt to state that the exact returned error/cancellation record was not captured, so causality and a source-code defect are unproven; we observed Invalid inbox authority/connection state after raw run-use, not an actual retained cancelled=true receipt. No other edits or claims. Verify clean checkout and exact expected existing lines first; STOP if drift. Run git diff --check and read the two-line diff carefully; commit this docs-only correction and push origin main normally, never force. Do not modify source, tests, deps, Taskdesk, fixtures, user settings, credentials or any other file; no nested agents, no live/provider test retries. Use exact existing HTTPS origin. If credential-helper path fails, a per-command invocation of installed gh auth git-credential is allowed without changing persistent config or printing credentials. Report exact hash and remote verification, then worker_done. Parent already ran tsc + all 24 tests on unchanged source; documentation-only changes do not require inventing more tests.",
+      "status": "ready",
+      "deps": "[]",
+      "result": null,
+      "created_at": "2026-09-26 12:38:05",
+      "completed_at": null
+    },
+    "mutation": {
+      "requestId": "2cf844a8-0719-4cfe-9134-3eadf477a446",
+      "replayed": false
+    }
+  },
+  "_meta": {
+    "runtimeId": "6de3d050-4947-49ff-89e7-4c83ce42f720"
+  }
+}

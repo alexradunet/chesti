@@ -1,0 +1,41 @@
+{
+  "id": "ad971f25-c78c-4dcf-ac32-9563398ad478",
+  "ok": true,
+  "result": {
+    "runId": "run_47533ecf4333",
+    "deliveryId": "delivery_dfdc29852085",
+    "messages": [
+      {
+        "id": "msg_8f7d1e76d2eb",
+        "run_id": "run_47533ecf4333",
+        "delivery_contract": "current_delivery",
+        "from_handle": "term_c8c7e273-7a4a-46ec-b5d5-6b259d051336",
+        "to_handle": "run:run_47533ecf4333",
+        "subject": "Retired pi-orca package",
+        "body": "Created the standalone local orca-development skill, added the Taskdesk AGENTS.md workflow pointer as an uncommitted project instruction edit, and committed/pushed the tooling README retirement update. Validation found the local skill parses and is actually discovered provider-free by Pi RPC with exactly one user-scope command, README has no private absolute paths, Taskdesk has only the intended AGENTS.md tracked diff plus pre-existing untracked files, and GitHub reports alexradunet/pi-orca-subagents archived at commit 68304667c1ffd04fd2e575cab31fcd6bc6e2541b. What remains is only for existing Pi sessions to reload/restart if they need the new skill list; old packages/settings/checkouts were intentionally left in place.",
+        "type": "worker_done",
+        "priority": "normal",
+        "thread_id": null,
+        "payload": "{\"taskId\":\"task_282e5bc614e5\",\"dispatchId\":\"ctx_912ac69a8b08\",\"outcome\":\"succeeded\",\"filesModified\":[\"/home/alex/.agents/skills/orca-development/SKILL.md\",\"/home/alex/Work/GenUIExperiment/AGENTS.md\",\"README.md\"],\"reportPath\":\"/tmp/task_282e5bc614e5-report.md\"}",
+        "read": 0,
+        "sequence": 92,
+        "created_at": "2026-09-26T13:40:39Z",
+        "delivered_at": null,
+        "sender_pane_key": "449e1f2f-e802-4f72-9b2a-e1701c6723cf:ba730e97-f284-42e5-ac50-08d0dfdd0d4e"
+      }
+    ],
+    "count": 1,
+    "replayed": false,
+    "acknowledged": null,
+    "timedOut": false,
+    "cancelled": false,
+    "connectionLost": false,
+    "mutation": {
+      "requestId": "85c3bbd9-c11b-4e3c-adad-3b539dcd9a22",
+      "replayed": false
+    }
+  },
+  "_meta": {
+    "runtimeId": "6de3d050-4947-49ff-89e7-4c83ce42f720"
+  }
+}

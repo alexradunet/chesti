@@ -1,0 +1,22 @@
+{
+  "id": "64c36211-6440-4ae8-a46b-a7ffac5b82cd",
+  "ok": true,
+  "result": {
+    "dispatchId": "ctx_5ba1ec7eda7a",
+    "state": "release_unknown",
+    "processAction": "none",
+    "archive": {
+      "source": "terminal",
+      "status": "captured"
+    },
+    "lastError": "tab_not_found",
+    "recovery": "Inspect with: orca orchestration worker-show --dispatch ctx_5ba1ec7eda7a --json — then repeat worker-release with the same --retry-request. Never substitute a broad terminal close.",
+    "mutation": {
+      "requestId": "881a5eff-c865-482a-a6f9-b1f7895c8a5d",
+      "replayed": true
+    }
+  },
+  "_meta": {
+    "runtimeId": "6de3d050-4947-49ff-89e7-4c83ce42f720"
+  }
+}

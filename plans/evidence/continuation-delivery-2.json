@@ -1,0 +1,41 @@
+{
+  "id": "4c734e48-109f-4255-a311-60a0ec3b921d",
+  "ok": true,
+  "result": {
+    "runId": "run_47533ecf4333",
+    "deliveryId": "delivery_a23e82194552",
+    "messages": [
+      {
+        "id": "msg_10a268186960",
+        "run_id": "run_47533ecf4333",
+        "delivery_contract": "current_delivery",
+        "from_handle": "term_e2d8160a-c9f1-4d11-8cbd-c41806bd08d9",
+        "to_handle": "run:run_47533ecf4333",
+        "subject": "live bridge checkpoint",
+        "body": "Live bridge test setup reached start gate but both worker-start attempts failed at dispatch_input with lastError=agent_prompt_stalled. Tasks: task_b6f2cbcb34cc/task_5634a27abc56; dispatches: ctx_80f6529b98e0/ctx_55f6a9e43f0f; terminals: term_2375cb5a-2ef4-4d09-b24b-9c9d21dc0abf and term_d21cac3f-5f3f-461c-adb2-9a7b9ed24d83. worker-release retained both as external_terminal with processAction=none. Wrote live-lead-report.md; no retry; launch-tool end-to-end gate remains unverified; no inbox ack because no injected delivery arrived.",
+        "type": "status",
+        "priority": "normal",
+        "thread_id": null,
+        "payload": null,
+        "read": 0,
+        "sequence": 67,
+        "created_at": "2026-09-26T12:29:51Z",
+        "delivered_at": null,
+        "sender_pane_key": "b414f207-4faa-4c31-9ef8-e390c528fb25:b95e456a-f648-4a9a-a942-d3b3ceecac8d"
+      }
+    ],
+    "count": 1,
+    "replayed": false,
+    "acknowledged": "delivery_c30dbeb0ea90",
+    "timedOut": false,
+    "cancelled": false,
+    "connectionLost": false,
+    "mutation": {
+      "requestId": "110cfb24-df71-411a-9040-3f239387eb28",
+      "replayed": false
+    }
+  },
+  "_meta": {
+    "runtimeId": "6de3d050-4947-49ff-89e7-4c83ce42f720"
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "id": "eea88e0e-5aff-4203-8f74-be9eca5f41d5",
+  "ok": true,
+  "result": {
+    "task": {
+      "id": "task_ccb810635b52",
+      "run_id": "run_47533ecf4333",
+      "parent_id": null,
+      "created_by_terminal_handle": "term_eda81010-6ce6-4a9c-9803-755eeb8617a6",
+      "created_by_pane_key": "bd6396a2-5bfc-4216-b19c-662833c94d77:f0ab7669-002f-4ba6-b908-d27d75487f48",
+      "created_by_process_incarnation": "b3370624-2ad4-49a2-9089-fd9968ef51fe::/home/alex/Work/GenUIExperiment@@1d4ad000:28f6ac93-ddff-46cf-9a2a-7ac2f202c13a",
+      "created_by_run_generation": 1,
+      "task_title": "Docs-only final evidence update in /home/alex/Work/pi-orca main, expected cle...",
+      "display_name": "Docs-only final evidence update in /home/alex/Work/pi-orca main, expected cle...",
+      "spec": "Docs-only final evidence update in /home/alex/Work/pi-orca main, expected clean ab768bb. Sole writer; no other source writer active. Read native test report /home/alex/orca/workspaces/pi-orca-smoke-WExO6Nvw/skills-native-lead/native-acceptance.md and parent facts here. Exactly two normal native Pi worker starts passed; lead actual tool list excluded old coordination tools, project filters were active; worker absence claims are self-reports (PATH or broad namespaces alone are not independent evidence). A exact native Beta reply/commit passed; B intentional failed outcome preserved. Crucially lead ended turn at 13:13:13 and received no idle mailbox wake for several minutes; parent manually resumed it. This is PARTIAL acceptance, not a replacement pass; old packages remain installed, global rollout paused. Both settled terminals were exited/operator_close with archives captured, but worker-release reports release_unknown/tab_not_found after documented same-request replay; do not call that clean release or add retry/fix machinery. Update docs/live-verification.md compactly with exact statuses, date, Pi 0.86.1/Orca 1.4.192 and useful IDs/hashes, no private transcripts or private paths needed in public docs. Correct skill/README/migration wording that implies idle wake is guaranteed: native Orca owns task/mailbox/lifecycle state, but while supervising pending work use documented bounded check --wait; do not assume ending the turn automatically resumes. This is a short guidance clarification, not a new runtime, hardcoded planning algorithm, acceptance pass or authorization to remove packages. Preserve skills-only package. No live test, installs, settings, Taskdesk changes, new runtime, dependencies, or recursive workers. Validate real YAML/manifest/path/diff hygiene, commit only reviewed documentation/skill corrections, push origin main normally to existing authorized public repository, report exact hash. Stop on unexpected dirty main or source drift. Do not read credentials; if stale gh helper path prevents push, an explicit per-command current gh credential helper was the previously successful supported fix; do not change global Git config. Use injected lifecycle and no work after final completion.",
+      "status": "ready",
+      "deps": "[]",
+      "result": null,
+      "created_at": "2026-09-26 13:22:37",
+      "completed_at": null
+    },
+    "mutation": {
+      "requestId": "d71e8bd1-9fd5-4cd0-842e-2a4cb2e4d9aa",
+      "replayed": false
+    }
+  },
+  "_meta": {
+    "runtimeId": "6de3d050-4947-49ff-89e7-4c83ce42f720"
+  }
+}

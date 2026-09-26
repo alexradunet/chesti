@@ -1,0 +1,66 @@
+{
+  "id": "7be98a7d-0c15-413e-b4e8-13caec9a8d98",
+  "ok": true,
+  "result": {
+    "workers": [
+      {
+        "dispatchId": "ctx_80f6529b98e0",
+        "taskId": "task_b6f2cbcb34cc",
+        "runId": "run_97fa33433029",
+        "workerState": "failed",
+        "dispatchStatus": "failed",
+        "agentTerminalHandle": "term_2375cb5a-2ef4-4d09-b24b-9c9d21dc0abf",
+        "terminalState": "retained",
+        "resource": {
+          "id": "wtr_a7fb4aa65488",
+          "ownershipState": "external",
+          "releaseState": "not_requested",
+          "retainedReason": "external_terminal",
+          "terminalHandle": "term_2375cb5a-2ef4-4d09-b24b-9c9d21dc0abf",
+          "worktreeId": "82d45ea7-e3a7-4510-adf0-aa98dbca44eb::/home/alex/orca/workspaces/pi-orca-smoke-WExO6Nvw/live-bridge-a",
+          "originDispatchId": "ctx_80f6529b98e0",
+          "ownerDispatchId": "ctx_80f6529b98e0",
+          "releaseRequestedAt": null,
+          "releaseCompletedAt": null,
+          "releaseError": null,
+          "archive": {
+            "source": null,
+            "status": null
+          }
+        }
+      },
+      {
+        "dispatchId": "ctx_55f6a9e43f0f",
+        "taskId": "task_5634a27abc56",
+        "runId": "run_97fa33433029",
+        "workerState": "failed",
+        "dispatchStatus": "failed",
+        "agentTerminalHandle": "term_d21cac3f-5f3f-461c-adb2-9a7b9ed24d83",
+        "terminalState": "retained",
+        "resource": {
+          "id": "wtr_4167f2c046c0",
+          "ownershipState": "external",
+          "releaseState": "not_requested",
+          "retainedReason": "external_terminal",
+          "terminalHandle": "term_d21cac3f-5f3f-461c-adb2-9a7b9ed24d83",
+          "worktreeId": "82d45ea7-e3a7-4510-adf0-aa98dbca44eb::/home/alex/orca/workspaces/pi-orca-smoke-WExO6Nvw/live-bridge-b",
+          "originDispatchId": "ctx_55f6a9e43f0f",
+          "ownerDispatchId": "ctx_55f6a9e43f0f",
+          "releaseRequestedAt": null,
+          "releaseCompletedAt": null,
+          "releaseError": null,
+          "archive": {
+            "source": null,
+            "status": null
+          }
+        }
+      }
+    ],
+    "counts": {
+      "retained": 2
+    }
+  },
+  "_meta": {
+    "runtimeId": "6de3d050-4947-49ff-89e7-4c83ce42f720"
+  }
+}

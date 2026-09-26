@@ -1,0 +1,64 @@
+{
+  "id": "0dcd72f6-8c8c-47bf-936e-9821376b1376",
+  "ok": true,
+  "result": {
+    "runId": "run_47533ecf4333",
+    "taskId": "task_318de586afb3",
+    "dispatchId": "ctx_dfd16f0f61b7",
+    "state": "ready",
+    "stage": "input_accepted",
+    "setup": {
+      "requested": "not_applicable",
+      "effective": "not_applicable",
+      "source": "existing_worktree",
+      "hookFound": false,
+      "startupPolicy": "start-immediately",
+      "state": "not_applicable"
+    },
+    "launch": {
+      "requested": {
+        "agent": null,
+        "model": null,
+        "effort": null
+      },
+      "effective": {
+        "agent": null,
+        "model": null,
+        "effort": null
+      }
+    },
+    "timeoutMs": 60000,
+    "effects": [
+      {
+        "kind": "worktree",
+        "action": "reused",
+        "id": "82d45ea7-e3a7-4510-adf0-aa98dbca44eb::/tmp/pi-orca-smoke-WExO6Nvw"
+      },
+      {
+        "kind": "setup",
+        "action": "not_applicable",
+        "state": "not_applicable"
+      },
+      {
+        "kind": "terminal",
+        "role": "agent",
+        "action": "reused",
+        "id": "term_4f3007fd-f517-441a-be83-95452bf9911c"
+      },
+      {
+        "kind": "dispatch_input",
+        "role": "agent",
+        "id": "term_4f3007fd-f517-441a-be83-95452bf9911c",
+        "state": "accepted"
+      }
+    ],
+    "residualResources": [],
+    "mutation": {
+      "requestId": "5680403b-5acc-4da2-a186-fd9dcef2c5d8",
+      "replayed": false
+    }
+  },
+  "_meta": {
+    "runtimeId": "6de3d050-4947-49ff-89e7-4c83ce42f720"
+  }
+}

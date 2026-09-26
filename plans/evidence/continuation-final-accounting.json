@@ -1,0 +1,223 @@
+{
+  "id": "da337535-fef3-4989-bca7-7d9abc751fc7",
+  "ok": true,
+  "result": {
+    "workers": [
+      {
+        "dispatchId": "ctx_dab7f5a334a5",
+        "taskId": "task_f27a963ba44a",
+        "runId": "run_47533ecf4333",
+        "workerState": "succeeded",
+        "dispatchStatus": "completed",
+        "agentTerminalHandle": "term_a93ce392-5bad-42cb-9e3f-0e37c792ea56",
+        "terminalState": "released",
+        "resource": {
+          "id": "wtr_4710c615fd49",
+          "ownershipState": "released",
+          "releaseState": "released",
+          "retainedReason": null,
+          "terminalHandle": "term_a93ce392-5bad-42cb-9e3f-0e37c792ea56",
+          "worktreeId": "b3370624-2ad4-49a2-9089-fd9968ef51fe::/home/alex/Work/GenUIExperiment",
+          "originDispatchId": "ctx_dab7f5a334a5",
+          "ownerDispatchId": "ctx_dab7f5a334a5",
+          "releaseRequestedAt": "2026-09-26 11:37:15",
+          "releaseCompletedAt": "2026-09-26 11:37:15",
+          "releaseError": null,
+          "archive": {
+            "source": "terminal",
+            "status": "captured"
+          }
+        }
+      },
+      {
+        "dispatchId": "ctx_09ad05a15567",
+        "taskId": "task_10c6e7a71f14",
+        "runId": "run_47533ecf4333",
+        "workerState": "succeeded",
+        "dispatchStatus": "completed",
+        "agentTerminalHandle": "term_81a5dc95-5e17-4eb2-b0b1-28e3a37050f2",
+        "terminalState": "released",
+        "resource": {
+          "id": "wtr_2c9196942299",
+          "ownershipState": "released",
+          "releaseState": "released",
+          "retainedReason": null,
+          "terminalHandle": "term_81a5dc95-5e17-4eb2-b0b1-28e3a37050f2",
+          "worktreeId": "82d45ea7-e3a7-4510-adf0-aa98dbca44eb::/home/alex/orca/workspaces/pi-orca-smoke-WExO6Nvw/pi-orca-smoke-b",
+          "originDispatchId": "ctx_09ad05a15567",
+          "ownerDispatchId": "ctx_09ad05a15567",
+          "releaseRequestedAt": "2026-09-26 11:38:23",
+          "releaseCompletedAt": "2026-09-26 11:38:24",
+          "releaseError": null,
+          "archive": {
+            "source": "terminal",
+            "status": "captured"
+          }
+        }
+      },
+      {
+        "dispatchId": "ctx_ee2ccecf3ee8",
+        "taskId": "task_e77e26aa394d",
+        "runId": "run_47533ecf4333",
+        "workerState": "succeeded",
+        "dispatchStatus": "completed",
+        "agentTerminalHandle": "term_4472b9c2-b4c7-4ba7-b38e-b659ab746472",
+        "terminalState": "released",
+        "resource": {
+          "id": "wtr_77e0ec304d9c",
+          "ownershipState": "released",
+          "releaseState": "released",
+          "retainedReason": null,
+          "terminalHandle": "term_4472b9c2-b4c7-4ba7-b38e-b659ab746472",
+          "worktreeId": "82d45ea7-e3a7-4510-adf0-aa98dbca44eb::/home/alex/orca/workspaces/pi-orca-smoke-WExO6Nvw/pi-orca-smoke-a",
+          "originDispatchId": "ctx_ee2ccecf3ee8",
+          "ownerDispatchId": "ctx_ee2ccecf3ee8",
+          "releaseRequestedAt": "2026-09-26 11:38:43",
+          "releaseCompletedAt": "2026-09-26 11:38:44",
+          "releaseError": null,
+          "archive": {
+            "source": "terminal",
+            "status": "captured"
+          }
+        }
+      },
+      {
+        "dispatchId": "ctx_1c4ab244a697",
+        "taskId": "task_2f1d0f021314",
+        "runId": "run_47533ecf4333",
+        "workerState": "succeeded",
+        "dispatchStatus": "completed",
+        "agentTerminalHandle": "term_02c8340a-db4d-43ba-bb46-8231043ce223",
+        "terminalState": "retained",
+        "resource": {
+          "id": "wtr_28aac5d9d673",
+          "ownershipState": "user_owned",
+          "releaseState": "retained",
+          "retainedReason": "user_takeover",
+          "terminalHandle": "term_02c8340a-db4d-43ba-bb46-8231043ce223",
+          "worktreeId": "86bab9b0-aa0f-477f-b7cf-017aadd9f55a::/home/alex/orca/workspaces/pi-orca/implement-orca-bridge",
+          "originDispatchId": "ctx_1c4ab244a697",
+          "ownerDispatchId": "ctx_1c4ab244a697",
+          "releaseRequestedAt": null,
+          "releaseCompletedAt": null,
+          "releaseError": null,
+          "archive": {
+            "source": null,
+            "status": null
+          }
+        }
+      },
+      {
+        "dispatchId": "ctx_539a602615ef",
+        "taskId": "task_cfd6376551ec",
+        "runId": "run_47533ecf4333",
+        "workerState": "succeeded",
+        "dispatchStatus": "completed",
+        "agentTerminalHandle": "term_a8a9a1a3-ceea-4895-acfc-893f24b47b8a",
+        "terminalState": "released",
+        "resource": {
+          "id": "wtr_1463f5f11429",
+          "ownershipState": "released",
+          "releaseState": "released",
+          "retainedReason": null,
+          "terminalHandle": "term_a8a9a1a3-ceea-4895-acfc-893f24b47b8a",
+          "worktreeId": "86bab9b0-aa0f-477f-b7cf-017aadd9f55a::/home/alex/Work/pi-orca",
+          "originDispatchId": "ctx_539a602615ef",
+          "ownerDispatchId": "ctx_539a602615ef",
+          "releaseRequestedAt": "2026-09-26 11:41:40",
+          "releaseCompletedAt": "2026-09-26 11:41:40",
+          "releaseError": null,
+          "archive": {
+            "source": "terminal",
+            "status": "captured"
+          }
+        }
+      },
+      {
+        "dispatchId": "ctx_3ae1cad8d694",
+        "taskId": "task_e0669165e7ab",
+        "runId": "run_47533ecf4333",
+        "workerState": "succeeded",
+        "dispatchStatus": "completed",
+        "agentTerminalHandle": "term_0db1ddbc-bd08-4d76-a4a5-98a7ce7c03b3",
+        "terminalState": "released",
+        "resource": {
+          "id": "wtr_596d648fa89a",
+          "ownershipState": "released",
+          "releaseState": "released",
+          "retainedReason": null,
+          "terminalHandle": "term_0db1ddbc-bd08-4d76-a4a5-98a7ce7c03b3",
+          "worktreeId": "86bab9b0-aa0f-477f-b7cf-017aadd9f55a::/home/alex/Work/pi-orca",
+          "originDispatchId": "ctx_3ae1cad8d694",
+          "ownerDispatchId": "ctx_3ae1cad8d694",
+          "releaseRequestedAt": "2026-09-26 12:27:56",
+          "releaseCompletedAt": "2026-09-26 12:27:56",
+          "releaseError": null,
+          "archive": {
+            "source": "terminal",
+            "status": "captured"
+          }
+        }
+      },
+      {
+        "dispatchId": "ctx_c803a75bb87c",
+        "taskId": "task_e66d374feb1f",
+        "runId": "run_47533ecf4333",
+        "workerState": "succeeded",
+        "dispatchStatus": "completed",
+        "agentTerminalHandle": "term_0fe31b0e-307e-4e39-9197-c8b7c8231de0",
+        "terminalState": "released",
+        "resource": {
+          "id": "wtr_35097b481c2b",
+          "ownershipState": "released",
+          "releaseState": "released",
+          "retainedReason": null,
+          "terminalHandle": "term_0fe31b0e-307e-4e39-9197-c8b7c8231de0",
+          "worktreeId": "86bab9b0-aa0f-477f-b7cf-017aadd9f55a::/home/alex/Work/pi-orca",
+          "originDispatchId": "ctx_c803a75bb87c",
+          "ownerDispatchId": "ctx_c803a75bb87c",
+          "releaseRequestedAt": "2026-09-26 12:37:18",
+          "releaseCompletedAt": "2026-09-26 12:37:19",
+          "releaseError": null,
+          "archive": {
+            "source": "terminal",
+            "status": "captured"
+          }
+        }
+      },
+      {
+        "dispatchId": "ctx_4ca50325b7a5",
+        "taskId": "task_038f8ad8c18e",
+        "runId": "run_47533ecf4333",
+        "workerState": "succeeded",
+        "dispatchStatus": "completed",
+        "agentTerminalHandle": "term_6be78f4a-60b6-425b-8900-74e9de386328",
+        "terminalState": "released",
+        "resource": {
+          "id": "wtr_cda16abd0e7f",
+          "ownershipState": "released",
+          "releaseState": "released",
+          "retainedReason": null,
+          "terminalHandle": "term_6be78f4a-60b6-425b-8900-74e9de386328",
+          "worktreeId": "86bab9b0-aa0f-477f-b7cf-017aadd9f55a::/home/alex/Work/pi-orca",
+          "originDispatchId": "ctx_4ca50325b7a5",
+          "ownerDispatchId": "ctx_4ca50325b7a5",
+          "releaseRequestedAt": "2026-09-26 12:39:11",
+          "releaseCompletedAt": "2026-09-26 12:39:11",
+          "releaseError": null,
+          "archive": {
+            "source": "terminal",
+            "status": "captured"
+          }
+        }
+      }
+    ],
+    "counts": {
+      "released": 7,
+      "retained": 1
+    }
+  },
+  "_meta": {
+    "runtimeId": "6de3d050-4947-49ff-89e7-4c83ce42f720"
+  }
+}

@@ -1,0 +1,59 @@
+{
+  "id": "85d02161-e2b1-402f-8af4-1274bab7e649",
+  "ok": true,
+  "result": {
+    "runId": "run_47533ecf4333",
+    "deliveryId": "delivery_8f236c873c7c",
+    "messages": [
+      {
+        "id": "msg_2e4a61f5744c",
+        "run_id": "run_47533ecf4333",
+        "delivery_contract": "current_delivery",
+        "from_handle": "term_1594f27d-aaf8-4ae4-a81a-fda95f6777c0",
+        "to_handle": "run:run_47533ecf4333",
+        "subject": "Skills-first replacement committed",
+        "body": "Converted pi-orca to a skills-only package, removed the superseded TypeScript bridge/runtime tests, rewrote README/AGENTS/skill/migration/verification docs, and committed afdd9da132fe953e022156b5ed1416043b84b34d. I found the old bridge evidence is only historical, retained concise failure context referencing 8d98328, and verified package shape/frontmatter/paths plus git diff hygiene without running live workers or install/rollout actions. Remaining gates are parent review and scoped native Orca acceptance before any claim that the migration has passed or any rollout/merge/push/package changes occur.",
+        "type": "worker_done",
+        "priority": "normal",
+        "thread_id": null,
+        "payload": "{\"taskId\":\"task_639b96f4000e\",\"dispatchId\":\"ctx_a48dd0f7dab9\",\"outcome\":\"succeeded\",\"filesModified\":[\"AGENTS.md\",\"README.md\",\"package.json\",\"skills/orca-development/SKILL.md\",\"docs/migration.md\",\"docs/live-verification.md\",\"docs/skills-first-report.md\",\"bun.lock\",\"tsconfig.json\",\"src/index.ts\",\"src/orca.ts\",\"src/inbox.ts\",\"test/helpers.ts\",\"test/orca.test.ts\",\"test/inbox.test.ts\",\"test/lifecycle.test.ts\",\"test/fixtures/README.md\",\"test/fixtures/ack.observed.json\",\"test/fixtures/delivery-question.observed.json\",\"test/fixtures/empty-timeout.observed.json\",\"test/fixtures/failed-start.synthetic.json\",\"test/fixtures/ready.observed.json\",\"test/fixtures/release.observed.json\",\"test/fixtures/reply.observed.json\",\"docs/implementation-report.md\",\"docs/publication-report.md\",\"docs/improve-orca.patch\"],\"reportPath\":\"docs/skills-first-report.md\"}",
+        "read": 0,
+        "sequence": 78,
+        "created_at": "2026-09-26T13:07:29Z",
+        "delivered_at": null,
+        "sender_pane_key": "f36a0802-8727-467c-9f43-fa063f7528fb:d3c44dfe-9cb1-4642-b1a3-eee669d45c20"
+      },
+      {
+        "id": "msg_e1037ffd6431",
+        "run_id": "run_47533ecf4333",
+        "delivery_contract": "current_delivery",
+        "from_handle": "term_4f3007fd-f517-441a-be83-95452bf9911c",
+        "to_handle": "run:run_47533ecf4333",
+        "subject": "fixture settings committed",
+        "body": "Prepared the disposable smoke fixture by adding and committing only .pi/settings.json with project package object filters for npm:pi-subagents and npm:pi-intercom. I found no pre-existing .pi/settings.json, validated the JSON and source spelling, preserved untracked live-lead-report.md unstaged, and the new base is 65bcb6f. What remains is the parent-run live launch/trust test; rollback is git revert 65bcb6f.",
+        "type": "worker_done",
+        "priority": "normal",
+        "thread_id": null,
+        "payload": "{\"taskId\":\"task_3b68bc65094c\",\"dispatchId\":\"ctx_07602704640c\",\"outcome\":\"succeeded\",\"filesModified\":[\".pi/settings.json\"]}",
+        "read": 0,
+        "sequence": 79,
+        "created_at": "2026-09-26T13:07:30Z",
+        "delivered_at": null,
+        "sender_pane_key": "c4faf0a5-7e04-4f65-a5c4-3559d99882b3:04aa6561-4298-48de-88a6-b10bbfa2ea1e"
+      }
+    ],
+    "count": 2,
+    "replayed": false,
+    "acknowledged": null,
+    "timedOut": false,
+    "cancelled": false,
+    "connectionLost": false,
+    "mutation": {
+      "requestId": "fe2e6817-d67f-49ee-ad14-171eab4024b1",
+      "replayed": false
+    }
+  },
+  "_meta": {
+    "runtimeId": "6de3d050-4947-49ff-89e7-4c83ce42f720"
+  }
+}

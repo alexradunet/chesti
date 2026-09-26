@@ -1,0 +1,41 @@
+{
+  "id": "f4e1d402-72c1-4b77-8808-710cb6fbc32c",
+  "ok": true,
+  "result": {
+    "runId": "run_47533ecf4333",
+    "deliveryId": "delivery_e7660a4ced65",
+    "messages": [
+      {
+        "id": "msg_614ea1e21cba",
+        "run_id": "run_47533ecf4333",
+        "delivery_contract": "current_delivery",
+        "from_handle": "term_a8a9a1a3-ceea-4895-acfc-893f24b47b8a",
+        "to_handle": "run:run_47533ecf4333",
+        "subject": "Pi-Orca launch path verified",
+        "body": "I read the version-matched Orca CLI/orchestration guides plus public help/state for repo 82d45ea7-e3a7-4510-adf0-aa98dbca44eb and verified it is /tmp/pi-orca-smoke-WExO6Nvw with no setup script and start-immediately setup policy. Smallest supported path is custom Orca terminals, not launcher-default mutation: lead with `orca-ide terminal create --worktree id:82d45ea7-e3a7-4510-adf0-aa98dbca44eb::/tmp/pi-orca-smoke-WExO6Nvw --title 'Pi bridge lead' --command 'pi --no-extensions -e /home/alex/Work/pi-orca/bridge/src/index.ts' --json`, and supervised workers by creating/waiting the same custom Pi terminal in the target worktree then `orca-ide orchestration worker-start --task <task_id> --terminal <handle> --timeout-ms 60000 --json`; for new worker worktrees first use `orca-ide worktree create --repo id:82d45ea7-e3a7-4510-adf0-aa98dbca44eb --name <name> --no-parent --setup run --json`, then create the Pi terminal in the returned full worktree id. No documented scoped Pi default-argument setting was exposed, `worker-start --model` is documented for Claude/Codex/Cursor only, `dispatch --inject` is unsupervised, `worker-start --terminal` keeps lifecycle/worker-read/worker-show supervision while release safely retains pre-existing or reused terminals, and durable answered-question confirmation after reload is `orca-ide orchestration ask --resume <message_id> --timeout-ms <n> --json` rather than volatile memory.",
+        "type": "worker_done",
+        "priority": "normal",
+        "thread_id": null,
+        "payload": "{\"taskId\":\"task_cfd6376551ec\",\"dispatchId\":\"ctx_539a602615ef\",\"outcome\":\"succeeded\"}",
+        "read": 0,
+        "sequence": 53,
+        "created_at": "2026-09-26T11:41:26Z",
+        "delivered_at": null,
+        "sender_pane_key": "44c78638-7ad3-4d47-8549-0bf728a918b9:f7703fdf-0f8c-4a8a-be3d-3e25d58f062f"
+      }
+    ],
+    "count": 1,
+    "replayed": false,
+    "acknowledged": null,
+    "timedOut": false,
+    "cancelled": false,
+    "connectionLost": false,
+    "mutation": {
+      "requestId": "4a56f9d4-2844-47c8-aa33-d8b7fec227ab",
+      "replayed": false
+    }
+  },
+  "_meta": {
+    "runtimeId": "6de3d050-4947-49ff-89e7-4c83ce42f720"
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "id": "28bae5e8-769e-4a26-9304-0f4f380b1470",
+  "ok": true,
+  "result": {
+    "task": {
+      "id": "task_318de586afb3",
+      "run_id": "run_47533ecf4333",
+      "parent_id": null,
+      "created_by_terminal_handle": "term_eda81010-6ce6-4a9c-9803-755eeb8617a6",
+      "created_by_pane_key": "bd6396a2-5bfc-4216-b19c-662833c94d77:f0ab7669-002f-4ba6-b908-d27d75487f48",
+      "created_by_process_incarnation": "b3370624-2ad4-49a2-9089-fd9968ef51fe::/home/alex/Work/GenUIExperiment@@1d4ad000:28f6ac93-ddff-46cf-9a2a-7ac2f202c13a",
+      "created_by_run_generation": 1,
+      "task_title": "Follow-up fixture trust only; reuse same fixture executor. Your earlier setti...",
+      "display_name": "Follow-up fixture trust only; reuse same fixture executor. Your earlier setti...",
+      "spec": "Follow-up fixture trust only; reuse same fixture executor. Your earlier settings commit 65bcb6f is verified. Before you completed, parent sent msg_1f796b7164e3 about scoped /trust UI; that work was not done. You may use Pi documented /trust UI to save trust ONLY for /home/alex/orca/workspaces/pi-orca-smoke-WExO6Nvw (dedicated fixture worktree parent) and /tmp/pi-orca-smoke-WExO6Nvw if needed. Never trust /tmp or /home/alex/orca/workspaces generally or change defaultProjectTrust/global package settings. Parent opened /trust in our prior settled fixture A terminal term_2375cb5a-2ef4-4d09-b24b-9c9d21dc0abf; menu currently shows Trust [selected], Trust parent folder (/home/alex/orca/workspaces/pi-orca-smoke-WExO6Nvw), Do not trust. Use public terminal send input for one Down then read to verify correct selection before Enter; no guessed CLI flags or manual unknown trust schema. This grants future native-launched fixture worktrees permission to load known package-filter JSON only. Inspect exact resulting fixture entry without dumping unrelated settings; report narrow rollback. Do not launch workers, edit any repo files, or touch unrelated context. If UI interaction unavailable, stop and ask; parent must not silently bypass trust. No model calls for UI interaction. Use new injected lifecycle IDs for this follow-up and process task guidance at boundaries.",
+      "status": "ready",
+      "deps": "[]",
+      "result": null,
+      "created_at": "2026-09-26 13:09:00",
+      "completed_at": null
+    },
+    "mutation": {
+      "requestId": "494b0e52-5b78-4b45-9c07-6970709bcfc6",
+      "replayed": false
+    }
+  },
+  "_meta": {
+    "runtimeId": "6de3d050-4947-49ff-89e7-4c83ce42f720"
+  }
+}

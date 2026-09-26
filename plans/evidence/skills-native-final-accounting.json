@@ -1,0 +1,66 @@
+{
+  "id": "dad4aca0-7c48-4481-98a7-9f3950b7ee99",
+  "ok": true,
+  "result": {
+    "workers": [
+      {
+        "dispatchId": "ctx_b5f48cb10b98",
+        "taskId": "task_e0cbb890bffb",
+        "runId": "run_3ff08c7bb1c0",
+        "workerState": "succeeded",
+        "dispatchStatus": "completed",
+        "agentTerminalHandle": "term_3bbeecae-eac6-4f06-bccc-9ad87b9554af",
+        "terminalState": "release_unknown",
+        "resource": {
+          "id": "wtr_dc9ee022feaa",
+          "ownershipState": "owned",
+          "releaseState": "unknown",
+          "retainedReason": null,
+          "terminalHandle": "term_3bbeecae-eac6-4f06-bccc-9ad87b9554af",
+          "worktreeId": "82d45ea7-e3a7-4510-adf0-aa98dbca44eb::/home/alex/orca/workspaces/pi-orca-smoke-WExO6Nvw/native-skill-a",
+          "originDispatchId": "ctx_b5f48cb10b98",
+          "ownerDispatchId": "ctx_b5f48cb10b98",
+          "releaseRequestedAt": "2026-09-26 13:21:03",
+          "releaseCompletedAt": null,
+          "releaseError": "tab_not_found",
+          "archive": {
+            "source": "terminal",
+            "status": "captured"
+          }
+        }
+      },
+      {
+        "dispatchId": "ctx_80c6cd5137d2",
+        "taskId": "task_0a9ee01d569e",
+        "runId": "run_3ff08c7bb1c0",
+        "workerState": "failed",
+        "dispatchStatus": "failed",
+        "agentTerminalHandle": "term_cb5369f2-9f55-4ff5-aff2-55842fe7b064",
+        "terminalState": "release_unknown",
+        "resource": {
+          "id": "wtr_3cc3e23107be",
+          "ownershipState": "owned",
+          "releaseState": "unknown",
+          "retainedReason": null,
+          "terminalHandle": "term_cb5369f2-9f55-4ff5-aff2-55842fe7b064",
+          "worktreeId": "82d45ea7-e3a7-4510-adf0-aa98dbca44eb::/home/alex/orca/workspaces/pi-orca-smoke-WExO6Nvw/native-skill-b",
+          "originDispatchId": "ctx_80c6cd5137d2",
+          "ownerDispatchId": "ctx_80c6cd5137d2",
+          "releaseRequestedAt": "2026-09-26 13:20:39",
+          "releaseCompletedAt": null,
+          "releaseError": "tab_not_found",
+          "archive": {
+            "source": "terminal",
+            "status": "captured"
+          }
+        }
+      }
+    ],
+    "counts": {
+      "release_unknown": 2
+    }
+  },
+  "_meta": {
+    "runtimeId": "6de3d050-4947-49ff-89e7-4c83ce42f720"
+  }
+}

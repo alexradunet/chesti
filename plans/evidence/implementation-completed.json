@@ -1,0 +1,155 @@
+{
+  "id": "02869b9f-46de-470a-954d-76ff0922854d",
+  "ok": true,
+  "result": {
+    "dispatch": {
+      "id": "ctx_1c4ab244a697",
+      "run_id": "run_47533ecf4333",
+      "task_id": "task_2f1d0f021314",
+      "contract_version": 1,
+      "assignee_handle": "term_02c8340a-db4d-43ba-bb46-8231043ce223",
+      "assignee_pane_key": "09a14dc2-c2fa-4321-9b5b-323e529c1344:157e858b-30a1-48d9-9d2a-aaf42ebf555a",
+      "process_incarnation": "86bab9b0-aa0f-477f-b7cf-017aadd9f55a::/home/alex/orca/workspaces/pi-orca/implement-orca-bridge@@37efe91f:346fc254-d9b5-4b19-bd02-5e45fbed5b4a",
+      "capability_revoked_at": "2026-09-26 12:10:18",
+      "status": "completed",
+      "failure_count": 0,
+      "last_failure": null,
+      "termination_reason": null,
+      "depth": 1,
+      "dispatched_at": "2026-09-26 11:40:19",
+      "completed_at": "2026-09-26 12:10:18",
+      "created_at": "2026-09-26 11:40:19",
+      "last_heartbeat_at": "2026-09-26T12:03:10Z"
+    },
+    "worker": {
+      "dispatch_id": "ctx_1c4ab244a697",
+      "runtime_epoch": "6de3d050-4947-49ff-89e7-4c83ce42f720",
+      "state": "succeeded",
+      "stage": "settled",
+      "worktree_id": "86bab9b0-aa0f-477f-b7cf-017aadd9f55a::/home/alex/orca/workspaces/pi-orca/implement-orca-bridge",
+      "agent_terminal_handle": "term_02c8340a-db4d-43ba-bb46-8231043ce223",
+      "setup_state": "not_configured",
+      "effects": [
+        {
+          "kind": "worktree",
+          "action": "created_top_level",
+          "id": "86bab9b0-aa0f-477f-b7cf-017aadd9f55a::/home/alex/orca/workspaces/pi-orca/implement-orca-bridge"
+        },
+        {
+          "kind": "terminal",
+          "role": "agent",
+          "action": "reused_agent_terminal",
+          "id": "term_02c8340a-db4d-43ba-bb46-8231043ce223",
+          "tabId": "09a14dc2-c2fa-4321-9b5b-323e529c1344",
+          "leafId": "157e858b-30a1-48d9-9d2a-aaf42ebf555a"
+        },
+        {
+          "kind": "setup",
+          "action": "run",
+          "requested": "run",
+          "effective": "run",
+          "source": "explicit_request",
+          "hookFound": false,
+          "startupPolicy": "start-immediately",
+          "state": "not_configured"
+        },
+        {
+          "kind": "dispatch_input",
+          "role": "agent",
+          "id": "term_02c8340a-db4d-43ba-bb46-8231043ce223",
+          "state": "accepted"
+        }
+      ],
+      "residual_resources": "[{\"kind\":\"worktree\",\"action\":\"created_top_level\",\"id\":\"86bab9b0-aa0f-477f-b7cf-017aadd9f55a::/home/alex/orca/workspaces/pi-orca/implement-orca-bridge\"},{\"kind\":\"terminal\",\"role\":\"agent\",\"action\":\"reused_agent_terminal\",\"id\":\"term_02c8340a-db4d-43ba-bb46-8231043ce223\",\"tabId\":\"09a14dc2-c2fa-4321-9b5b-323e529c1344\",\"leafId\":\"157e858b-30a1-48d9-9d2a-aaf42ebf555a\"}]",
+      "start_options": "{\"worktree\":\"new-top-level\",\"resolvedWorktreeId\":null,\"name\":\"implement-orca-bridge\",\"repo\":\"id:86bab9b0-aa0f-477f-b7cf-017aadd9f55a\",\"baseBranch\":\"main\",\"terminal\":null,\"agent\":\"pi\",\"launch\":{\"requested\":{\"agent\":\"pi\",\"model\":null,\"effort\":null},\"effective\":{\"agent\":\"pi\",\"model\":null,\"effort\":null}},\"timeoutMs\":60000,\"setup\":\"run\",\"setupSource\":\"explicit_request\"}",
+      "last_error": null,
+      "created_at": "2026-09-26 11:40:19",
+      "updated_at": "2026-09-26 12:10:18",
+      "residualResources": [
+        {
+          "kind": "worktree",
+          "action": "created_top_level",
+          "id": "86bab9b0-aa0f-477f-b7cf-017aadd9f55a::/home/alex/orca/workspaces/pi-orca/implement-orca-bridge"
+        },
+        {
+          "kind": "terminal",
+          "role": "agent",
+          "action": "reused_agent_terminal",
+          "id": "term_02c8340a-db4d-43ba-bb46-8231043ce223",
+          "tabId": "09a14dc2-c2fa-4321-9b5b-323e529c1344",
+          "leafId": "157e858b-30a1-48d9-9d2a-aaf42ebf555a"
+        }
+      ],
+      "startOptions": {
+        "worktree": "new-top-level",
+        "resolvedWorktreeId": null,
+        "name": "implement-orca-bridge",
+        "repo": "id:86bab9b0-aa0f-477f-b7cf-017aadd9f55a",
+        "baseBranch": "main",
+        "terminal": null,
+        "agent": "pi",
+        "launch": {
+          "requested": {
+            "agent": "pi",
+            "model": null,
+            "effort": null
+          },
+          "effective": {
+            "agent": "pi",
+            "model": null,
+            "effort": null
+          }
+        },
+        "timeoutMs": 60000,
+        "setup": "run",
+        "setupSource": "explicit_request"
+      }
+    },
+    "terminal": {
+      "handle": "term_02c8340a-db4d-43ba-bb46-8231043ce223",
+      "ptyId": "86bab9b0-aa0f-477f-b7cf-017aadd9f55a::/home/alex/orca/workspaces/pi-orca/implement-orca-bridge@@37efe91f",
+      "incarnationId": "346fc254-d9b5-4b19-bd02-5e45fbed5b4a",
+      "orphaned": false,
+      "worktreeId": "86bab9b0-aa0f-477f-b7cf-017aadd9f55a::/home/alex/orca/workspaces/pi-orca/implement-orca-bridge",
+      "worktreePath": "/home/alex/orca/workspaces/pi-orca/implement-orca-bridge",
+      "branch": "refs/heads/implement-orca-bridge",
+      "tabId": "09a14dc2-c2fa-4321-9b5b-323e529c1344",
+      "leafId": "157e858b-30a1-48d9-9d2a-aaf42ebf555a",
+      "title": "Pi ready",
+      "connected": true,
+      "writable": true,
+      "lastOutputAt": 1790424622461,
+      "preview": "\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500",
+      "executionHostId": "local",
+      "agentIdentity": "pi",
+      "paneRuntimeId": 1,
+      "rendererGraphEpoch": 0,
+      "agentWait": null
+    },
+    "observation": {
+      "status": "live",
+      "exactWorker": true,
+      "agentWait": null
+    },
+    "terminalResource": {
+      "id": "wtr_28aac5d9d673",
+      "ownershipState": "user_owned",
+      "releaseState": "retained",
+      "retainedReason": "user_takeover",
+      "terminalHandle": "term_02c8340a-db4d-43ba-bb46-8231043ce223",
+      "worktreeId": "86bab9b0-aa0f-477f-b7cf-017aadd9f55a::/home/alex/orca/workspaces/pi-orca/implement-orca-bridge",
+      "originDispatchId": "ctx_1c4ab244a697",
+      "ownerDispatchId": "ctx_1c4ab244a697",
+      "releaseRequestedAt": null,
+      "releaseCompletedAt": null,
+      "releaseError": null,
+      "archive": {
+        "source": null,
+        "status": null
+      }
+    }
+  },
+  "_meta": {
+    "runtimeId": "6de3d050-4947-49ff-89e7-4c83ce42f720"
+  }
+}

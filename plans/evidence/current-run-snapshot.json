@@ -1,0 +1,20 @@
+{
+  "id": "feda959d-40dd-499e-bfc5-68c5b814870e",
+  "ok": true,
+  "result": {
+    "run": {
+      "id": "run_47533ecf4333",
+      "objective": "Execute Plan 001: prove native Pi workers in isolated Orca worktrees, then implement and verify a thin Pi-Orca bridge; preserve Taskdesk data and existing packages; no global rollout or publication.",
+      "home_database": "this_database",
+      "coordinator_handle": "term_eda81010-6ce6-4a9c-9803-755eeb8617a6",
+      "coordinator_pane_key": "bd6396a2-5bfc-4216-b19c-662833c94d77:f0ab7669-002f-4ba6-b908-d27d75487f48",
+      "consumer_generation": 1,
+      "legacy": 0,
+      "created_at": "2026-09-26T11:35:20Z",
+      "updated_at": "2026-09-26T11:35:20Z"
+    }
+  },
+  "_meta": {
+    "runtimeId": "6de3d050-4947-49ff-89e7-4c83ce42f720"
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "id": "56949ed2-e0a8-4d05-be49-8fe3abe811f2",
+  "ok": true,
+  "result": {
+    "runId": "run_47533ecf4333",
+    "deliveryId": "delivery_799cc9843e50",
+    "messages": [
+      {
+        "id": "msg_e8618f853b1a",
+        "run_id": "run_47533ecf4333",
+        "delivery_contract": "current_delivery",
+        "from_handle": "term_1594f27d-aaf8-4ae4-a81a-fda95f6777c0",
+        "to_handle": "run:run_47533ecf4333",
+        "subject": "YAML fix integrated and pushed",
+        "body": "Fixed the orca-development skill frontmatter with a folded YAML scalar, added explicit guidance to read the version-matched orchestration guide when coordinating Tasks/Dispatches/messages, and updated the report so it no longer implies afdd9da was parser-validated. I verified package shape, paths, local links, Bun.YAML.parse frontmatter parsing, and git diff hygiene, then fast-forwarded /home/alex/Work/pi-orca main from clean 8d98328 to ab768bb89b1bce920f40e0feebdac2fe7b957db4 and pushed origin/main to the same hash. Remaining work is parent-owned native acceptance and any later rollout; push succeeded despite a stale gh credential-helper warning that was bypassed with a command-local current gh helper and no global settings changes.",
+        "type": "worker_done",
+        "priority": "normal",
+        "thread_id": null,
+        "payload": "{\"taskId\":\"task_783c79bbbff0\",\"dispatchId\":\"ctx_5ba1ec7eda7a\",\"outcome\":\"succeeded\",\"filesModified\":[\"skills/orca-development/SKILL.md\",\"docs/skills-first-report.md\",\"/home/alex/Work/pi-orca\"],\"reportPath\":\"docs/skills-first-report.md\"}",
+        "read": 0,
+        "sequence": 82,
+        "created_at": "2026-09-26T13:11:41Z",
+        "delivered_at": null,
+        "sender_pane_key": "f36a0802-8727-467c-9f43-fa063f7528fb:d3c44dfe-9cb1-4642-b1a3-eee669d45c20"
+      }
+    ],
+    "count": 1,
+    "replayed": false,
+    "acknowledged": null,
+    "timedOut": false,
+    "cancelled": false,
+    "connectionLost": false,
+    "mutation": {
+      "requestId": "cba47374-e38f-408e-b27b-9b5bae7c3c2c",
+      "replayed": false
+    }
+  },
+  "_meta": {
+    "runtimeId": "6de3d050-4947-49ff-89e7-4c83ce42f720"
+  }
+}

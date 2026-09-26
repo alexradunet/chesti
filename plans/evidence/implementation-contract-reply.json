@@ -1,0 +1,45 @@
+{
+  "id": "d49f0800-32f9-4a8d-9479-0343ecb9903e",
+  "ok": true,
+  "result": {
+    "message": {
+      "id": "msg_50f0dda86bae",
+      "run_id": "run_47533ecf4333",
+      "delivery_contract": "current_delivery",
+      "from_handle": "run:run_47533ecf4333",
+      "to_handle": "dispatch:ctx_1c4ab244a697",
+      "subject": "Re: Question",
+      "body": "Continue correcting the draft; do not hand off a blocked draft yet. Verified public evidence is now in /home/alex/Work/GenUIExperiment/plans/evidence/worker-accounting.json, released-worker.json, active-worker.json and current-run-snapshot.json (sanitized). worker-list [--run] returns result.workers rows with runId, dispatchId, taskId, agentTerminalHandle, dispatchStatus, workerState, terminalState and resource. Before start/attach use exact ORCA_TERMINAL_HANDLE, terminal show --terminal that handle, and worker-list to reject any active dispatched attempt for that handle (across Runs); no guessed env role flags. run-show result.run.coordinator_handle proves bound Run owner; worktree show --worktree path:<cwd> provides exact repo ID. Revalidate Pi sessionId/cwd/terminal handle/Run owner on resume and before effects. worker-show has result.terminalResource: releaseState released + ownershipState released + matching ownerDispatchId is released proof. Unknown/missing fields fail closed. For reuse, ownerDispatchId must change to a verified live new Dispatch on the same terminal; retain must have runtime-confirmed user/explicit retention reason, not a model declaration. A cleanup command can remain CLI-operated; ack must inspect evidence. For reply recovery there is NO proven coordinator question-status API. Persist the actual successful reply receipt (result.question.status answered plus matching message_id/run_id and answer_message_id/body); restore it after reload. If the mutation result was lost/malformed or receipt was not persisted, explicitly pause, retain the Delivery, and report exact recovery needed; do not auto-repeat the answer or call worker ask --resume as coordinator. That conservative documented unresolved state is permitted v1 and must be tested. Also fix the other early-review findings, including serialized authoritative capacity and bounded output. Please process all queued guidance before final tests. Pin 0.86.1 unless an actual resolution error is reported.",
+      "type": "status",
+      "priority": "normal",
+      "thread_id": "msg_912376b9cc5b",
+      "payload": null,
+      "read": 1,
+      "sequence": 58,
+      "created_at": "2026-09-26T11:52:22Z",
+      "delivered_at": null,
+      "sender_pane_key": null
+    },
+    "question": {
+      "message_id": "msg_912376b9cc5b",
+      "run_id": "run_47533ecf4333",
+      "dispatch_id": "ctx_1c4ab244a697",
+      "asker_handle": "term_02c8340a-db4d-43ba-bb46-8231043ce223",
+      "status": "answered",
+      "answer_message_id": "msg_50f0dda86bae",
+      "answer_body": "Continue correcting the draft; do not hand off a blocked draft yet. Verified public evidence is now in /home/alex/Work/GenUIExperiment/plans/evidence/worker-accounting.json, released-worker.json, active-worker.json and current-run-snapshot.json (sanitized). worker-list [--run] returns result.workers rows with runId, dispatchId, taskId, agentTerminalHandle, dispatchStatus, workerState, terminalState and resource. Before start/attach use exact ORCA_TERMINAL_HANDLE, terminal show --terminal that handle, and worker-list to reject any active dispatched attempt for that handle (across Runs); no guessed env role flags. run-show result.run.coordinator_handle proves bound Run owner; worktree show --worktree path:<cwd> provides exact repo ID. Revalidate Pi sessionId/cwd/terminal handle/Run owner on resume and before effects. worker-show has result.terminalResource: releaseState released + ownershipState released + matching ownerDispatchId is released proof. Unknown/missing fields fail closed. For reuse, ownerDispatchId must change to a verified live new Dispatch on the same terminal; retain must have runtime-confirmed user/explicit retention reason, not a model declaration. A cleanup command can remain CLI-operated; ack must inspect evidence. For reply recovery there is NO proven coordinator question-status API. Persist the actual successful reply receipt (result.question.status answered plus matching message_id/run_id and answer_message_id/body); restore it after reload. If the mutation result was lost/malformed or receipt was not persisted, explicitly pause, retain the Delivery, and report exact recovery needed; do not auto-repeat the answer or call worker ask --resume as coordinator. That conservative documented unresolved state is permitted v1 and must be tested. Also fix the other early-review findings, including serialized authoritative capacity and bounded output. Please process all queued guidance before final tests. Pin 0.86.1 unless an actual resolution error is reported.",
+      "answered_by_generation": 1,
+      "created_at": "2026-09-26T11:51:23Z",
+      "answered_at": "2026-09-26T11:52:22Z",
+      "closed_at": null
+    },
+    "duplicate": false,
+    "mutation": {
+      "requestId": "737e9279-ab13-4d17-a518-47349a37997b",
+      "replayed": false
+    }
+  },
+  "_meta": {
+    "runtimeId": "6de3d050-4947-49ff-89e7-4c83ce42f720"
+  }
+}

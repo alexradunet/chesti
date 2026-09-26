@@ -1,0 +1,77 @@
+{
+  "id": "8fb945b9-c8af-4515-95cf-b4a8a8afb99e",
+  "ok": true,
+  "result": {
+    "runId": "run_47533ecf4333",
+    "deliveryId": "delivery_aa9addb6d540",
+    "messages": [
+      {
+        "id": "msg_dae212dec641",
+        "run_id": "run_47533ecf4333",
+        "delivery_contract": "current_delivery",
+        "from_handle": "term_02c8340a-db4d-43ba-bb46-8231043ce223",
+        "to_handle": "run:run_47533ecf4333",
+        "subject": "alive",
+        "body": "",
+        "type": "heartbeat",
+        "priority": "normal",
+        "thread_id": null,
+        "payload": "{\"taskId\":\"task_2f1d0f021314\",\"dispatchId\":\"ctx_1c4ab244a697\",\"phase\":\"implementing\"}",
+        "read": 0,
+        "sequence": 59,
+        "created_at": "2026-09-26T11:53:18Z",
+        "delivered_at": null,
+        "sender_pane_key": "09a14dc2-c2fa-4321-9b5b-323e529c1344:157e858b-30a1-48d9-9d2a-aaf42ebf555a"
+      },
+      {
+        "id": "msg_fb530b6d2e6b",
+        "run_id": "run_47533ecf4333",
+        "delivery_contract": "current_delivery",
+        "from_handle": "term_02c8340a-db4d-43ba-bb46-8231043ce223",
+        "to_handle": "run:run_47533ecf4333",
+        "subject": "alive",
+        "body": "",
+        "type": "heartbeat",
+        "priority": "normal",
+        "thread_id": null,
+        "payload": "{\"taskId\":\"task_2f1d0f021314\",\"dispatchId\":\"ctx_1c4ab244a697\",\"phase\":\"reviewing\"}",
+        "read": 0,
+        "sequence": 60,
+        "created_at": "2026-09-26T12:03:10Z",
+        "delivered_at": null,
+        "sender_pane_key": "09a14dc2-c2fa-4321-9b5b-323e529c1344:157e858b-30a1-48d9-9d2a-aaf42ebf555a"
+      },
+      {
+        "id": "msg_4f4a97e7d8ce",
+        "run_id": "run_47533ecf4333",
+        "delivery_contract": "current_delivery",
+        "from_handle": "dispatch:ctx_1c4ab244a697",
+        "to_handle": "run:run_47533ecf4333",
+        "subject": "Question",
+        "body": "Core rewritten with exact observed shapes, session/terminal/repo/Run authority, durable mutation intents/receipts, serialized admission, bounded pages and event-harness tests (21 passing). One remaining cleanup contract detail: what exact worker-show terminalResource ownershipState/retainedReason values does explicit worker-retain return? Currently released and verified immediate-reuse are accepted; user_owned/user_takeover is recognized, all other retention fails closed rather than invented. Please provide observed/public documented explicit retain shape or approve conservative blocked acknowledgement for unsupported retention.",
+        "type": "question",
+        "priority": "normal",
+        "thread_id": "msg_4f4a97e7d8ce",
+        "payload": "{\"taskId\":\"task_2f1d0f021314\",\"dispatchId\":\"ctx_1c4ab244a697\",\"question\":\"Core rewritten with exact observed shapes, session/terminal/repo/Run authority, durable mutation intents/receipts, serialized admission, bounded pages and event-harness tests (21 passing). One remaining cleanup contract detail: what exact worker-show terminalResource ownershipState/retainedReason values does explicit worker-retain return? Currently released and verified immediate-reuse are accepted; user_owned/user_takeover is recognized, all other retention fails closed rather than invented. Please provide observed/public documented explicit retain shape or approve conservative blocked acknowledgement for unsupported retention.\",\"options\":[]}",
+        "read": 0,
+        "sequence": 61,
+        "created_at": "2026-09-26T12:04:20Z",
+        "delivered_at": null,
+        "sender_pane_key": null
+      }
+    ],
+    "count": 3,
+    "replayed": false,
+    "acknowledged": null,
+    "timedOut": false,
+    "cancelled": false,
+    "connectionLost": false,
+    "mutation": {
+      "requestId": "8a8093a3-2513-470e-9d36-481e7a17e0e5",
+      "replayed": false
+    }
+  },
+  "_meta": {
+    "runtimeId": "6de3d050-4947-49ff-89e7-4c83ce42f720"
+  }
+}

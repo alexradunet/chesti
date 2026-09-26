@@ -1,0 +1,82 @@
+{
+  "id": "c01185d5-092e-4e67-89ca-144c405d0d04",
+  "ok": true,
+  "result": {
+    "worktree": {
+      "id": "82d45ea7-e3a7-4510-adf0-aa98dbca44eb::/home/alex/orca/workspaces/pi-orca-smoke-WExO6Nvw/skills-native-lead",
+      "identity": {
+        "key": "wt2:local:5faa2ba8-57c6-4474-bca9-21591ea08b1f",
+        "executionHostId": "local",
+        "instanceId": "5faa2ba8-57c6-4474-bca9-21591ea08b1f"
+      },
+      "instanceId": "5faa2ba8-57c6-4474-bca9-21591ea08b1f",
+      "repoId": "82d45ea7-e3a7-4510-adf0-aa98dbca44eb",
+      "projectId": "repo:82d45ea7-e3a7-4510-adf0-aa98dbca44eb",
+      "hostId": "local",
+      "projectHostSetupId": "82d45ea7-e3a7-4510-adf0-aa98dbca44eb",
+      "creatorProvenance": {
+        "kind": "host"
+      },
+      "path": "/home/alex/orca/workspaces/pi-orca-smoke-WExO6Nvw/skills-native-lead",
+      "head": "65bcb6f2a104582dfa37bac7fa33cfe6c6847d71",
+      "branch": "refs/heads/skills-native-lead",
+      "isBare": false,
+      "isMainWorktree": false,
+      "displayName": "skills-native-lead",
+      "comment": "",
+      "linkedIssue": null,
+      "linkedPR": null,
+      "linkedLinearIssue": null,
+      "linkedLinearIssueWorkspaceId": null,
+      "linkedLinearIssueOrganizationUrlKey": null,
+      "linkedGitLabMR": null,
+      "linkedGitLabIssue": null,
+      "linkedBitbucketPR": null,
+      "linkedAzureDevOpsPR": null,
+      "linkedGiteaPR": null,
+      "linkedWorkItem": null,
+      "linkedTaskSourceContext": null,
+      "isArchived": false,
+      "isUnread": false,
+      "isPinned": false,
+      "sortOrder": 1790428284984,
+      "lastActivityAt": 1790428284984,
+      "createdAt": 1790428284984,
+      "createdWithAgent": "pi",
+      "cliProvenance": {
+        "kind": "created-by-cli",
+        "createdAt": 1790428284655,
+        "callerTerminalHandle": "term_eda81010-6ce6-4a9c-9803-755eeb8617a6",
+        "startupAgent": "pi"
+      },
+      "baseRef": "main",
+      "workspaceStatus": "in-progress",
+      "parentWorktreeId": null,
+      "childWorktreeIds": [],
+      "lineage": null,
+      "workspaceLineage": null,
+      "git": {
+        "path": "/home/alex/orca/workspaces/pi-orca-smoke-WExO6Nvw/skills-native-lead",
+        "head": "65bcb6f2a104582dfa37bac7fa33cfe6c6847d71",
+        "branch": "refs/heads/skills-native-lead",
+        "isBare": false,
+        "isMainWorktree": false
+      }
+    },
+    "lineage": null,
+    "workspaceLineage": null,
+    "warnings": [],
+    "startupTerminal": {
+      "spawned": true,
+      "handle": "term_f9328897-5f63-4ee1-bebe-bcb052a27370",
+      "tabId": "96761446-d7b8-4c21-a061-153d2c4a8532",
+      "paneKey": "96761446-d7b8-4c21-a061-153d2c4a8532:2974bd8e-4dbb-4223-be7d-f4476d083e2c",
+      "ptyId": "82d45ea7-e3a7-4510-adf0-aa98dbca44eb::/home/alex/orca/workspaces/pi-orca-smoke-WExO6Nvw/skills-native-lead@@875cd97d",
+      "surface": "background"
+    },
+    "agentTerminalHandle": "term_f9328897-5f63-4ee1-bebe-bcb052a27370"
+  },
+  "_meta": {
+    "runtimeId": "6de3d050-4947-49ff-89e7-4c83ce42f720"
+  }
+}

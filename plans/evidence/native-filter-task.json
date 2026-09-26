@@ -1,0 +1,30 @@
+{
+  "id": "8a2a4eca-d4ed-410c-981d-573e93008e4c",
+  "ok": true,
+  "result": {
+    "task": {
+      "id": "task_3b68bc65094c",
+      "run_id": "run_47533ecf4333",
+      "parent_id": null,
+      "created_by_terminal_handle": "term_eda81010-6ce6-4a9c-9803-755eeb8617a6",
+      "created_by_pane_key": "bd6396a2-5bfc-4216-b19c-662833c94d77:f0ab7669-002f-4ba6-b908-d27d75487f48",
+      "created_by_process_incarnation": "b3370624-2ad4-49a2-9089-fd9968ef51fe::/home/alex/Work/GenUIExperiment@@1d4ad000:28f6ac93-ddff-46cf-9a2a-7ac2f202c13a",
+      "created_by_run_generation": 1,
+      "task_title": "Prepare ONLY the existing disposable native smoke fixture; no live launches....",
+      "display_name": "Prepare ONLY the existing disposable native smoke fixture; no live launches....",
+      "spec": "Prepare ONLY the existing disposable native smoke fixture; no live launches. Sole write scope /tmp/pi-orca-smoke-WExO6Nvw/.pi/settings.json, optional short fixture README test note, and their explicit Git commit. Root main is 92b87a8 and has pre-existing UNTRACKED live-lead-report.md which MUST be preserved and not staged. Goal: allow normal Orca --agent pi launch while selectively unloading pi-subagents and pi-intercom, not blanket --no-extensions (previous custom starts failed agent_prompt_stalled). Read installed Pi 0.86.1 docs/packages.md and settings.md completely. Use documented project package object filters: exact source npm:pi-subagents and npm:pi-intercom with extensions/skills/prompts/themes all [] so project entries override global sources. Do not disable unrelated pi-web-access or Orca native integration, do not add extension code or production dependencies. Do not install packages, change global settings/trust, touch other repos, read credentials, launch agents or consume coordinator inboxes. Verify no existing .pi settings before writing; STOP on owner changes. Validate JSON/source spelling, commit ONLY .pi/settings.json (and optional fixture README if justified), report exact new base and rollback (git revert this explicit commit), then done. This is intentionally disposable trial configuration, never publish it to GitHub. Parent handles narrowly scoped project trust and actual live test.",
+      "status": "ready",
+      "deps": "[]",
+      "result": null,
+      "created_at": "2026-09-26 13:06:30",
+      "completed_at": null
+    },
+    "mutation": {
+      "requestId": "63892bb1-3c0d-49f1-a110-ca2584f77ba2",
+      "replayed": false
+    }
+  },
+  "_meta": {
+    "runtimeId": "6de3d050-4947-49ff-89e7-4c83ce42f720"
+  }
+}

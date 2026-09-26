@@ -1,0 +1,41 @@
+{
+  "id": "1bec35b8-ee10-41e7-a976-101c7a20f670",
+  "ok": true,
+  "result": {
+    "runId": "run_47533ecf4333",
+    "deliveryId": "delivery_fb22c92f2217",
+    "messages": [
+      {
+        "id": "msg_309826f61740",
+        "run_id": "run_47533ecf4333",
+        "delivery_contract": "current_delivery",
+        "from_handle": "term_0db1ddbc-bd08-4d76-a4a5-98a7ce7c03b3",
+        "to_handle": "run:run_47533ecf4333",
+        "subject": "Published experimental candidate",
+        "body": "I fast-forwarded local main to the approved candidate, added narrow experimental publication documentation, committed evidence, added the exact HTTPS origin, and pushed main normally. I found the target remote initially empty, no credential/private-key hits in tracked files/history, passing checks (bun install --frozen-lockfile, bun run check, bun test 24/0, git diff --check), and verified remote main at 6d938281e5ad6cda8f7ccbf65843adc90f1990a6. What remains is the documented live NOT RUN gate set: automatic bridge wakeup/recovery, old-extension-unloaded replacement, global rollout, and Taskdesk-related acceptance.",
+        "type": "worker_done",
+        "priority": "normal",
+        "thread_id": null,
+        "payload": "{\"taskId\":\"task_e0669165e7ab\",\"dispatchId\":\"ctx_3ae1cad8d694\",\"outcome\":\"succeeded\",\"filesModified\":[\"README.md\",\"docs/publication-report.md\"],\"reportPath\":\"docs/publication-report.md\"}",
+        "read": 0,
+        "sequence": 65,
+        "created_at": "2026-09-26T12:26:55Z",
+        "delivered_at": null,
+        "sender_pane_key": "a1800c28-5534-4360-a828-2b90c28bd5c0:833e65f1-35ec-4462-ad0c-8a6e34eea5ec"
+      }
+    ],
+    "count": 1,
+    "replayed": false,
+    "acknowledged": null,
+    "timedOut": false,
+    "cancelled": false,
+    "connectionLost": false,
+    "mutation": {
+      "requestId": "3bdfb559-8edc-49a8-8bec-f1f4d9a4ae0b",
+      "replayed": false
+    }
+  },
+  "_meta": {
+    "runtimeId": "6de3d050-4947-49ff-89e7-4c83ce42f720"
+  }
+}

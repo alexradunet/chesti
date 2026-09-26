@@ -1,0 +1,30 @@
+{
+  "id": "f9c6c500-638c-4558-923f-688e9876abe4",
+  "ok": true,
+  "result": {
+    "task": {
+      "id": "task_639b96f4000e",
+      "run_id": "run_47533ecf4333",
+      "parent_id": null,
+      "created_by_terminal_handle": "term_eda81010-6ce6-4a9c-9803-755eeb8617a6",
+      "created_by_pane_key": "bd6396a2-5bfc-4216-b19c-662833c94d77:f0ab7669-002f-4ba6-b908-d27d75487f48",
+      "created_by_process_incarnation": "b3370624-2ad4-49a2-9089-fd9968ef51fe::/home/alex/Work/GenUIExperiment@@1d4ad000:28f6ac93-ddff-46cf-9a2a-7ac2f202c13a",
+      "created_by_run_generation": 1,
+      "task_title": "Implement the owner-approved Pareto replacement: skills-first Orca developmen...",
+      "display_name": "Implement the owner-approved Pareto replacement: skills-first Orca developmen...",
+      "spec": "Implement the owner-approved Pareto replacement: skills-first Orca development, not a custom orchestration runtime. User says AI should choose HOW using current available tools and a short process, not detailed hardcoded recipes. You are sole writer in your new isolated pi-orca worktree, based on main 8d98328fd93a7e6c9311503cede5ba8861732aa1. Read README/AGENTS/current skills/docs; prior bridge goals are superseded by this explicit scope. Convert package to one concise orca-development skill using native Orca CLI and its version-matched public guides. Let lead choose decomposition, tools/agents, concurrency and inspection within authorized scope/budget; no rigid four-slot policy or Pi session state. Keep essential invariants: one writer per checkout, actual Task/Dispatch identities, questions answered exactly, whole FIFO messages accounted before ack, unknown mutations inspected not blindly retried, worker completion is evidence not acceptance, no unauthorized merge/push, preserve edits/failed states and use Orca resource cleanup. Respect improve read-only advisor only when that role/skill is used, not a blanket restriction on all leads. Native Orca owns state and wake notifications. Remove unused src bridge, bridge-only tests/fixtures, TypeScript/dependencies/lock/build scripts that no longer serve a skills-only package. No replacement SDK, hooks, wrappers, broker, scripted orchestrator, scheduler, registry or ceremonial test framework. Git history preserves the experiment; do not ship two implementations. Keep concise README, AGENTS, manifest exposing only skills, migration/verification docs with old experimental evidence clearly historical (reference 8d98328, not preserve pages of obsolete commands as live docs). Retain meaningful failure evidence, distinguish native runtime nudges from former custom bridge. No claim the new migration has passed until parent reports the live result. Inspect Pi 0.86.1 docs/packages.md and skills.md fully at /home/alex/.local/share/mise/installs/pi/0.86.1/pi/docs and follow relevant refs. Verify skill frontmatter, all manifest/resource paths and doc commands; no need to keep meaningless TypeScript/unit-test targets after deleting runtime. Commit only your isolated checkout; NO main merge/push/install/global settings/Taskdesk edits/fixtures/paid trials/nested workers. Parent will review, integrate and run scoped native acceptance. Report full change list, exact commit, verification and remaining gates with injected Orca lifecycle; ask on genuine blockers. Keep process small and outcome-oriented.",
+      "status": "ready",
+      "deps": "[]",
+      "result": null,
+      "created_at": "2026-09-26 13:05:06",
+      "completed_at": null
+    },
+    "mutation": {
+      "requestId": "cb7b1ec2-bfde-4b84-850d-d4c6bd4f178b",
+      "replayed": false
+    }
+  },
+  "_meta": {
+    "runtimeId": "6de3d050-4947-49ff-89e7-4c83ce42f720"
+  }
+}

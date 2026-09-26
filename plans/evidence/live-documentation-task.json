@@ -1,0 +1,30 @@
+{
+  "id": "bf944c74-e9a7-45f3-a281-242d7cd727a1",
+  "ok": true,
+  "result": {
+    "task": {
+      "id": "task_e66d374feb1f",
+      "run_id": "run_47533ecf4333",
+      "parent_id": null,
+      "created_by_terminal_handle": "term_eda81010-6ce6-4a9c-9803-755eeb8617a6",
+      "created_by_pane_key": "bd6396a2-5bfc-4216-b19c-662833c94d77:f0ab7669-002f-4ba6-b908-d27d75487f48",
+      "created_by_process_incarnation": "b3370624-2ad4-49a2-9089-fd9968ef51fe::/home/alex/Work/GenUIExperiment@@1d4ad000:28f6ac93-ddff-46cf-9a2a-7ac2f202c13a",
+      "created_by_run_generation": 1,
+      "task_title": "Record and publish the FAILED live trial honestly; docs-only, no further live...",
+      "display_name": "Record and publish the FAILED live trial honestly; docs-only, no further live...",
+      "spec": "Record and publish the FAILED live trial honestly; docs-only, no further live retries. You are sole writer in /home/alex/Work/pi-orca main, currently clean at 6d938281e5ad6cda8f7ccbf65843adc90f1990a6 with origin https://github.com/alexradunet/pi-orca-subagents.git; user explicitly authorized pushing. Read current docs and /tmp/pi-orca-smoke-WExO6Nvw/live-lead-report.md plus /home/alex/Work/GenUIExperiment/plans/evidence/live-session-events.json READ ONLY. Parent verified exact evidence: dedicated lead loaded only src extension, actual tools read/bash/edit/write/orca_delegate/orca_inbox; binding /orca start succeeded 12:25:20 in run_97fa33433029. The test lead incorrectly called raw orchestration run-use at 12:27:41 despite already-bound bridge; checkpoint became paused within 200ms, TUI error Invalid inbox authority/connection state. Exact cause of cancelled receipt is not captured; do not overclaim. Both custom pi --no-extensions worker-start --terminal attempts failed agent_prompt_stalled at dispatch_input, yet prompts actually executed. No retries. A sleep60 then ask rejected active supervised Dispatch unavailable, no file. B sleep120 then commit 6efda3a only live-b.md and deliberate AssertionError 1 == 2, outcome failed. worker-release returns retained external_terminal processAction none; resource ownershipState external/releaseState not_requested with matching original IDs. Root got native runtime nudges as USER messages at 12:29:56 and 12:30:55, not pi-orca custom messages; parent parsed exact session and found zero custom_message injections, inbox delivery always null. Lead orca_inbox pending twice returned No active Delivery, then lead incorrectly bypassed with raw CLI check/ack. Thus no bridge wakeup/ack/recovery PASS can be claimed. Root final report corrects this, paused idle. Do not describe native nudges as human prompts or pi-orca behavior. These are runtime-start and test-procedure blockers, not a diagnosed source-code bug. Update docs/live-verification.md and README warning if useful to distinguish successful extension load/binding from FAILED/UNVERIFIED end-to-end cases. Add a short workflow warning in skills/orca-development/SKILL.md: once bridge bound do NOT call raw run-use/run-create/check/reply/ack for that Run; use /orca controls and orca_inbox, stop on paused/No active Delivery and inspect rather than bypass. Do not introduce hard shell security claims, changes to source, new options, hooks, dependency changes, or fake success. Candidate is published experimentally but rollout remains forbidden. Narrow next step: diagnose supported Pi launcher/input readiness and avoid double-binding before any newly approved short retry. Keep private session transcripts, auth/environment values and Taskdesk files out of public repo; report public-safe event summaries only. All fixture reports and worktrees/terminals remain preserved, no force-close. Run bun run check, bun test, git diff --check, commit docs only and push origin main normally (stop on unexpected changes/nonfastforward). Verify remote hash, report exact modified files/results. No nested workers; use your injected lifecycle exactly, stop after worker_done.",
+      "status": "ready",
+      "deps": "[]",
+      "result": null,
+      "created_at": "2026-09-26 12:33:33",
+      "completed_at": null
+    },
+    "mutation": {
+      "requestId": "2ea7c01f-7581-41bb-8507-5b7f7ba0e61d",
+      "replayed": false
+    }
+  },
+  "_meta": {
+    "runtimeId": "6de3d050-4947-49ff-89e7-4c83ce42f720"
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "id": "5ede4b14-e840-492e-b5bf-83dfbcbe7395",
+  "ok": true,
+  "result": {
+    "runId": "run_47533ecf4333",
+    "deliveryId": "delivery_5865cd08c17a",
+    "messages": [
+      {
+        "id": "msg_31ac691b165a",
+        "run_id": "run_47533ecf4333",
+        "delivery_contract": "current_delivery",
+        "from_handle": "term_02c8340a-db4d-43ba-bb46-8231043ce223",
+        "to_handle": "run:run_47533ecf4333",
+        "subject": "Steps 2–5 implementation candidate committed",
+        "body": "Implemented and committed the scoped bridge, offline tests, sanitized fixtures and workflow/migration documentation as fd52e23be8fbe5dd8003f54e05e2812d3b6c27ed on implement-orca-bridge in /home/alex/orca/workspaces/pi-orca/implement-orca-bridge, with a clean checkout. Frozen install, strict TypeScript, all 24 Bun tests and diff whitespace checks passed; parent review corrections now cover exact runtime identity, durable mutation uncertainty, serialized capacity, strict Delivery parsing, bounded pages, verified cleanup and stale lifecycle fencing. Parent final review and all automatic live/old-extensions-unloaded gates remain pending, with lost reply receipts and unproven retention forms explicitly fail-closed as approved, and no rollout, paid smoke, Taskdesk write or global setting change performed.",
+        "type": "worker_done",
+        "priority": "normal",
+        "thread_id": null,
+        "payload": "{\"taskId\":\"task_2f1d0f021314\",\"dispatchId\":\"ctx_1c4ab244a697\",\"outcome\":\"succeeded\",\"filesModified\":[\"README.md\",\"AGENTS.md\",\"package.json\",\"bun.lock\",\"tsconfig.json\",\"src/index.ts\",\"src/orca.ts\",\"src/inbox.ts\",\"test/helpers.ts\",\"test/orca.test.ts\",\"test/inbox.test.ts\",\"test/lifecycle.test.ts\",\"test/fixtures\",\"skills/orca-development/SKILL.md\",\"docs/live-verification.md\",\"docs/migration.md\",\"docs/improve-orca.patch\",\"docs/implementation-report.md\"],\"reportPath\":\"/home/alex/orca/workspaces/pi-orca/implement-orca-bridge/docs/implementation-report.md\"}",
+        "read": 0,
+        "sequence": 64,
+        "created_at": "2026-09-26T12:10:18Z",
+        "delivered_at": null,
+        "sender_pane_key": "09a14dc2-c2fa-4321-9b5b-323e529c1344:157e858b-30a1-48d9-9d2a-aaf42ebf555a"
+      }
+    ],
+    "count": 1,
+    "replayed": false,
+    "acknowledged": null,
+    "timedOut": false,
+    "cancelled": false,
+    "connectionLost": false,
+    "mutation": {
+      "requestId": "8d5484a3-fd50-4f3a-962d-4607390eafcc",
+      "replayed": false
+    }
+  },
+  "_meta": {
+    "runtimeId": "6de3d050-4947-49ff-89e7-4c83ce42f720"
+  }
+}

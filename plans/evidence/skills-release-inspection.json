@@ -1,0 +1,47 @@
+{
+  "ok": true,
+  "dispatchStatus": "completed",
+  "terminal": {
+    "handle": "term_1594f27d-aaf8-4ae4-a81a-fda95f6777c0",
+    "ptyId": "86bab9b0-aa0f-477f-b7cf-017aadd9f55a::/home/alex/orca/workspaces/pi-orca/skills-first@@cd360daa",
+    "incarnationId": "1f8f5695-1e4c-44dc-a6d0-ae7547a00218",
+    "orphaned": false,
+    "worktreeId": "86bab9b0-aa0f-477f-b7cf-017aadd9f55a::/home/alex/orca/workspaces/pi-orca/skills-first",
+    "worktreePath": "/home/alex/orca/workspaces/pi-orca/skills-first",
+    "branch": "refs/heads/skills-first",
+    "tabId": "f36a0802-8727-467c-9f43-fa063f7528fb",
+    "leafId": "d3c44dfe-9cb1-4642-b1a3-eee669d45c20",
+    "title": "\u03c0 - skills-first",
+    "connected": false,
+    "writable": false,
+    "lastOutputAt": 1790428362443,
+    "preview": "\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500",
+    "exitCause": {
+      "kind": "operator_close"
+    },
+    "executionHostId": "local",
+    "paneRuntimeId": -1,
+    "rendererGraphEpoch": 0
+  },
+  "resource": {
+    "id": "wtr_db85c247ac1c",
+    "ownershipState": "owned",
+    "releaseState": "unknown",
+    "retainedReason": null,
+    "terminalHandle": "term_1594f27d-aaf8-4ae4-a81a-fda95f6777c0",
+    "worktreeId": "86bab9b0-aa0f-477f-b7cf-017aadd9f55a::/home/alex/orca/workspaces/pi-orca/skills-first",
+    "originDispatchId": "ctx_a48dd0f7dab9",
+    "ownerDispatchId": "ctx_5ba1ec7eda7a",
+    "releaseRequestedAt": "2026-09-26 13:12:42",
+    "releaseCompletedAt": null,
+    "releaseError": "tab_not_found",
+    "archive": {
+      "source": "terminal",
+      "status": "captured"
+    }
+  },
+  "observation": {
+    "status": "exited",
+    "exactWorker": true
+  }
+}
