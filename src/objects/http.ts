@@ -93,22 +93,38 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
       const byId = new Map<string, ObjectRecord>();
       const targetTypes = new Set<string>();
       const selectedIds = new Set<string>();
-      const add = (record?: ObjectRecord) => { if (record && !byId.has(record.id)) byId.set(record.id, record); };
+      const add = (record?: ObjectRecord) => {
+        if (!record || byId.has(record.id)) return;
+        byId.set(record.id, record);
+      };
       const addValue = (value: PropertyValue | undefined) => {
-        for (const id of Array.isArray(value) ? value : typeof value === 'string' ? [value] : []) selectedIds.add(id);
+        const ids = Array.isArray(value) ? value : typeof value === 'string' ? [value] : [];
+        for (const id of ids) selectedIds.add(id);
       };
       if (evaluated.view.spec.input?.typeId) targetTypes.add(evaluated.view.spec.input.typeId);
       for (const block of evaluated.blocks) {
-        for (const row of block.rows) for (const propertyId of Object.values(row.bindings)) {
-          const property = catalog.properties.find(item => item.id === propertyId);
-          if (property?.kind !== 'reference') continue;
-          if (property.targetTypeId) targetTypes.add(property.targetTypeId);
-          addValue(row.object.properties[property.id]);
+        for (const row of block.rows) {
+          for (const propertyId of Object.values(row.bindings)) {
+            const property = catalog.properties.find(item => item.id === propertyId);
+            if (property?.kind !== 'reference') continue;
+            if (property.targetTypeId) targetTypes.add(property.targetTypeId);
+            addValue(row.object.properties[property.id]);
+          }
         }
       }
-      for (const typeId of targetTypes) for (const record of objects.listObjects({ typeId, limit: 200 })) add(record);
+      for (const typeId of targetTypes) {
+        for (const record of objects.listObjects({ typeId, limit: 200 })) add(record);
+      }
       add(evaluated.input);
-      for (const id of selectedIds) if (!byId.has(id)) { try { add(objects.getObject(id)); } catch { /* Preserve unresolved imported links by rendering their id. */ } }
+      for (const id of selectedIds) {
+        if (byId.has(id)) continue;
+        try {
+          add(objects.getObject(id));
+        } catch (error) {
+          if (error instanceof AppError && error.status === 404) continue;
+          throw error;
+        }
+      }
       return [...byId.values()];
     };
     const readWrite = (data: URLSearchParams, current?: ObjectRecord): ObjectWrite => {

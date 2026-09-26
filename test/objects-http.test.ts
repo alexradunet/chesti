@@ -423,6 +423,31 @@ test('published boards bound reference choices per target type and retain select
   })).status, 409);
 });
 
+test('view reference candidate lookup rethrows unexpected selected-link failures', async t => {
+  const f = await setup(t, async () => { throw new Error('Not used'); });
+  const personType = f.objects.createType('Failure people');
+  let workType = f.objects.createType('Failure work');
+  workType = f.objects.addProperty(workType.id, workType.revision, { label: 'Assignee', kind: 'reference', targetTypeId: personType.id });
+  const assigneeProperty = workType.propertyIds[0]!;
+  const retained = f.objects.createObject({ typeId: personType.id, title: 'Retained assignee', body: '', properties: {} });
+  for (let index = 0; index < 205; index++) f.objects.createObject({ typeId: personType.id, title: `Candidate ${index}`, body: '', properties: {} });
+  f.objects.db.query('UPDATE objects SET updated_at = ? WHERE id = ?').run('2000-01-01T00:00:00Z', retained.id);
+  assert.ok(!f.objects.listObjects({ typeId: personType.id, limit: 200 }).some(record => record.id === retained.id));
+  f.objects.createObject({ typeId: workType.id, title: 'Retained work', body: '', properties: { [assigneeProperty]: retained.id } });
+  const draft = f.views.create({ model: 'fixture/contract', spec: {
+    title: 'Failure board',
+    blocks: [{ title: 'Assignments', component: 'board', editable: true, sources: [{ typeId: workType.id, bindings: { group: assigneeProperty } }] }],
+  } }, 'Show assignments');
+  const view = f.views.publish(draft.id, draft.revision);
+  const original = f.objects.getObject.bind(f.objects);
+  f.objects.getObject = (id: string) => {
+    if (id === retained.id) throw new AppError(503, 'Selected reference lookup failed.');
+    return original(id);
+  };
+  const response = await f.get(`/views/${view.id}`);
+  assert.equal(response.status, 503);
+});
+
 test('AI failure and invalid generated bindings never publish a fallback or mutate objects', async t => {
   let invalid = false;
   const f = await setup(t, async () => {
