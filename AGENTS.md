@@ -12,6 +12,8 @@ Taskdesk is an early-stage, local, single-owner object workspace. Optimize for a
 
 Before a nontrivial change, state briefly: the user outcome, the smallest complete approach, what is intentionally out of scope, and how it will be verified. Ask about material product tradeoffs, not details the code can answer.
 
+For Orca-managed repository work, use the local `orca-development` skill. The lead chooses direct work, advisory review, or bounded delegation within the user's scope and budget; invoking advisory mode is not a blanket read-only rule for every lead. Preserve these project-specific data/safety boundaries and the embedded Pi generator's isolation regardless of Orca process choices.
+
 ## Project map
 
 Read `README.md` for setup and current boundaries. Read `docs/object-contract.md` when changing object, view, query, or persistence behavior. `docs/quickstart.md` documents usage and backups.
