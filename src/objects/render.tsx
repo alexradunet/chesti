@@ -458,23 +458,72 @@ function ObjectHistory({ model }: { model: ObjectPageModel }) {
   const record = model.object;
   const history = model.history;
   if (!record || !history) return <p class="empty">Object history not found.</p>;
+
   const selected = history.selected;
   const selectedType = selected ? model.catalog.types.find(type => type.id === selected.typeId) : undefined;
   const selectedTypeIds = selectedType?.propertyIds ?? [];
   const selectedIds = selected ? [...new Set([...selectedTypeIds, ...Object.keys(selected.properties)])] : [];
   const unavailable = Boolean(selected && (!selectedType || selectedIds.some(id => !propertyOf(model, id))));
   const pageUrl = (offset: number) => `/objects/${record.id}/history?offset=${offset}`;
-  return <><a class="back-link" href={objectUrl(record.id)}>← Current object</a>
-    <PageHeading eyebrow="Read-only history" title={`${titleOf(record)} history`} description="Saved snapshots are read-only. Opening one loads an unsaved draft for this same object; nothing is restored until you explicitly save." />
-    <section class="panel history-current"><h2>Current version</h2><dl class="saved-details"><dt>Revision</dt><dd>{record.revision}</dd><dt>Type</dt><dd>{typeName(model, record.typeId)}</dd><dt>Updated</dt><dd>{record.updatedAt}</dd><dt>Trash</dt><dd>{record.trashed ? 'In trash' : 'Active'}</dd></dl></section>
+  const selectedUrl = (revision: number) => `/objects/${record.id}/history?revision=${revision}${history.offset ? `&offset=${history.offset}` : ''}`;
+
+  return <>
+    <a class="back-link" href={objectUrl(record.id)}>← Current object</a>
+    <PageHeading
+      eyebrow="Read-only history"
+      title={`${titleOf(record)} history`}
+      description="Saved snapshots are read-only. Opening one loads an unsaved draft for this same object; nothing is restored until you explicitly save."
+    />
+    <section class="panel history-current">
+      <h2>Current version</h2>
+      <dl class="saved-details">
+        <dt>Revision</dt><dd>{record.revision}</dd>
+        <dt>Type</dt><dd>{typeName(model, record.typeId)}</dd>
+        <dt>Updated</dt><dd>{record.updatedAt}</dd>
+        <dt>Trash</dt><dd>{record.trashed ? 'In trash' : 'Active'}</dd>
+      </dl>
+    </section>
     <div class="history-layout">
-      <section class="panel"><h2>Historical revisions</h2>{history.revisions.length ? <ul class="history-list">{history.revisions.map(item => <li><a href={`/objects/${record.id}/history?revision=${item.revision}${history.offset ? `&offset=${history.offset}` : ''}`} aria-current={selected?.revision === item.revision ? 'page' : undefined}><strong>Revision {item.revision}</strong><span>{item.title || 'Untitled'} · {typeName(model, item.typeId)} · {item.recordedAt.slice(0, 10)}{item.trashed ? ' · in trash' : ''}</span></a></li>)}</ul> : <p class="empty">No historical revisions yet. History starts after the first edit or trash change.</p>}
-        <nav class="pagination" aria-label="History pages">{history.offset > 0 && <a href={pageUrl(Math.max(0, history.offset - 20))}>Previous</a>}{history.hasMore && <a href={pageUrl(history.offset + 20)}>Next</a>}</nav></section>
-      <section class="panel history-snapshot"><h2>{selected ? `Revision ${selected.revision}` : 'Select a revision'}</h2>{selected ? <>
-        <dl class="saved-details"><dt>Title</dt><dd>{titleOf(selected)}</dd><dt>Type</dt><dd>{selectedType ? selectedType.name : `Unavailable type ${selected.typeId}`}</dd><dt>Saved at object time</dt><dd>{selected.updatedAt}</dd>{selected.trashed && <><dt>Trash</dt><dd>Snapshot was in trash. Opening a draft does not restore trash.</dd></>}{selectedIds.map(id => <><dt>{propertyOf(model, id)?.label ?? `Unavailable property ${id}`}</dt><dd><Value model={model} propertyId={id} value={selected.properties[id]} /></dd></>)}</dl>
-        <h3>Rendered writing</h3><div class="markdown-content">{raw(renderMarkdown(selected.body))}</div><details open><summary>Exact Markdown source</summary><pre class="saved-source">{`\n${selected.body}`}</pre></details>
-        {unavailable ? <p class="notice error">This revision uses a type or property that is no longer available. Copy the source manually; Taskdesk will not open a lossy restore draft.</p> : <form method="post" action={`/objects/${record.id}/history/draft`}><Token model={model} /><Hidden name="revision" value={selected.revision} /><Hidden name="currentRevision" value={record.revision} /><Button type="submit" variant="primary">Open unsaved draft from revision {selected.revision}</Button><State /></form>}
-      </> : <p class="muted">Choose a historical revision to inspect its title, type, fields, rendered writing, and exact Markdown source.</p>}</section>
+      <section class="panel">
+        <h2>Historical revisions</h2>
+        {history.revisions.length ? <ul class="history-list">
+          {history.revisions.map(item => <li>
+            <a href={selectedUrl(item.revision)} aria-current={selected?.revision === item.revision ? 'page' : undefined}>
+              <strong>Revision {item.revision}</strong>
+              <span>{item.title || 'Untitled'} · {typeName(model, item.typeId)} · {item.recordedAt.slice(0, 10)}{item.trashed ? ' · in trash' : ''}</span>
+            </a>
+          </li>)}
+        </ul> : <p class="empty">No historical revisions yet. History starts after the first edit or trash change.</p>}
+        <nav class="pagination" aria-label="History pages">
+          {history.offset > 0 && <a href={pageUrl(Math.max(0, history.offset - 20))}>Previous</a>}
+          {history.hasMore && <a href={pageUrl(history.offset + 20)}>Next</a>}
+        </nav>
+      </section>
+      <section class="panel history-snapshot">
+        <h2>{selected ? `Revision ${selected.revision}` : 'Select a revision'}</h2>
+        {selected ? <>
+          <dl class="saved-details">
+            <dt>Title</dt><dd>{titleOf(selected)}</dd>
+            <dt>Type</dt><dd>{selectedType ? selectedType.name : `Unavailable type ${selected.typeId}`}</dd>
+            <dt>Saved at object time</dt><dd>{selected.updatedAt}</dd>
+            {selected.trashed && <><dt>Trash</dt><dd>Snapshot was in trash. Opening a draft does not restore trash.</dd></>}
+            {selectedIds.map(id => <>
+              <dt>{propertyOf(model, id)?.label ?? `Unavailable property ${id}`}</dt>
+              <dd><Value model={model} propertyId={id} value={selected.properties[id]} /></dd>
+            </>)}
+          </dl>
+          <h3>Rendered writing</h3>
+          <div class="markdown-content">{raw(renderMarkdown(selected.body))}</div>
+          <details open><summary>Exact Markdown source</summary><pre class="saved-source">{`\n${selected.body}`}</pre></details>
+          {unavailable ? <p class="notice error">This revision uses a type or property that is no longer available. Copy the source manually; Taskdesk will not open a lossy restore draft.</p> : <form method="post" action={`/objects/${record.id}/history/draft`}>
+            <Token model={model} />
+            <Hidden name="revision" value={selected.revision} />
+            <Hidden name="currentRevision" value={record.revision} />
+            <Button type="submit" variant="primary">Open unsaved draft from revision {selected.revision}</Button>
+            <State />
+          </form>}
+        </> : <p class="muted">Choose a historical revision to inspect its title, type, fields, rendered writing, and exact Markdown source.</p>}
+      </section>
     </div>
   </>;
 }

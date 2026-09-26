@@ -93,16 +93,40 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
     };
     const page = (status = 200) => new Response(renderObjectWorkspace(model), { status, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
     const go = (path: string) => new Response(null, { status: 303, headers: { Location: path } });
-    const pickerObjects = () => {
+    const pickerObjects = (propertySets: (Record<string, PropertyValue> | undefined)[] = [model.object?.properties, model.objectDraft?.properties]) => {
       // ObjectEditor renders all type fields for enhanced switching, plus retained
       // properties on existing objects and historical drafts. Match that set,
-      // querying each target once.
-      const propertyIds = new Set([...catalog.types.flatMap(type => type.propertyIds), ...Object.keys(model.object?.properties ?? {}), ...Object.keys(model.objectDraft?.properties ?? {})]);
+      // querying each target once, then append selected references even when they
+      // are trashed or outside the bounded picker window.
+      const propertyIds = new Set([...catalog.types.flatMap(type => type.propertyIds)]);
+      const selectedIds = new Map<string, string>();
+      for (const properties of propertySets) {
+        for (const [id, value] of Object.entries(properties ?? {})) {
+          propertyIds.add(id);
+          const property = catalog.properties.find(item => item.id === id);
+          if (property?.kind !== 'reference') continue;
+          for (const target of Array.isArray(value) ? value : [value]) {
+            if (typeof target === 'string') selectedIds.set(target.toLowerCase(), target);
+          }
+        }
+      }
       const targetTypes = new Set<string>();
       for (const property of catalog.properties) {
         if (propertyIds.has(property.id) && property.kind === 'reference' && property.targetTypeId) targetTypes.add(property.targetTypeId);
       }
-      return [...targetTypes].flatMap(typeId => objects.listObjects({ typeId, limit: 200 }));
+      const byId = new Map<string, ObjectRecord>();
+      const add = (record: ObjectRecord) => byId.set(record.id.toLowerCase(), record);
+      for (const typeId of targetTypes) for (const record of objects.listObjects({ typeId, limit: 200 })) add(record);
+      for (const [key, id] of selectedIds) {
+        if (byId.has(key)) continue;
+        try {
+          add(objects.getObject(id));
+        } catch (error) {
+          if (error instanceof AppError && error.status === 404) continue;
+          throw error;
+        }
+      }
+      return [...byId.values()];
     };
     const viewObjects = (evaluated: EvaluatedView) => {
       const byId = new Map<string, ObjectRecord>();
@@ -142,9 +166,28 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
       }
       return [...byId.values()];
     };
+    const unavailableHistoryMessage = 'This historical revision uses a type or property that is no longer available. Copy its source manually; Taskdesk will not open a lossy restore draft.';
+    const historyAvailable = (snapshot: ObjectRecord): boolean => {
+      if (!catalog.types.some(type => type.id === snapshot.typeId)) return false;
+      return Object.keys(snapshot.properties).every(id => catalog.properties.some(property => property.id === id));
+    };
+    const requireHistoryAvailable = (snapshot: ObjectRecord): void => {
+      if (!historyAvailable(snapshot)) throw new AppError(422, unavailableHistoryMessage);
+    };
+    const historyFallbackPage = (current: ObjectRecord, snapshot: ObjectRecord, status = 422): Response => {
+      model.screen = 'object-history';
+      model.object = current;
+      model.objectType = objects.getType(current.typeId);
+      const listed = objects.listObjectHistory(current.id);
+      model.history = { revisions: listed.revisions, selected: snapshot, offset: 0, hasMore: listed.hasMore };
+      model.error = unavailableHistoryMessage;
+      return page(status);
+    };
     const historyDraftProperties = (current: ObjectRecord, value?: string | null): Record<string, PropertyValue> | undefined => {
       if (!value) return undefined;
-      return { ...objects.getObjectRevision(current.id, positiveInteger(value, 'Choose a historical revision.')).properties };
+      const snapshot = objects.getObjectRevision(current.id, positiveInteger(value, 'Choose a historical revision.'));
+      requireHistoryAvailable(snapshot);
+      return { ...snapshot.properties };
     };
     const readWrite = (data: URLSearchParams, current?: ObjectRecord): ObjectWrite => {
       const type = objects.getType(data.get('typeId') ?? current?.typeId ?? PAGE_TYPE_ID);
@@ -341,10 +384,11 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
         model.screen = 'object';
         model.object = objects.getObject(historyDraftMatch[1]!);
         const snapshot = objects.getObjectRevision(model.object.id, positiveInteger(fields.get('revision'), 'Choose a historical revision.'));
+        if (!historyAvailable(snapshot)) return historyFallbackPage(model.object, snapshot);
         model.objectType = objects.getType(snapshot.typeId);
         const currentRevision = revision(fields, 'currentRevision');
         model.objectDraft = { title: snapshot.title, body: snapshot.body, revision: String(currentRevision), typeId: snapshot.typeId, properties: { ...snapshot.properties }, historyRevision: String(snapshot.revision) };
-        model.objects = pickerObjects();
+        model.objects = pickerObjects([model.object.properties, model.objectDraft.properties]);
         model.backlinks = objects.backlinks(model.object.id);
         return page();
       }
@@ -352,9 +396,14 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
       if (objectMatch) {
         model.screen = 'object'; model.object = objects.getObject(objectMatch[1]!); model.objectType = objects.getType(model.object.typeId); model.objects = pickerObjects();
         if (objectMatch[2] === 'update') {
-          model.objectDraft = { title: fields.get('title') ?? '', body: fields.get('body') ?? model.object.body, revision: fields.get('reviewedRevision') ?? fields.get('revision') ?? '', typeId: fields.get('typeId') ?? model.object.typeId, fields: draftFields(fields), historyRevision: fields.get('historyRevision') ?? undefined };
-          if (model.objectDraft.historyRevision) model.objectDraft.properties = historyDraftProperties(model.object, model.objectDraft.historyRevision);
+          model.objectDraft = { title: fields.get('title') ?? '', body: fields.get('body') ?? model.object.body, revision: fields.get('reviewedRevision') ?? fields.get('revision') ?? '', typeId: fields.get('typeId') ?? model.object.typeId, fields: draftFields(fields), historyRevision: fields.has('historyRevision') ? fields.get('historyRevision') ?? '' : undefined };
           requireFields(fields, ['csrf', 'revision', 'reviewedRevision', 'typeId', 'title', 'body', 'intent', 'historyRevision'], true);
+          if (model.objectDraft.historyRevision !== undefined) {
+            const snapshot = objects.getObjectRevision(model.object.id, positiveInteger(model.objectDraft.historyRevision, 'Choose a historical revision.'));
+            if (!historyAvailable(snapshot)) return historyFallbackPage(model.object, snapshot);
+            model.objectDraft.properties = { ...snapshot.properties };
+            model.objects = pickerObjects([model.object.properties, model.objectDraft.properties]);
+          }
           if (fields.get('intent') === 'change-type') {
             objects.getType(model.objectDraft.typeId!);
             return page();
