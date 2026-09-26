@@ -9,9 +9,12 @@ const Hidden = ({ name, value }: { name: string; value: string | number }) => <i
 const Token = ({ model }: { model: ObjectPageModel }) => <Hidden name="csrf" value={model.csrf} />;
 const State = ({ message, error = false }: { message?: string; error?: boolean }) => <p class={`form-state${error ? ' error' : ''}`} data-form-state="" role={error ? 'alert' : 'status'} aria-live={error ? 'assertive' : 'polite'}>{message}</p>;
 const titleOf = (record: ObjectRecord) => record.title || 'Untitled';
-const objectUrl = (id: string) => `/objects/${encodeURIComponent(id)}`;
+const objectIdentity = (id: string) => id.toLowerCase();
+const sameObjectIdentity = (left: string, right: string) => objectIdentity(left) === objectIdentity(right);
+const objectUrl = (id: string) => `/objects/${encodeURIComponent(objectIdentity(id))}`;
 const typeName = (model: ObjectPageModel, id: string) => model.catalog.types.find(type => type.id === id)?.name ?? 'Unknown type';
 const propertyOf = (model: ObjectPageModel, id: string) => model.catalog.properties.find(property => property.id === id);
+const objectOf = (model: ObjectPageModel, id: string) => model.objects.find(record => sameObjectIdentity(record.id, id));
 const isRange = (value: PropertyValue | undefined | null): value is { start: string; end: string; timeZone?: string } => Boolean(value && typeof value === 'object' && !Array.isArray(value));
 
 function typeIcon(typeId: string): IconName {
@@ -94,12 +97,13 @@ function PropertyControl({ model, property, value, name = `p:${property.id}`, re
   if (property.kind === 'select') return <label>{property.label}<select name={name}><option value="" selected={!scalar}>Not set</option>{property.options?.map(option => <option value={option.id} selected={scalar === option.id}>{option.label}</option>)}</select></label>;
   if (property.kind === 'reference') {
     const selected = fields?.[name]?.filter(Boolean) ?? (Array.isArray(value) ? value : typeof value === 'string' ? [value] : []);
+    const selectedIds = new Set(selected.map(objectIdentity));
     const candidates = model.objects.filter(record => (!property.targetTypeId || record.typeId === property.targetTypeId) && !record.trashed);
-    const missing = selected.filter(item => !candidates.some(record => record.id === item));
+    const missing = selected.filter((item, index) => selected.findIndex(other => sameObjectIdentity(other, item)) === index && !candidates.some(record => sameObjectIdentity(record.id, item)));
     return <label>{property.label}<select name={name} multiple={property.multiple} size={property.multiple ? 4 : undefined}>
       {!property.multiple && <option value="" selected={!selected.length}>Not set</option>}
-      {candidates.map(record => <option value={record.id} selected={selected.includes(record.id)}>{titleOf(record)} · {typeName(model, record.typeId)}</option>)}
-      {missing.map(item => <option value={item} selected>{model.objects.find(record => record.id === item)?.title || `Linked object ${item}`}</option>)}
+      {candidates.map(record => <option value={record.id} selected={selectedIds.has(objectIdentity(record.id))}>{titleOf(record)} · {typeName(model, record.typeId)}</option>)}
+      {missing.map(item => { const record = objectOf(model, item); return <option value={record?.id ?? item} selected>{record?.title || `Linked object ${item}`}</option>; })}
     </select>{property.multiple && <small>Choose multiple with Ctrl or Command. Clear the selection to remove all links.</small>}</label>;
   }
   return <label>{property.label}<input name={name} type={property.kind === 'number' ? 'number' : property.kind === 'date' ? 'date' : 'text'} step={property.kind === 'number' ? 'any' : undefined} value={scalar} required={required} data-journal-date={property.id === JOURNAL_DATE_PROPERTY_ID ? '' : undefined} aria-describedby={property.kind === 'datetime' ? `${id}-help` : undefined} />{property.kind === 'datetime' && <small id={`${id}-help`}>ISO timestamp with offset, for example 2026-09-24T09:00:00+01:00.</small>}</label>;
@@ -109,7 +113,7 @@ function Value({ model, propertyId, value }: { model: ObjectPageModel; propertyI
   const property = propertyOf(model, propertyId);
   if (value === undefined || value === '' || (Array.isArray(value) && !value.length)) return <span class="muted">Not set</span>;
   if (isRange(value)) return <span class="range-value"><span>{value.start}</span><span> to </span><span>{value.end}</span>{value.timeZone && <small> ({value.timeZone})</small>}</span>;
-  if (property?.kind === 'reference') return <span class="reference-values">{(Array.isArray(value) ? value : [String(value)]).map(id => <a href={objectUrl(id)}>{model.objects.find(record => record.id === id)?.title || `Linked object ${id}`}</a>)}</span>;
+  if (property?.kind === 'reference') return <span class="reference-values">{(Array.isArray(value) ? value : [String(value)]).map(id => <a href={objectUrl(id)}>{objectOf(model, id)?.title || `Linked object ${id}`}</a>)}</span>;
   if (property?.kind === 'select') return <span>{property.options?.find(option => option.id === value)?.label ?? String(value)}</span>;
   return <span>{typeof value === 'boolean' ? value ? 'Yes' : 'No' : Array.isArray(value) ? value.join(', ') : String(value)}</span>;
 }

@@ -43,7 +43,7 @@ Journal uniqueness includes Trash and is enforced by a SQLite unique index; stor
 | date-range | `{start,end}` with exclusive end |
 | time-range | `{start,end,timeZone?}` with explicit offsets and exclusive end |
 
-A new reference property requires a target type; single/multiple shape is fixed at creation. References to trashed objects may be retained, not newly added. Invalid values reject the whole write.
+A new reference property requires a target type; single/multiple shape is fixed at creation. References to trashed objects may be retained, not newly added. Invalid values reject the whole write. Reference display identity is case-insensitive: links, labels, and picker selections resolve UUID case variants without rewriting the stored value.
 
 `updateObject` replaces properties and Markdown body at the expected revision. `patchProperties` merges a patch, with null removing a property. Stale revisions return conflict. Creation request IDs are idempotent for the same type, title, property values, and exact submitted Markdown, and reject different reuse. Prior object states are retained in revision snapshots.
 

@@ -179,9 +179,10 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
             model.screen = 'object'; model.object = objects.getObject(match[2]!);
             model.objectType = objects.getType(model.object.typeId);
             model.objects = pickerObjects();
-            const selected = new Set<string>();
-            for (const [id, value] of Object.entries(model.object.properties)) if (objects.getProperty(id).kind === 'reference') for (const target of Array.isArray(value) ? value : [value]) if (typeof target === 'string') selected.add(target);
-            for (const id of selected) if (!model.objects.some(item => item.id === id)) { try { model.objects.push(objects.getObject(id)); } catch { /* An imported unresolved link remains in stored content. */ } }
+            const selected = new Map<string, string>();
+            for (const [id, value] of Object.entries(model.object.properties)) if (objects.getProperty(id).kind === 'reference') for (const target of Array.isArray(value) ? value : [value]) if (typeof target === 'string') selected.set(target.toLowerCase(), target);
+            const loaded = new Set(model.objects.map(item => item.id.toLowerCase()));
+            for (const [key, id] of selected) if (!loaded.has(key)) { try { const object = objects.getObject(id); model.objects.push(object); loaded.add(object.id.toLowerCase()); } catch { /* An imported unresolved link remains in stored content. */ } }
             model.backlinks = objects.backlinks(model.object.id);
           } else {
             model.screen = 'view'; model.objects = objects.listObjects({ limit: 200 });
