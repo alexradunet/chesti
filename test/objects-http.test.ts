@@ -672,7 +672,8 @@ test('maximum Unicode prompts fit the generation envelope with either context fi
   assert.equal(rejected.status, 422);
   let draft = '';
   await new HTMLRewriter().on('textarea[name="prompt"]', { text(chunk) { draft += chunk.text; } }).transform(rejected).text();
-  assert.equal(draft, prompt);
+  // HTML parsing removes exactly the textarea's initial newline sentinel.
+  assert.equal(draft.replace(/^\n/, ''), prompt);
   const payload = new URLSearchParams({ csrf: f.visitor.csrf, prompt: 'x'.repeat(40_000) }).toString();
   assert.equal((await f.post('/views/generate', { prompt: 'x'.repeat(40_000) })).status, 413);
   const streamed = await fetch(f.origin + '/views/generate', {
