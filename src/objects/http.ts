@@ -3,7 +3,7 @@ import { AppError } from '../core.js';
 import type { Visitor } from '../visitors.js';
 import { validateMarkdown } from './markdown.js';
 import { IdSchema, JOURNAL_DATE_PROPERTY_ID, JOURNAL_TYPE_ID, PAGE_TYPE_ID, TASK_TYPE_ID } from './model.js';
-import type { ObjectLookupResult, ObjectPageModel, ObjectRecord, ObjectWrite, PropertyDefinition, PropertyKind, PropertyValue, SavedView, ViewConversation, ViewGenerator } from './model.js';
+import type { EvaluatedView, ObjectLookupResult, ObjectPageModel, ObjectRecord, ObjectWrite, PropertyDefinition, PropertyKind, PropertyValue, SavedView, ViewConversation, ViewGenerator } from './model.js';
 import type { ObjectRuntime } from './runtime.js';
 import { ViewService } from './views.js';
 import { generateView } from './generator.js';
@@ -88,6 +88,44 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
         if (propertyIds.has(property.id) && property.kind === 'reference' && property.targetTypeId) targetTypes.add(property.targetTypeId);
       }
       return [...targetTypes].flatMap(typeId => objects.listObjects({ typeId, limit: 200 }));
+    };
+    const viewObjects = (evaluated: EvaluatedView) => {
+      const byId = new Map<string, ObjectRecord>();
+      const targetTypes = new Set<string>();
+      const selectedIds = new Set<string>();
+      const add = (record?: ObjectRecord) => {
+        if (!record || byId.has(record.id)) return;
+        byId.set(record.id, record);
+      };
+      const addValue = (value: PropertyValue | undefined) => {
+        const ids = Array.isArray(value) ? value : typeof value === 'string' ? [value] : [];
+        for (const id of ids) selectedIds.add(id);
+      };
+      if (evaluated.view.spec.input?.typeId) targetTypes.add(evaluated.view.spec.input.typeId);
+      for (const block of evaluated.blocks) {
+        for (const row of block.rows) {
+          for (const propertyId of Object.values(row.bindings)) {
+            const property = catalog.properties.find(item => item.id === propertyId);
+            if (property?.kind !== 'reference') continue;
+            if (property.targetTypeId) targetTypes.add(property.targetTypeId);
+            addValue(row.object.properties[property.id]);
+          }
+        }
+      }
+      for (const typeId of targetTypes) {
+        for (const record of objects.listObjects({ typeId, limit: 200 })) add(record);
+      }
+      add(evaluated.input);
+      for (const id of selectedIds) {
+        if (byId.has(id)) continue;
+        try {
+          add(objects.getObject(id));
+        } catch (error) {
+          if (error instanceof AppError && error.status === 404) continue;
+          throw error;
+        }
+      }
+      return [...byId.values()];
     };
     const readWrite = (data: URLSearchParams, current?: ObjectRecord): ObjectWrite => {
       const type = objects.getType(data.get('typeId') ?? current?.typeId ?? PAGE_TYPE_ID);
@@ -184,13 +222,9 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
             for (const id of selected) if (!model.objects.some(item => item.id === id)) { try { model.objects.push(objects.getObject(id)); } catch { /* An imported unresolved link remains in stored content. */ } }
             model.backlinks = objects.backlinks(model.object.id);
           } else {
-            model.screen = 'view'; model.objects = objects.listObjects({ limit: 200 });
+            model.screen = 'view';
             model.evaluatedView = views.evaluate(match[2]!, url.searchParams.get('input') || undefined);
-            const inputType = model.evaluatedView.view.spec.input?.typeId;
-            if (inputType) {
-              model.objects = objects.listObjects({ typeId: inputType, limit: 200 });
-              if (model.evaluatedView.input && !model.objects.some(record => record.id === model.evaluatedView!.input!.id)) model.objects.push(model.evaluatedView.input);
-            }
+            model.objects = viewObjects(model.evaluatedView);
           }
         }
         return page();
