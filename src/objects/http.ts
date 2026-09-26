@@ -60,6 +60,16 @@ function draftFields(fields: URLSearchParams): Record<string, string[]> {
   for (const name of fields.keys()) if (name.startsWith('p:')) draft[name] = fields.getAll(name);
   return draft;
 }
+function newPropertyDraft(fields: URLSearchParams) {
+  return {
+    label: fields.get('label') ?? '',
+    kind: fields.get('kind') ?? '',
+    options: fields.get('options') ?? '',
+    targetTypeId: fields.get('targetTypeId') ?? '',
+    multiple: fields.get('multiple') === 'on' || fields.get('multiple') === 'true',
+    revision: fields.get('revision') ?? '',
+  };
+}
 
 /** The native editor, enhanced editor, and generated view forms share the same commands. */
 export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenerator = generateView) {
@@ -252,7 +262,9 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
           objects.renameType(model.objectType.id, revision(fields), fields.get('name') ?? '');
         } else {
           requireFields(fields, ['csrf', 'revision', 'propertyId', 'label', 'kind', 'options', 'targetTypeId', 'multiple']);
-          objects.addProperty(model.objectType.id, revision(fields), fields.get('propertyId') ? { propertyId: fields.get('propertyId')! } : {
+          const propertyId = fields.get('propertyId');
+          if (!propertyId) model.newPropertyDraft = newPropertyDraft(fields);
+          objects.addProperty(model.objectType.id, revision(fields), propertyId ? { propertyId } : {
             label: fields.get('label') ?? '', kind: fields.get('kind') as PropertyKind,
             ...(fields.get('options') ? { options: fields.get('options')!.split(/\r?\n/).map(value => value.trim()).filter(Boolean) } : {}),
             ...(fields.get('targetTypeId') ? { targetTypeId: fields.get('targetTypeId')! } : {}),

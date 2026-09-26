@@ -43,6 +43,122 @@ function nativeObjectFields(markup: string): Record<string, string> {
   return fields;
 }
 
+async function nativePropertyForm(markup: string) {
+  const result = { fields: {} as Record<string, string>, selected: {} as Record<string, string>, checked: false, draft: false };
+  const entities: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', '#39': "'" };
+  const decode = (value: string) => value.replace(/&(amp|lt|gt|quot|#39);/g, (_, entity: string) => entities[entity]!);
+  await new HTMLRewriter()
+    .on('form[data-new-property]', {
+      element(element) { result.draft = element.hasAttribute('data-draft'); },
+    })
+    .on('form[data-new-property] input', {
+      element(element) {
+        const name = element.getAttribute('name');
+        if (!name) return;
+        if (name === 'multiple') result.checked = element.hasAttribute('checked');
+        result.fields[name] = decode(element.getAttribute('value') ?? '');
+      },
+    })
+    .on('form[data-new-property] textarea[name="options"]', {
+      text(chunk) { result.fields.options = (result.fields.options ?? '') + chunk.text; },
+    })
+    .on('form[data-new-property] select[name="kind"] option[selected]', {
+      element(element) { result.selected.kind = decode(element.getAttribute('value') ?? ''); },
+    })
+    .on('form[data-new-property] select[name="targetTypeId"] option[selected]', {
+      element(element) { result.selected.targetTypeId = decode(element.getAttribute('value') ?? ''); },
+    })
+    .transform(new Response(markup)).text();
+  result.fields.options = decode(result.fields.options ?? '').replace(/^\n/, '');
+  return result;
+}
+
+test('rejected native property creation retains select and reference drafts without changing schemas', async t => {
+  const f = await setup(t, async () => { throw new Error('Not used'); });
+  const type = f.objects.createType('Drafted properties');
+  const target = f.objects.createType('Draft target');
+  const label = 'Status "now" & <later>';
+  const options = '\n  Todo  \nDoing\n\nTodo\n';
+  const select = await f.post(`/types/${type.id}/properties`, { revision: String(type.revision), label, kind: 'select', options });
+  assert.equal(select.status, 422);
+  const selectMarkup = await select.text();
+  assert.ok(selectMarkup.includes('Option labels must be unique.'));
+  const selectForm = await nativePropertyForm(selectMarkup);
+  assert.equal(selectForm.draft, true);
+  assert.equal(selectForm.fields.label, label);
+  assert.equal(selectForm.fields.revision, String(type.revision));
+  assert.equal(selectForm.selected.kind, 'select');
+  assert.equal(selectForm.fields.options, options);
+  assert.equal(selectForm.selected.targetTypeId, '');
+  assert.equal(selectForm.checked, false);
+  assert.deepEqual(f.objects.getType(type.id), type);
+  assert.equal(f.objects.catalog().properties.some(property => property.label === label), false);
+
+  const corrected = await f.post(`/types/${type.id}/properties`, { revision: selectForm.fields.revision, label: selectForm.fields.label, kind: selectForm.selected.kind, options: 'Todo\nDoing' });
+  assert.equal(corrected.status, 303);
+  const withSelect = f.objects.getType(type.id);
+  assert.equal(withSelect.propertyIds.length, 1);
+  const property = f.objects.getProperty(withSelect.propertyIds[0]!);
+  assert.equal(property.label, label);
+  assert.equal(property.kind, 'select');
+  assert.deepEqual(property.options?.map(option => option.label), ['Todo', 'Doing']);
+
+  const incompatible = await f.post(`/types/${type.id}/properties`, { revision: String(withSelect.revision), label: 'Wrong fields', kind: 'select', options: 'One', targetTypeId: target.id, multiple: 'true' });
+  assert.equal(incompatible.status, 422);
+  const incompatibleMarkup = await incompatible.text();
+  assert.ok(incompatibleMarkup.includes('Only reference properties have a target type or multiple values.'));
+  const incompatibleForm = await nativePropertyForm(incompatibleMarkup);
+  assert.equal(incompatibleForm.fields.label, 'Wrong fields');
+  assert.equal(incompatibleForm.fields.revision, String(withSelect.revision));
+  assert.equal(incompatibleForm.selected.kind, 'select');
+  assert.equal(incompatibleForm.fields.options, 'One');
+  assert.equal(incompatibleForm.selected.targetTypeId, target.id);
+  assert.equal(incompatibleForm.checked, true);
+  assert.deepEqual(f.objects.getType(type.id), withSelect);
+
+  const missingTarget = randomUUID();
+  const reference = await f.post(`/types/${type.id}/properties`, { revision: String(withSelect.revision), label: 'Related item', kind: 'reference', targetTypeId: missingTarget, multiple: 'true' });
+  assert.equal(reference.status, 404);
+  const referenceForm = await nativePropertyForm(await reference.text());
+  assert.equal(referenceForm.fields.label, 'Related item');
+  assert.equal(referenceForm.fields.revision, String(withSelect.revision));
+  assert.equal(referenceForm.selected.kind, 'reference');
+  assert.equal(referenceForm.selected.targetTypeId, missingTarget);
+  assert.equal(referenceForm.checked, true);
+  assert.deepEqual(f.objects.getType(type.id), withSelect);
+});
+
+test('native property drafts keep stale revisions and can be corrected without affecting reuse', async t => {
+  const f = await setup(t, async () => { throw new Error('Not used'); });
+  let type = f.objects.createType('Property corrections');
+  const reusable = f.objects.addProperty(PAGE_TYPE_ID, f.objects.getType(PAGE_TYPE_ID).revision, { label: 'Reusable note', kind: 'text' });
+  const staleRevision = type.revision;
+  type = f.objects.addProperty(type.id, type.revision, { label: 'Concurrent flag', kind: 'boolean' });
+  const staleFields = { revision: String(staleRevision), label: 'Blocked select', kind: 'select', options: 'One\nTwo' };
+  const stale = await f.post(`/types/${type.id}/properties`, staleFields);
+  assert.equal(stale.status, 409);
+  const staleForm = await nativePropertyForm(await stale.text());
+  assert.equal(staleForm.fields.revision, String(staleRevision));
+  assert.equal(staleForm.fields.label, staleFields.label);
+  assert.equal(staleForm.fields.options, staleFields.options);
+  assert.equal((await f.post(`/types/${type.id}/properties`, staleFields)).status, 409);
+  assert.deepEqual(f.objects.getType(type.id), type);
+
+  const corrected = await f.post(`/types/${type.id}/properties`, { revision: String(type.revision), label: 'Blocked select', kind: 'select', options: 'One\nTwo' });
+  assert.equal(corrected.status, 303);
+  const withSelect = f.objects.getType(type.id);
+  assert.equal(withSelect.propertyIds.length, type.propertyIds.length + 1);
+  const property = f.objects.getProperty(withSelect.propertyIds.at(-1)!);
+  assert.equal(property.label, 'Blocked select');
+  assert.deepEqual(property.options?.map(option => option.label), ['One', 'Two']);
+
+  const beforeReuse = f.objects.getType(type.id);
+  const reuse = await f.post(`/types/${type.id}/properties`, { revision: String(beforeReuse.revision), propertyId: reusable.propertyIds.at(-1)! });
+  assert.equal(reuse.status, 303);
+  const afterReuse = f.objects.getType(type.id);
+  assert.equal(afterReuse.propertyIds.at(-1), reusable.propertyIds.at(-1));
+});
+
 test('native type browsing keeps search and trash scope when switching layouts and pages', async t => {
   const f = await setup(t, async () => { throw new Error('Not used'); });
   const task = f.objects.createType('Task');
