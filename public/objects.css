@@ -249,16 +249,14 @@
 .object-shell .kind-help { min-height: 2.5rem; margin-top: var(--space-2); }
 
 /* Markdown editor, save feedback, and conflict comparison. */
-.object-shell .object-type-picker { display: flex; align-items: flex-end; flex-wrap: wrap; gap: var(--space-2) var(--space-4); max-width: 900px; margin-bottom: var(--space-5); }
+.object-shell .object-type-picker { display: flex; align-items: flex-end; flex-wrap: wrap; gap: var(--space-2) var(--space-4); margin: var(--space-4) 0; }
 .object-shell .object-type-picker label { flex: 1 1 220px; max-width: 340px; margin: 0; }
 .object-shell .object-type-picker > a { font-size: var(--text-sm); padding-bottom: var(--space-3); }
 .object-shell .object-type-picker p { flex-basis: 100%; margin: 0; }
 .object-shell .object-property { border: 0; padding: 0; margin: 0; min-width: 0; }
 .object-shell .object-property:has(.range-field) { grid-column: 1 / -1; }
-.object-shell .properties > summary { display: flex; align-items: center; gap: var(--space-3); }
-.object-shell .properties > summary::before { content: "›"; color: var(--text-muted); transition: transform var(--duration-fast); }
-.object-shell .properties[open] > summary::before { transform: rotate(90deg); }
-.object-shell .properties > summary > .fine { margin-left: auto; font-weight: var(--weight-normal); }
+.object-shell .properties-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--space-2) var(--space-3); }
+.object-shell .properties-heading h2 { display: flex; align-items: center; gap: var(--space-2); margin: 0; font-size: var(--text-base); }
 .object-shell .writing-heading { display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); margin-bottom: var(--space-3); }
 .object-shell .writing-heading label { margin: 0; }
 .object-shell .builtin-rules > p { padding: var(--space-3) var(--space-4); border-left: 3px solid var(--border-accent); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; background: var(--surface-hover); }
@@ -282,11 +280,11 @@
 .object-shell .saved-details dd { margin: 0; white-space: pre-wrap; }
 .object-shell .saved-source { max-height: 30rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
 .object-shell .object-editor { max-width: 900px; }
-.object-shell .object-type-field { max-width: 440px; margin: var(--space-3) 0; }
 .object-shell .title-field input { font-size: clamp(var(--text-2xl), 4cqi, var(--text-3xl)) !important; font-weight: var(--weight-semibold); padding: var(--space-4) !important; letter-spacing: -.035em; }
-.object-shell .properties { margin: var(--space-5) 0; border-top: 1px solid var(--border-subtle); border-bottom: 1px solid var(--border-subtle); padding: var(--space-1) 0; }
-.object-shell .property-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); gap: var(--space-5) var(--space-6); padding: var(--space-4) 0; }
-.object-shell .property-grid:empty { display: none; }
+.object-shell .properties { margin: var(--space-5) 0; border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); padding: var(--space-4); background: var(--surface-panel); }
+.object-shell .properties > [data-properties-empty] { margin-bottom: 0; }
+.object-shell .property-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); gap: var(--space-4); }
+.object-shell .property-grid:not(:has(.object-property:not([hidden]))) { display: none; }
 .object-shell .range-field { grid-column: 1 / -1; min-width: 0; margin: 0; border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: var(--space-4); }
 .object-shell .range-field legend { font-size: var(--text-sm); font-weight: var(--weight-semibold); padding: 0 var(--space-2); }
 .object-shell .range-inputs { display: flex; flex-wrap: wrap; gap: var(--space-3); }

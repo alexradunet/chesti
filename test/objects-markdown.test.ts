@@ -32,7 +32,7 @@ test('reading Markdown preserves formatting without executable HTML, unsafe link
   const source = [
     '# Reading', 'A **bold** word and *emphasis*.', 'First  \nsecond',
     '[allowed](https://example.com/?a=1&b=2)', '[email](mailto:person@example.com)',
-    `[object](/objects/${target})`, '[script](javascript:alert%281%29)',
+    `[object](/objects/${target.toUpperCase()})`, '[script](javascript:alert%281%29)',
     '[entity](java&#x73;cript:alert%281%29)', '[data](data:text/html,test)',
     '<script>alert(1)</script>', '<img src=x onerror=alert(1)>',
     '![<script>alert(2)</script>](https://example.com/image.png)',
@@ -55,6 +55,8 @@ test('reading Markdown preserves formatting without executable HTML, unsafe link
   for (const tag of ['script', 'img', 'iframe', 'svg']) assert.equal(tags.includes(tag), false, tag);
   assert.equal(links.length, 3);
   assert.ok(links.includes(`/objects/${target}`));
+  assert.equal(links.includes(`/objects/${target.toUpperCase()}`), false);
+  assert.deepEqual(markdownReferences(source), [target]);
 });
 
 test('search text includes readable Markdown content without formatting delimiters', () => {

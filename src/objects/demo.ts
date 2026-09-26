@@ -34,16 +34,16 @@ export function seedDemo(objects: ObjectRuntime): void {
   const writing = objects.createObject({
     typeId: PAGE_TYPE_ID,
     title: 'Writing · Markdown, links, and backlinks',
-    properties: { [summary]: 'Write plain source, read saved content, and connect objects without copying them.' },
+    properties: { [summary]: 'Edit formatted writing and connect objects without copying them; Markdown stays the source of record.' },
     body: `# Writing is a primitive
 
-This page is ordinary **Markdown**, not a generated interface. Select **Read saved** to read the last saved version; select **Edit Markdown** to change its source. Reading is not a live preview of unsaved edits.
+This page is ordinary **Markdown**, not a generated interface. With JavaScript, edit its formatted writing directly. Saving writing edits may normalize Markdown syntax; changing only properties leaves the source unchanged. Without JavaScript, or if formatted editing is unavailable, use the source field and **Read saved writing**.
 
 ## Try it
 
 1. Add a sentence in the writing field and choose **Save changes**.
-2. Select a few words, choose **Insert link**, and search for another object.
-3. Save, open that object, and inspect **Linked from**. Links in writing and references in Details both create backlinks, with their own provenance.
+2. Select a few words, choose **Insert object link**, and search for another object.
+3. Save, open that object, and inspect **Linked from**. Links in writing and references in Properties both create backlinks, with their own provenance.
 
 > The object owns the writing. A list, gallery, or saved view is another way to reach the same object.
 
@@ -154,7 +154,7 @@ In **03 · Page focus**, select the project and use **Edit Priority** to move th
     properties: { [context]: project.id, [priority]: high!.id, [effort]: 0.5, [TASK_DUE_PROPERTY_ID]: day(3) },
     body: `Share the invitation once the details for ${link(project)} are settled. This is an ordinary task, not an automated email or notification.
 
-The reference in Details and the link in this writing both lead to the same Page. Rename the Page and those connections keep their stable identity.`,
+The reference in Properties and the link in this writing both lead to the same Page. Rename the Page and those connections keep their stable identity.`,
   });
   objects.createObject({
     typeId: TASK_TYPE_ID,
@@ -246,7 +246,7 @@ This is an ordinary **Page**, not a special onboarding screen. Everything here i
 ## A five-minute tour
 
 1. Read ${link(project)}. Its project brief is just a Page; its **Linked from** section gathers related work.
-2. Open ${link(invitation)} and expand **Details**. Try a title, a property, or a sentence; save explicitly.
+2. Open ${link(invitation)} and find **Properties** between its title and writing. Try a title, a property, or a sentence; save explicitly.
 3. Open **Views → 01 · Start here**. The same tasks appear as a Done board and a table. Change Done on the board, then open the task to see the result.
 4. Open **Calendar → 02 · Calendar**. Find the undated task under Unscheduled, and inspect ${link(opening)} for an exclusive-end date range.
 5. Open **Views → 03 · Page focus**, choose the reading-room Page, and explore its reference-scoped work. No input means no records.
@@ -254,7 +254,7 @@ This is an ordinary **Page**, not a special onboarding screen. Everything here i
 
 ## Go deeper
 
-- ${link(writing)} — Markdown, saved reading, search, object links, and backlinks.
+- ${link(writing)} — formatted writing, Markdown, search, object links, and backlinks.
 - ${link(perspectives)} — every trusted view component, scoped inputs, AI drafts, and shared property identities.
 - ${link(safety)} — recover a trashed example, try revision conflicts, and delete a view without deleting data.
 

@@ -1,7 +1,7 @@
 import { AppError } from '../core.js';
+import { objectLink, safeLink, writingHref } from './writing-links.js';
 
 const options: Bun.markdown.Options = { noHtmlBlocks: true, noHtmlSpans: true };
-const objectLink = /^\/objects\/([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})$/i;
 
 export function validateMarkdown(input: unknown): string {
   if (typeof input !== 'string' || Buffer.byteLength(input, 'utf8') > 262_144) {
@@ -10,10 +10,6 @@ export function validateMarkdown(input: unknown): string {
   return input;
 }
 
-export function safeLink(href: unknown): boolean {
-  return typeof href === 'string' && !/[\u0000-\u0020\u007f\\]/.test(href) &&
-    (/^https?:\/\//i.test(href) || /^mailto:/i.test(href) || objectLink.test(href));
-}
 
 /** Only parsed links count: code examples, images and raw HTML never create backlinks. */
 export function markdownReferences(body: string): string[] {
@@ -48,8 +44,7 @@ export function renderMarkdown(body: string): string {
     .on('a', { element(link) {
       if (!safeLink(link.getAttribute('href'))) link.removeAndKeepContent();
       else {
-        const target = objectLink.exec(link.getAttribute('href')!);
-        if (target) link.setAttribute('href', `/objects/${target[1]!.toLowerCase()}`);
+        link.setAttribute('href', writingHref(link.getAttribute('href')!));
         link.setAttribute('rel', 'noreferrer');
       }
     } })

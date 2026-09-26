@@ -321,7 +321,7 @@ function SavedConflict({ model }: { model: ObjectPageModel }) {
     <h3>Saved writing</h3>
     <div class="markdown-content">{raw(renderMarkdown(record.body))}</div>
     <details><summary>Saved Markdown source</summary><pre class="saved-source">{`\n${record.body}`}</pre></details>
-    <p><a href="#markdown-body">Back to your draft</a></p>
+    <p><a href="#writing-area">Back to your draft</a></p>
   </>;
 }
 
@@ -342,19 +342,17 @@ function ObjectEditor({ model }: { model: ObjectPageModel }) {
   if (model.error) state = model.error;
   const conflict = Boolean(record && draft?.revision && Number(draft.revision) !== record.revision);
   return <><h1 class="sr-only">{record ? 'Edit object' : 'New object'}</h1><a class="back-link" data-object-back="" href={`/?type=${type.id}`}>← {type.name} objects</a>{record?.trashed && <Badge tone="warning">In trash</Badge>}
-    {record && <nav class="object-sections" aria-label="Object sections"><a href="#markdown-body">Edit Markdown</a><a href={conflict ? '#saved-conflict' : '#saved-writing'} data-read-saved="">Read saved</a><a href="#object-backlinks">Linked from</a></nav>}
-    {!record && <div class="object-type-picker"><label>Object type<select name="typeId" form="object-editor" data-new-type="">{model.catalog.types.map(item => <option value={item.id} selected={item.id === type.id}>{item.name}</option>)}</select></label><a href="/types#create-type">Create a new type</a><p class="fine native-only">Choose Use type below to load its fields without saving or losing your writing.</p></div>}
+    {record && <nav class="object-sections" aria-label="Object sections"><a href="#writing-area">Writing</a><a href="#object-backlinks">Linked from</a></nav>}
     <div class={`object-editing${conflict ? ' has-conflict' : ''}`}>
     <form id="object-editor" class="object-editor" method="post" action={record ? `/objects/${record.id}/update` : '/objects/create'} data-enhance="" data-object-editor="" data-new-object={!record ? 'true' : undefined} data-local-date-default={!record && !draft && model.journalDateDefault ? 'true' : undefined} data-draft={draft ? 'true' : undefined}><Token model={model} />{record ? <Hidden name="revision" value={draft?.revision ?? record.revision} /> : <Hidden name="requestId" value={draft?.requestId ?? crypto.randomUUID()} />}
       <label class="title-field"><span class="sr-only">Title</span><input name="title" value={draft?.title ?? record?.title ?? (type.id === JOURNAL_TYPE_ID ? journalDate ?? '' : '')} data-journal-title-default={!record && !draft && type.id === JOURNAL_TYPE_ID ? 'true' : undefined} required maxlength={500} autocomplete="off" placeholder="Untitled" /></label>
-      <section class="writing">
-        <div class="writing-heading"><label for="markdown-body">Writing (Markdown)</label><Button class="js-only" type="button" data-insert-object-link="">Insert link</Button></div>
-        <textarea id="markdown-body" class="markdown-source" name="body" rows={14} aria-describedby="markdown-help" spellcheck={true}>{`\n${body}`}</textarea>
-        <p class="fine" id="markdown-help">Use # headings, **bold**, and [label](url). Changes need saving.</p>
-      </section>
-      <details class="properties" open={propertyCount > 0}>
-        <summary>Details <Badge data-property-count="" hidden={!propertyCount}>{propertyCount}</Badge><span class="fine" data-object-type-label="">{type.name}</span></summary>
-        {record && <label class="object-type-field">Type<select name="typeId" data-new-type="">{model.catalog.types.map(item => <option value={item.id} selected={item.id === type.id}>{item.name}</option>)}</select><small>Changing type keeps existing values. Without JavaScript, choose Use type below to load its fields without saving.</small></label>}
+      <section class="properties" aria-labelledby="object-properties-heading">
+        <header class="properties-heading"><h2 id="object-properties-heading">Properties <Badge data-property-count="" hidden={!propertyCount}>{propertyCount}</Badge></h2><span class="fine" data-object-type-label="">{type.name}</span></header>
+        <div class="object-type-picker">
+          <label>Object type<select name="typeId" data-new-type="">{model.catalog.types.map(item => <option value={item.id} selected={item.id === type.id}>{item.name}</option>)}</select></label>
+          {!record && <a href="/types#create-type">Create a new type</a>}
+          <p class="fine">{record ? 'Changing type keeps existing values.' : 'Choose a type, then add its details.'}<span class="native-only"> Choose Use type below to load its fields without saving or losing your writing.</span></p>
+        </div>
         <p class="fine" data-properties-empty="" hidden={propertyCount > 0}>No additional properties. <a href={`/types/${type.id}`} data-type-setup="">Manage type</a></p>
         <BuiltinRules model={model} typeId={type.id} />
         <div class="property-grid">{propertyIds.map(id => {
@@ -372,8 +370,31 @@ function ObjectEditor({ model }: { model: ObjectPageModel }) {
             </fieldset>
           </>;
         })}</div>
-      </details>
+      </section>
       <JournalDiscovery model={model} />
+      <section class="writing" id="writing-area" tabindex={-1}>
+        <div class="writing-heading"><h2 id="writing-heading">Writing</h2><Button class="js-only" type="button" data-insert-object-link="">Insert object link</Button></div>
+        <div class="writing-toolbar" role="toolbar" aria-label="Writing formatting" data-writing-toolbar="" hidden>
+          <label class="sr-only" for="writing-block">Paragraph style</label>
+          <select id="writing-block" data-writing-block="" aria-label="Paragraph style">
+            <option value="paragraph">Paragraph</option>
+            {[1, 2, 3, 4, 5, 6].map(level => <option value={`heading-${level}`}>Heading {level}</option>)}
+          </select>
+          {([['bold', 'Bold'], ['italic', 'Italic'], ['strike', 'Strikethrough'], ['bullet', 'Bulleted list'], ['ordered', 'Numbered list'], ['quote', 'Block quote'], ['code', 'Inline code'], ['code-block', 'Code block'], ['link', 'Link'], ['undo', 'Undo'], ['redo', 'Redo']] as const).map(([command, label]) => <Button type="button" variant="ghost" data-writing-command={command} aria-label={label} title={label}>{label}</Button>)}
+        </div>
+        <div data-writing-mount="" hidden></div>
+        <label class="sr-only" for="markdown-body">Writing Markdown source</label>
+        <textarea id="markdown-body" class="markdown-source" name="body" rows={14} aria-describedby="markdown-help" spellcheck={true} data-writing-source={JSON.stringify(body)}>{`\n${body}`}</textarea>
+        <p class="fine" id="markdown-help">Use # headings, **bold**, and [label](url). Changes need saving.</p>
+        <p class="fine" data-writing-status="" role="status" hidden></p>
+        <dialog class="writing-link-dialog" data-writing-link-dialog="" aria-labelledby="writing-link-heading">
+          <h2 id="writing-link-heading">Edit link</h2>
+          <label>Link address<input data-writing-link-url="" type="text" inputmode="url" autocomplete="off" placeholder="https://example.com" /></label>
+          <p class="fine">Use https, http, mailto, or an object link. Leave empty to remove a link.</p>
+          <p data-writing-link-error="" role="alert"></p>
+          <Button type="button" data-writing-link-apply="">Apply link</Button> <Button type="button" variant="ghost" data-writing-link-cancel="">Cancel</Button>
+        </dialog>
+      </section>
       <div class="save-bar">
         <span data-object-save-controls="">{conflict && record ? <Button type="submit" variant="primary" name="reviewedRevision" value={record.revision}>Save reconciled changes</Button> : <Button type="submit" variant="primary">{record ? 'Save changes' : 'Create object'}</Button>} <Button class="native-only" type="submit" name="intent" value="change-type" formnovalidate>Use type</Button></span>
         <State message={state} error={Boolean(model.error)} />
@@ -382,12 +403,12 @@ function ObjectEditor({ model }: { model: ObjectPageModel }) {
     <aside id="saved-conflict" class="saved-conflict" data-conflict-panel="" hidden={!conflict} tabindex={-1} aria-labelledby={conflict ? 'conflict-heading' : undefined}>{conflict && <SavedConflict model={model} />}</aside>
     </div>
     {record && <>
-      {!conflict && <details class="markdown-preview" data-saved-reading="">
+      {!conflict && <details class="markdown-preview" data-native-reading="">
         <summary>Read saved writing</summary>
         <div id="saved-writing" tabindex={-1}>
           <p class="fine">Saved revision {record.revision}. Unsaved edits are not shown here.</p>
           <div class="markdown-content">{raw(renderMarkdown(record.body))}</div>
-          <a href="#markdown-body">Back to editing</a>
+          <a href="#writing-area">Back to editing</a>
         </div>
       </details>}
       <section id="object-backlinks" class="backlinks" tabindex={-1}>
@@ -486,7 +507,7 @@ export function renderObjectWorkspace(model: ObjectPageModel): string {
   const currentView = model.screen === 'view' ? model.evaluatedView?.view : undefined;
   const suggestedPrompt = model.section === 'calendar' ? 'Create a calendar of my objects using their date properties.' : model.section === 'tasks' && model.selectedTypeId ? 'Create a view of my tasks using their existing properties.' : undefined;
   const objectEditor = model.screen === 'new-object' || (model.screen === 'object' && Boolean(model.object));
-  return '<!doctype html>' + (<html lang="en"><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><meta name="color-scheme" content="light" /><title>{title} · Taskdesk</title><link rel="stylesheet" href="/tokens.css" /><link rel="stylesheet" href="/objects.css" /></head><body class={`object-shell${model.aiOpen ? ' ai-open' : ''}`} data-ai-view-id={currentView?.id} data-ai-view-title={currentView?.spec.title} data-ai-context-title={model.aiContextTitle} data-ai-prompt={suggestedPrompt}>
+  return '<!doctype html>' + (<html lang="en"><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><meta name="color-scheme" content="light" /><title>{title} · Taskdesk</title><link rel="stylesheet" href="/tokens.css" /><link rel="stylesheet" href="/objects.css" />{objectEditor && <link rel="stylesheet" href="/writing.css" />}</head><body class={`object-shell${model.aiOpen ? ' ai-open' : ''}`} data-ai-view-id={currentView?.id} data-ai-view-title={currentView?.spec.title} data-ai-context-title={model.aiContextTitle} data-ai-prompt={suggestedPrompt}>
     <a class="skip-link" href="#main">Skip to content</a><div class="workspace-layout"><WorkspaceNav model={model} />
     <div class="workspace-content"><header class="workspace-header"><div class="workspace-breadcrumb"><Button class="icon-button js-only nav-toggle" type="button" data-nav-toggle="" aria-label="Open navigation" aria-controls="workspace-nav" aria-expanded="false"><Icon name="menu" /></Button><a href="/">Workspace</a><span aria-hidden="true">/</span><span class="breadcrumb-title">{title}</span></div><ButtonLink class="ai-toggle" href="/views?ai=1" data-ai-toggle="" aria-controls="ai-panel" aria-expanded={model.aiOpen ? 'true' : 'false'}><Icon name="ai" /><span>View assistant</span></ButtonLink></header>
     <main id="main" tabindex={-1}>{model.error && !objectEditor && <div class="notice error" role="alert">{model.error}</div>}{model.notice && !objectEditor && <div class="notice" role="status">{model.notice}</div>}{model.screen === 'journal' ? <Journal model={model} /> : model.screen === 'home' ? <ObjectHome model={model} /> : model.screen === 'objects' ? <Objects model={model} /> : model.screen === 'types' ? <Types model={model} /> : model.screen === 'type' ? <TypeEditor model={model} /> : model.screen === 'new-object' || model.screen === 'object' ? <ObjectEditor model={model} /> : model.screen === 'views' ? <Views model={model} /> : <View model={model} />}</main><footer class="workspace-footer">Objects are yours. Views are ways to see them.</footer></div>

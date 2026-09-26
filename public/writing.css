@@ -1,0 +1,33 @@
+@import url('/writing-prose.css');
+@import url('/writing-tables.css');
+
+:root { scroll-padding-block-end: var(--writing-save-clearance, 8rem); }
+.object-shell .object-editor :is(input, select, textarea, button) { scroll-margin-block-end: var(--writing-save-clearance, 8rem); }
+.object-shell .writing-heading h2 { margin: 0; font-size: var(--text-base); }
+.object-shell .writing-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1); border: 1px solid var(--border-control); border-bottom: 0; border-radius: var(--radius-md) var(--radius-md) 0 0; padding: var(--space-2); background: var(--surface-panel); }
+.object-shell .writing-toolbar button { font-size: var(--text-sm); padding: var(--space-2); min-height: var(--control-height); }
+.object-shell .writing-toolbar button[aria-pressed="true"] { background: var(--surface-selected); color: var(--action-primary); }
+.object-shell .writing-toolbar select { width: auto; max-width: 100%; margin: 0; }
+.object-shell .writing-editor { min-height: 320px; padding: var(--space-5); border: 1px solid var(--border-control); border-radius: 0 0 var(--radius-md) var(--radius-md); background: var(--surface-panel); line-height: var(--leading-relaxed); overflow-wrap: anywhere; }
+.object-shell .writing-editor:focus-visible { outline: 2px solid var(--action-primary); outline-offset: 2px; }
+.object-shell .writing-editor > :first-child { margin-top: 0; }
+.object-shell .writing-editor > :last-child { margin-bottom: 0; }
+.object-shell .writing-editor h1 { font-size: var(--text-2xl); }
+.object-shell .writing-editor h2 { font-size: var(--text-xl); }
+.object-shell .writing-editor h3 { font-size: var(--text-lg); }
+.object-shell .writing-editor pre { white-space: pre-wrap; background: var(--surface-subtle); padding: var(--space-4); border-radius: var(--radius-md); }
+.object-shell .writing-editor code { font-family: var(--font-mono); font-size: var(--text-sm); }
+.object-shell .writing-editor blockquote { border-left: 3px solid var(--border-accent); margin-left: 0; padding-left: var(--space-4); color: var(--text-muted); }
+.object-shell .writing-editor table { width: 100%; table-layout: fixed; border-collapse: collapse; }
+.object-shell .writing-editor :is(th, td) { min-width: 0; border: 1px solid var(--border-control); padding: var(--space-2); vertical-align: top; }
+.object-shell .writing-editor [data-align="center"] { text-align: center; }
+.object-shell .writing-editor [data-align="right"] { text-align: right; }
+.object-shell .writing-editor li[data-item-type="task"] { list-style: none; position: relative; padding-left: var(--space-6); }
+.object-shell .writing-editor .writing-task-check { position: absolute; left: 0; top: .2em; margin: 0; }
+.object-shell .writing-editor li[data-checked="true"] > div { color: var(--text-muted); }
+.object-shell .writing-editor [data-type="html"], .object-shell .writing-editor .document-image { color: var(--text-muted); font-family: var(--font-mono); font-size: var(--text-sm); white-space: pre-wrap; }
+.object-shell .writing-editor[contenteditable="false"] { opacity: .75; }
+.object-shell.writing-enhanced [data-native-reading] { display: none; }
+.object-shell .writing-link-dialog { width: min(440px, calc(100vw - 2rem)); border: 1px solid var(--border-control); border-radius: var(--radius-lg); background: var(--surface-panel); color: var(--text-primary); padding: var(--space-5); }
+.object-shell .writing-link-dialog::backdrop { background: var(--overlay-scrim); }
+.object-shell .writing-link-dialog h2 { margin-top: 0; }

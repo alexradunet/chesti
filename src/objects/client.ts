@@ -1,9 +1,28 @@
 import { Value } from 'typebox/value';
 import { JOURNAL_TYPE_ID, ObjectLookupSchema } from './model.js';
 import type { ObjectLookupResult, ViewConversation } from './model.js';
+import type { WritingEditor, WritingSelection } from './writing.js';
+import type * as WritingModule from './writing.js';
 
 const dirtyForms = new Set<HTMLFormElement>();
 const forms = document.querySelectorAll<HTMLFormElement>('form[data-enhance]');
+const writingForm = document.querySelector<HTMLFormElement>('[data-object-editor]');
+let writingEditor: WritingEditor | undefined;
+if (writingForm) void (async () => {
+  try {
+    // Optional page-specific bundle: a static import would make its load failure
+    // disable all form enhancement instead of leaving the native editor usable.
+    const moduleUrl = '/writing-client.js';
+    const module = await import(moduleUrl) as typeof WritingModule;
+    writingEditor = await module.enhanceWriting(writingForm);
+  } catch (error) {
+    const status = writingForm.querySelector<HTMLElement>('[data-writing-status]');
+    if (status) {
+      status.hidden = false;
+      status.textContent = `Formatted editing is unavailable; your Markdown source is unchanged. ${error instanceof Error ? error.message : 'You can keep editing and saving below.'}`;
+    }
+  }
+})();
 
 interface AiState { open: boolean; draft: string; conversationId?: string; previousId?: string; contextTitle: string }
 const aiPanel = document.querySelector<HTMLElement>('#ai-panel');
@@ -342,7 +361,7 @@ if (objectSearch) {
   const status = objectSearch.querySelector<HTMLElement>('[data-search-status]')!;
   let pending: AbortController | undefined;
   let returnFocus: HTMLElement | null = null;
-  let insertion: { textarea: HTMLTextAreaElement; start: number; end: number } | undefined;
+  let insertion: WritingSelection | undefined;
   const search = async () => {
     pending?.abort();
     const controller = new AbortController();
@@ -360,10 +379,7 @@ if (objectSearch) {
           choice.type = 'button';
           choice.addEventListener('click', () => {
             const target = insertion;
-            if (!target || !target.textarea.isConnected || target.textarea.disabled || target.textarea.readOnly || target.textarea.form?.dataset.busy === 'true') return;
-            const label = (item.title || 'Untitled').replace(/[\r\n]+/g, ' ').replace(/[\\[\]`*_{}()<>!#+\-.|~&]/g, '\\$&');
-            target.textarea.setRangeText(`[${label}](/objects/${item.id})`, target.start, target.end, 'end');
-            target.textarea.dispatchEvent(new Event('input', { bubbles: true }));
+            if (!target || !target.insert(item.title || 'Untitled', `/objects/${item.id}`)) return;
             objectSearch.close();
           });
         }
@@ -380,10 +396,10 @@ if (objectSearch) {
       if (!controller.signal.aborted) status.textContent = error instanceof Error ? error.message : 'Search failed. Try again.';
     }
   };
-  const openSearch = (textarea?: HTMLTextAreaElement) => {
+  const openSearch = (selection?: WritingSelection) => {
     if (objectSearch.open) { input.focus(); return; }
-    insertion = textarea ? { textarea, start: textarea.selectionStart, end: textarea.selectionEnd } : undefined;
-    returnFocus = textarea ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
+    insertion = selection;
+    returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     objectSearch.querySelector('#object-search-heading')!.textContent = insertion ? 'Insert an object link' : 'Find an object';
     objectSearch.showModal();
     input.focus();
@@ -397,7 +413,24 @@ if (objectSearch) {
   });
   for (const trigger of document.querySelectorAll<HTMLButtonElement>('[data-insert-object-link]')) trigger.addEventListener('click', () => {
     const textarea = trigger.form?.querySelector<HTMLTextAreaElement>('textarea[name="body"]');
-    if (textarea && !textarea.disabled && !textarea.readOnly && trigger.form?.dataset.busy !== 'true') openSearch(textarea);
+    if (!textarea || textarea.disabled || textarea.readOnly || trigger.form?.dataset.busy === 'true') return;
+    if (writingEditor) {
+      openSearch(writingEditor.selection());
+      return;
+    }
+    let start = textarea.selectionStart;
+    let end = textarea.selectionEnd;
+    openSearch({
+      insert(title, href) {
+        if (!textarea.isConnected || textarea.disabled || textarea.readOnly || textarea.form?.dataset.busy === 'true') return false;
+        const label = title.replace(/[\r\n]+/g, ' ').replace(/[\\[\]`*_{}()<>!#+\-.|~&]/g, '\\$&');
+        textarea.setRangeText(`[${label}](${href})`, start, end, 'end');
+        start = end = textarea.selectionEnd;
+        textarea.dispatchEvent(new Event('input', { bubbles: true }));
+        return true;
+      },
+      restore() { textarea.focus(); textarea.setSelectionRange(start, end); },
+    });
   });
   document.addEventListener('keydown', event => {
     if ((event.ctrlKey || event.metaKey) && !event.shiftKey && !event.altKey && !event.isComposing && event.key.toLowerCase() === 'k') {
@@ -415,7 +448,8 @@ if (objectSearch) {
   });
   objectSearch.addEventListener('close', () => {
     pending?.abort();
-    if (returnFocus?.isConnected) returnFocus.focus();
+    if (insertion) insertion.restore();
+    else if (returnFocus?.isConnected) returnFocus.focus();
     insertion = undefined;
   });
   searchForm.addEventListener('submit', event => {
@@ -444,10 +478,6 @@ if (objectSearch) {
   });
 }
 
-for (const link of document.querySelectorAll<HTMLAnchorElement>('[data-read-saved]')) link.addEventListener('click', () => {
-  const reading = document.querySelector<HTMLDetailsElement>('[data-saved-reading]');
-  if (reading && !reading.hidden) reading.open = true;
-});
 
 function markDirty(form: HTMLFormElement): void {
   dirtyForms.add(form);
@@ -467,14 +497,34 @@ for (const form of forms) {
     const revision = form.querySelector<HTMLInputElement>('input[name="revision"]');
     if (state && revision && state.getAttribute('role') !== 'alert') state.textContent = `Saved · revision ${revision.value}`;
   }
-  form.addEventListener('input', () => markDirty(form));
-  form.addEventListener('change', () => markDirty(form));
+  form.addEventListener('input', event => {
+    if (!(event.target instanceof Element && event.target.closest('[data-writing-mount], [data-writing-toolbar], [data-writing-link-dialog]'))) markDirty(form);
+  });
+  form.addEventListener('change', event => {
+    if (!(event.target instanceof Element && event.target.closest('[data-writing-mount], [data-writing-toolbar], [data-writing-link-dialog]'))) markDirty(form);
+  });
   form.addEventListener('submit', async event => {
     event.preventDefault();
     if (form.dataset.busy === 'true') return;
+    let writingSource: string | undefined;
+    if (form === writingForm) {
+      try {
+        const textarea = form.querySelector<HTMLTextAreaElement>('textarea[name="body"]')!;
+        writingSource = writingEditor ? writingEditor.flush() : textarea.value === textarea.defaultValue ? JSON.parse(textarea.dataset.writingSource!) as string : textarea.value;
+      }
+      catch (error) {
+        const status = form.querySelector<HTMLElement>('[data-form-state]');
+        if (status) {
+          status.setAttribute('role', 'alert');
+          status.textContent = error instanceof Error ? error.message : 'Writing could not be saved. Your draft remains in the editor.';
+        }
+        return;
+      }
+    }
     if (!form.reportValidity()) return;
     const data = new URLSearchParams();
     for (const [name, value] of new FormData(form)) data.append(name, String(value));
+    if (writingSource !== undefined) data.set('body', writingSource);
     const submitter = event.submitter;
     if (submitter instanceof HTMLButtonElement && submitter.name) data.append(submitter.name, submitter.value);
     const status = form.querySelector<HTMLElement>('[data-form-state]');
@@ -488,12 +538,14 @@ for (const form of forms) {
     }
     form.dataset.busy = 'true';
     form.setAttribute('aria-busy', 'true');
+    if (form === writingForm) writingEditor?.setBusy(true);
     for (const control of controls) control.disabled = true;
     try {
       const response = await fetch(form.action, { method: 'POST', body: data, credentials: 'same-origin', headers: { Accept: 'text/html' } });
       const html = await response.text();
       const page = new DOMParser().parseFromString(html, 'text/html');
-      const error = page.querySelector('[role="alert"]')?.textContent?.trim();
+      const error = page.querySelector('[data-form-state][role="alert"]')?.textContent?.trim()
+        || [...page.querySelectorAll('[role="alert"]')].map(element => element.textContent?.trim()).find(Boolean);
       if (!response.ok && form.hasAttribute('data-object-editor')) {
         const discovery = form.querySelector('[data-journal-discovery]');
         const nextDiscovery = page.querySelector('[data-journal-discovery]');
@@ -509,9 +561,8 @@ for (const form of forms) {
           currentPanel.replaceWith(panel);
           currentControls.replaceWith(document.importNode(nextControls, true));
           form.closest('.object-editing')?.classList.add('has-conflict');
-          const reading = document.querySelector<HTMLElement>('[data-saved-reading]');
+          const reading = document.querySelector<HTMLElement>('[data-native-reading]');
           if (reading) reading.hidden = true;
-          document.querySelector('[data-read-saved]')?.setAttribute('href', '#saved-conflict');
           panel.focus();
         }
       }
@@ -529,6 +580,7 @@ for (const form of forms) {
     } finally {
       form.dataset.busy = 'false';
       form.removeAttribute('aria-busy');
+      if (form === writingForm) writingEditor?.setBusy(false);
       controls.forEach((control, index) => { control.disabled = previouslyDisabled[index] ?? false; });
     }
   });
@@ -619,15 +671,13 @@ for (const select of document.querySelectorAll<HTMLSelectElement>('[data-new-typ
       badge.textContent = String(count);
       badge.hidden = count === 0;
     }
-    const details = form.querySelector<HTMLDetailsElement>('details.properties');
-    if (details) details.open = count > 0;
     const typeLabel = form.querySelector('[data-object-type-label]');
     if (typeLabel) typeLabel.textContent = select.selectedOptions[0]?.textContent ?? '';
     form.querySelector('[data-type-setup]')?.setAttribute('href', `/types/${select.value}`);
     const empty = form.querySelector<HTMLElement>('[data-properties-empty]');
     if (empty) empty.hidden = count > 0;
   };
-  select.addEventListener('change', () => { sync(); markDirty(form); });
+  select.addEventListener('change', sync);
   sync();
 }
 

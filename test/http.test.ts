@@ -42,11 +42,21 @@ test('canonical pages and local assets retain strict browser protections', async
   assert.equal(a.home.headers.get('x-content-type-options'), 'nosniff');
   assert.equal(a.home.headers.get('referrer-policy'), 'same-origin');
   assert.equal(a.home.headers.get('cache-control'), 'no-store');
-  for (const [path, contentType] of [['/tokens.css', 'text/css; charset=utf-8'], ['/objects.css', 'text/css; charset=utf-8'], ['/objects-client.js', 'text/javascript; charset=utf-8']] as const) {
+  for (const [path, contentType] of [
+    ['/tokens.css', 'text/css; charset=utf-8'],
+    ['/objects.css', 'text/css; charset=utf-8'],
+    ['/writing.css', 'text/css; charset=utf-8'],
+    ['/writing-prose.css', 'text/css; charset=utf-8'],
+    ['/writing-tables.css', 'text/css; charset=utf-8'],
+    ['/objects-client.js', 'text/javascript; charset=utf-8'],
+    ['/writing-client.js', 'text/javascript; charset=utf-8'],
+  ] as const) {
     const response = await a.get(path);
     assert.equal(response.status, 200);
     assert.equal(response.headers.get('content-type'), contentType);
     assert.equal(response.headers.get('content-security-policy'), csp);
+    assert.equal(response.headers.get('cache-control'), 'no-store');
+    assert.equal(response.headers.get('x-content-type-options'), 'nosniff');
     await response.arrayBuffer();
   }
 });

@@ -24,6 +24,7 @@ Read `README.md` for setup and current boundaries. Read `docs/object-contract.md
 - `src/objects/views.ts`: view validation, lifecycle, bounded SQL queries, and scoped commands.
 - `src/objects/conversations.ts`, `generator.ts`: view conversations and isolated Pi generation.
 - `src/objects/markdown.ts`, `values.ts`: bounded Markdown writing and scalar/temporal validation.
+- `src/objects/writing.ts`, `writing-format.ts`, `writing-links.ts`, `public/writing.css`: optional Milkdown editing, import fidelity, shared safe links, and editor styling; the server serves its same-origin bundle and base prose/table CSS.
 - `src/objects/upgrade-markdown.ts`: one-time transactional upgrade of the current object writing format.
 - `src/objects/http.ts`, `render.tsx`, `client.ts`, `public/objects.css`: HTTP parsing, trusted rendering, browser enhancement, and styling.
 - `src/pi.ts`: resource isolation for the embedded view generator.
@@ -33,7 +34,7 @@ Read `README.md` for setup and current boundaries. Read `docs/object-contract.md
 
 - Keep the current one-process Bun + SQLite architecture, strict TypeScript, Hono JSX rendering, and native browser APIs unless a concrete requirement justifies changing them.
 - Prefer Bun's built-in server, SQLite, bundler, Markdown, HTMLRewriter, file, cookie, hashing, and test APIs where they reduce code or dependencies. Do not replace a maintained library with a custom adapter merely to use more Bun APIs.
-- Writing is Markdown-first: store the submitted source and use a native textarea. Do not reintroduce rich-text editor dependencies or an editor-specific JSON authority. Use the shared safe Markdown renderer, never raw user HTML; saved reading is not an unsaved live preview.
+- Writing is Markdown-authoritative: SQLite stores the submitted Markdown string, never editor JSON. The enhanced editor uses maintained Milkdown/ProseMirror with transient browser state and a native textarea fallback. Preserve original source on initialization and non-writing edits; actual formatted-writing edits may normalize Markdown syntax. Unsupported or lossy imports must retain source and explain the fallback. Use the shared safe Markdown renderer; raw HTML and images stay inert in both editing and reading.
 - Keep HTTP input parsing at the boundary, domain rules in the existing runtime/services, and rendering separate from mutations. Native forms, browser enhancements, and view actions must use the same domain commands.
 - Use `src/objects/model.ts` as the active schema/type authority. Reuse existing validation rather than inventing another representation or duplicating business rules in the browser.
 - Keep submitted drafts separate from saved records: rejected writes must retain user input without bypassing revision checks. Explicit request context takes precedence over stored browser state; derive display values instead of maintaining competing copies.

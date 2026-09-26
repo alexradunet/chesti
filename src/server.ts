@@ -64,6 +64,10 @@ export function createApp(options: { objects?: ObjectRuntime; viewGenerator?: Vi
   const visitors = new VisitorStore(objects.db);
   const objectRoutes = createObjectRoutes(objects, options.viewGenerator);
   let objectClient: Promise<Bun.BuildOutput> | undefined;
+  let writingClient: Promise<Bun.BuildOutput> | undefined;
+  const writingCss = Bun.file(new URL('../public/writing.css', import.meta.url));
+  const proseCss = Bun.file(new URL(import.meta.resolve('@milkdown/prose/view/style/prosemirror.css')));
+  const tablesCss = Bun.file(new URL(import.meta.resolve('@milkdown/prose/tables/style/tables.css')));
   const tokensCss = Bun.file(new URL('../public/tokens.css', import.meta.url));
   const objectCss = Bun.file(new URL('../public/objects.css', import.meta.url));
   const handle = async (req: Request, server: Bun.Server<undefined>, headers: Headers): Promise<Response> => {
@@ -78,6 +82,20 @@ export function createApp(options: { objects?: ObjectRuntime; viewGenerator?: Vi
     }
     if (req.method === 'GET' && url.pathname === '/tokens.css') return new Response(tokensCss, { headers: { 'Content-Type': 'text/css; charset=utf-8' } });
     if (req.method === 'GET' && url.pathname === '/objects.css') return new Response(objectCss, { headers: { 'Content-Type': 'text/css; charset=utf-8' } });
+    if (req.method === 'GET' && url.pathname === '/writing.css') return new Response(writingCss, { headers: { 'Content-Type': 'text/css; charset=utf-8' } });
+    if (req.method === 'GET' && url.pathname === '/writing-prose.css') return new Response(proseCss, { headers: { 'Content-Type': 'text/css; charset=utf-8' } });
+    if (req.method === 'GET' && url.pathname === '/writing-tables.css') return new Response(tablesCss, { headers: { 'Content-Type': 'text/css; charset=utf-8' } });
+    if (req.method === 'GET' && url.pathname === '/writing-client.js') {
+      writingClient ??= Bun.build({ entrypoints: [fileURLToPath(new URL('./objects/writing.ts', import.meta.url))], target: 'browser', minify: true });
+      const build = await writingClient;
+      const script = build.outputs.find(output => output.kind === 'entry-point');
+      if (!build.success || !script) {
+        writingClient = undefined;
+        console.error('Formatted editor bundle failed:', build.logs);
+        throw new AppError(500, 'The formatted editor could not load. Markdown source remains available.');
+      }
+      return new Response(script, { headers: { 'Content-Type': 'text/javascript; charset=utf-8' } });
+    }
     if (req.method === 'GET' && url.pathname === '/objects-client.js') {
       objectClient ??= Bun.build({ entrypoints: [fileURLToPath(new URL('./objects/client.ts', import.meta.url))], target: 'browser', minify: true });
       const build = await objectClient;

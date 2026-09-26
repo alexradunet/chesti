@@ -32,7 +32,7 @@ Bun loads `.env` files normally. Use one server per database. This is a local si
 ## Use it
 
 1. **Manage types:** use the built-in types directly, rename their display labels, or add your own fields. Under **Create a type**, choose **Based on** to reuse another type’s current properties—for example, create Work item based on Task. The new type shares property identities, not future field additions or built-in lifecycle rules. Built-in identities and core fields cannot be deleted.
-2. **New content:** choose a type, enter a title and Markdown writing, then fill its properties under **Details**. Task has Done and an optional Due date. Event requires either All-day dates or Event time; Reminder requires either Reminder date or Reminder time, with no notifications. Range ends are exclusive. Page needs no extra properties. Type switching preserves title, writing, and field drafts; without JavaScript, choose **Use type** to load fields without saving. Only the selected type’s fields are saved on creation; existing objects also retain their existing properties.
+2. **New content:** enter a title, choose a type and fill its fields in the always-visible **Properties** panel, then edit formatted writing below. Task has Done and an optional Due date. Event requires either All-day dates or Event time; Reminder requires either Reminder date or Reminder time, with no notifications. Range ends are exclusive. Page needs no extra properties. Type switching preserves title, writing, and field drafts; without JavaScript, choose **Use type** to load fields without saving. Only the selected type’s fields are saved on creation; existing objects also retain their existing properties.
 3. **Views → Create view:** describe the view in the right-hand assistant, for example: “Show Task and Work item in an editable calendar using Due date. Include unscheduled objects.”
 4. Review the generated draft in the main area, then publish. Continue the conversation to refine the latest result; **Refine with AI** explicitly starts a conversation about the selected view. Each refinement creates a separate draft.
 5. Edit a bound date or board group through an explicitly editable published view. The command updates the original object. Deleting the view leaves the objects and other views intact.
@@ -45,7 +45,7 @@ Supported trusted components: list, table, calendar agenda, and board. A view ca
 
 The sidebar also holds New content, Search, Calendar, Tasks, Journal, and pinned views. **Calendar** lists saved views containing a calendar; **Tasks** always browses the built-in Task type, even after renaming it. **Journal** opens a daily page; its object-type link browses all journal pages. **Manage types** edits schemas. Trash is also organized by type; Search remains available across types.
 
-With JavaScript, **Search** or **Ctrl/Command+K** opens object search without leaving your current draft. Search titles and writing, use arrow keys or Tab to choose a result, and press Enter to open it. **Insert link** uses the same dialog, but selecting a result inserts an escaped Markdown link at the writing selection instead of navigating. Escape cancels without changing the draft or selection. Both actions search the full collection.
+With JavaScript, **Search** or **Ctrl/Command+K** opens object search without leaving your current draft. Search titles and writing, use arrow keys or Tab to choose a result, and press Enter to open it. **Insert object link** uses the same dialog, but selecting a result inserts a link at the writing selection instead of navigating. Escape cancels without changing the draft or selection. Both actions search the full collection.
 
 The **View assistant** opens on the right, resizes on desktop, and becomes a drawer on smaller screens. Closing it or navigating does not discard the current conversation or typed prompt. Navigation does not silently change its target. **Create view** and the assistant’s **New conversation** control start fresh. If generation finishes while an object has unsaved edits, it leaves those edits in place and offers a preview link instead of navigating away.
 
@@ -59,9 +59,9 @@ See the [quick start](docs/quickstart.md) and [object/view contract](docs/object
 
 ## Storage
 
-SQLite stores canonical objects, Markdown bodies, shared property definitions, types, saved views, view conversations, revisions, and derived backlinks. The same plain Markdown textarea works with and without JavaScript. Source is stored as submitted, without a rich-text parse/serialize round trip. Bun renders saved writing; raw HTML remains text, unsafe link targets are not clickable, and images remain inert text placeholders.
+SQLite stores canonical objects, Markdown bodies, shared property definitions, types, saved views, view conversations, revisions, and derived backlinks. With JavaScript, writing is edited directly as formatted content using Milkdown/ProseMirror; no editor JSON is persisted. Initialization, title/property-only saves, and undo back to the original document preserve the exact original Markdown. Actual writing edits serialize Markdown and may normalize delimiters, reference links, whitespace, and empty layout blocks. The native Markdown textarea remains usable without JavaScript, while the optional editor loads, or when an import cannot round-trip safely; its browser-native submissions can normalize line endings. Bun renders saved writing; raw HTML remains text, unsafe link targets are not clickable, and images remain inert text placeholders.
 
-Object pages link directly to **Edit Markdown**, **Read saved**, and **Linked from**. A conflicting save keeps your draft and shows the latest saved title, type, details, and writing for comparison. Reconcile the draft, then choose **Save reconciled changes**; a further concurrent edit still rejects the save. This works with and without JavaScript.
+Object pages link directly to **Writing** and **Linked from**. The enhanced editor is a single writing surface, not a source/preview pair; native fallback also offers **Read saved writing**. A conflicting save keeps your draft and shows the latest saved title, type, properties, and writing for comparison. Reconcile the draft, then choose **Save reconciled changes**; a further concurrent edit still rejects the save. This works with and without JavaScript.
 
 Save feedback stays beside the save button instead of appearing in duplicate page banners. With JavaScript, the same area shows the saved revision, unsaved changes, saving progress, or an error. Native forms show confirmation or errors there too, with a reminder that further edits still require saving.
 
@@ -71,7 +71,7 @@ Object schema version 3 adds protected built-in definitions and storage-enforced
 
 ## Implementation
 
-Bun supplies the HTTP server, SQLite driver, browser bundler, Markdown parser/renderer, HTML rewriting, file responses, cookie handling, hashing, and test runner. Hono supplies trusted JSX rendering, not routing. There is no rich-text editor runtime or editor-specific document format in new writes.
+Bun supplies the HTTP server, SQLite driver, browser bundler, saved-Markdown renderer, HTML rewriting, file responses, cookie handling, hashing, and test runner. Hono supplies trusted JSX rendering, not routing. Headless Milkdown with CommonMark, GFM, and history supplies the maintained formatted-writing runtime. Its separate same-origin browser bundle is optional and does not block native saving; the HTTP and SQLite contract remains Markdown.
 
 - `src/server.ts`, `src/visitors.ts`: secured local HTTP and persistent visitor identity/CSRF state.
 - `src/objects/model.ts`: shared types and closed declarative view schema.
@@ -79,13 +79,14 @@ Bun supplies the HTTP server, SQLite driver, browser bundler, Markdown parser/re
 - `src/objects/runtime.ts`: canonical objects, property validation, revisions, commands, and backlinks.
 - `src/objects/values.ts`: dependency-light scalar and temporal validation.
 - `src/objects/markdown.ts`: bounded Markdown source, safe Bun rendering, search text, and link extraction.
+- `src/objects/writing.ts`, `writing-format.ts`, `writing-links.ts`: transient formatted editing, Markdown import fidelity checks, and the shared safe-link policy.
 - `src/objects/upgrade-markdown.ts`: transactional upgrade of existing structured object writing.
 - `src/objects/views.ts`: persistent view lifecycle, prepared bounded queries, and scoped commands.
 - `src/objects/conversations.ts`: visitor-owned view threads and atomic draft/turn persistence.
 - `src/objects/generator.ts`: isolated metadata-only Pi generation and validated submission.
 - `src/objects/http.ts`, `render.tsx`, `client.ts`: native forms, domain screens, trusted view components, and progressive enhancement.
 - `src/objects/ui.tsx`: shared UI atoms and small page compositions.
-- `public/tokens.css`, `public/objects.css`: design primitives/semantic roles and responsive component styling.
+- `public/tokens.css`, `public/objects.css`, `public/writing.css`: design primitives/semantic roles, responsive component styling, and formatted editing. The server also serves Milkdown's base prose/table styles as same-origin assets.
 
 ```sh
 bun run check
@@ -94,7 +95,7 @@ bun test
 
 ## Design system
 
-The UI follows **primitives → semantic roles → components**. `public/tokens.css` defines the warm paper/forest palette and shared typography, spacing, radius, and motion scales, then maps colors to roles such as `--surface-panel`, `--action-primary`, and `--border-control`. `public/objects.css` consumes those roles: control boundaries remain distinct from quiet decorative dividers. System sans-serif text uses a 15px body size at the default root size; Markdown writing uses the monospace role. Shared spacing, rounded surfaces, and short transitions keep the workspace cohesive.
+The UI follows **primitives → semantic roles → components**. `public/tokens.css` defines the warm paper/forest palette and shared typography, spacing, radius, and motion scales, then maps colors to roles such as `--surface-panel`, `--action-primary`, and `--border-control`. Component styles consume those roles: control boundaries remain distinct from quiet decorative dividers. System sans-serif text uses a 15px body size at the default root size; source and code use the monospace role. Shared spacing, rounded surfaces, and short transitions keep the workspace cohesive.
 
 `src/objects/ui.tsx` keeps the `Icon`, `Button`, `ButtonLink`, and `Badge` atoms together with the small `PageHeading` and `EmptyState` compositions. Domain screens stay in `src/objects/render.tsx`; fields and forms remain native HTML. This uses the existing Hono JSX renderer, with no additional component framework or dependencies. Buttons perform actions (`type="button"` by default); links navigate. A submit action must opt in explicitly:
 
