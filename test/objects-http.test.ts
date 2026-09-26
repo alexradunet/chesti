@@ -765,6 +765,83 @@ test('native type switching retains multiple reference drafts until the selected
   assert.equal(saved.body, draft.body);
 });
 
+test('case-insensitive reference display uses canonical links and labels without rewriting stored values', async t => {
+  const f = await setup(t, async () => { throw new Error('Not used'); });
+  const targetType = f.objects.createType('Case targets');
+  let sourceType = f.objects.createType('Case source');
+  sourceType = f.objects.addProperty(sourceType.id, sourceType.revision, { label: 'Single', kind: 'reference', targetTypeId: targetType.id });
+  sourceType = f.objects.addProperty(sourceType.id, sourceType.revision, { label: 'Multiple', kind: 'reference', targetTypeId: targetType.id, multiple: true });
+  const [single, multiple] = sourceType.propertyIds as [string, string];
+  const target = f.objects.createObject({ typeId: targetType.id, title: 'Uppercase Target', body: '', properties: {} });
+  const outside = f.objects.createObject({ typeId: targetType.id, title: 'Old retained target', body: '', properties: {} });
+  const upperTarget = target.id.toUpperCase();
+  const upperOutside = outside.id.toUpperCase();
+  const requestId = randomUUID();
+  let source = f.objects.createObject({ typeId: sourceType.id, title: 'Source', body: '', properties: { [single]: upperTarget, [multiple]: [upperTarget, upperOutside] } }, requestId);
+  source = f.objects.updateObject(source.id, source.revision, { typeId: source.typeId, title: source.title, body: source.body, properties: { [single]: upperTarget, [multiple]: [upperTarget, upperOutside] } });
+  for (let index = 0; index < 205; index++) f.objects.createObject({ typeId: targetType.id, title: `New candidate ${index}`, body: '', properties: {} });
+  f.objects.db.query('UPDATE objects SET updated_at = ? WHERE type_id = ? AND id != ?').run('2099-01-01T00:00:00Z', targetType.id, outside.id);
+  f.objects.setTrashed(outside.id, outside.revision, true);
+
+  const receiptBefore = f.objects.db.query<{ fingerprint: string; object_id: string }, [string]>('SELECT fingerprint, object_id FROM object_create_requests WHERE request_id = ?').get(requestId)!;
+  const savedBefore = f.objects.getObject(source.id);
+  const snapshotBefore = f.objects.db.query<{ snapshot_json: string }, [string]>('SELECT snapshot_json FROM object_revisions WHERE object_id = ? ORDER BY revision DESC LIMIT 1').get(source.id);
+  assert.ok(snapshotBefore);
+  assert.deepEqual(JSON.parse(snapshotBefore.snapshot_json).properties, { [single]: upperTarget, [multiple]: [upperTarget, upperOutside] });
+  const objectMarkup = await (await f.get(`/objects/${source.id}`)).text();
+  assert.deepEqual(f.objects.getObject(source.id), savedBefore);
+  assert.deepEqual(f.objects.db.query<{ fingerprint: string; object_id: string }, [string]>('SELECT fingerprint, object_id FROM object_create_requests WHERE request_id = ?').get(requestId), receiptBefore);
+  assert.deepEqual(f.objects.db.query<{ snapshot_json: string }, [string]>('SELECT snapshot_json FROM object_revisions WHERE object_id = ? ORDER BY revision DESC LIMIT 1').get(source.id), snapshotBefore);
+
+  assert.equal((await f.get(`/objects/${target.id}`)).status, 200);
+  assert.equal((await f.get(`/objects/${upperTarget}`)).status, 404);
+
+  const singleOptions = referenceOptions(objectMarkup, single);
+  assert.deepEqual(singleOptions.filter(option => option.id.toLowerCase() === target.id).map(option => option.id), [target.id]);
+  assert.deepEqual(singleOptions.filter(option => option.selected).map(option => option.label), ['Uppercase Target · Case targets']);
+  const multipleOptions = referenceOptions(objectMarkup, multiple);
+  assert.deepEqual(multipleOptions.filter(option => option.id.toLowerCase() === target.id && option.selected).map(option => option.id), [target.id]);
+  assert.deepEqual(multipleOptions.filter(option => option.id.toLowerCase() === outside.id && option.selected).map(option => option.label), ['Old retained target']);
+
+  const saved = f.objects.getObject(source.id);
+  const unchangedFields = new URLSearchParams({ csrf: f.visitor.csrf, title: saved.title, body: saved.body, revision: String(saved.revision), [`p:${single}`]: target.id });
+  unchangedFields.append(`p:${multiple}`, target.id);
+  unchangedFields.append(`p:${multiple}`, outside.id);
+  const unchanged = await fetch(`${f.origin}/objects/${source.id}/update`, { method: 'POST', headers: { Cookie: `taskdesk=${f.visitor.id}`, Origin: f.origin }, body: unchangedFields, redirect: 'manual' });
+  assert.equal(unchanged.status, 303);
+  const updated = f.objects.getObject(source.id);
+  assert.deepEqual(updated.properties[multiple], [target.id, outside.id]);
+
+  const invalid = '<script>alert(1)</script>';
+  const rejected = await f.post(`/objects/${source.id}/update`, { title: 'Draft', body: '', revision: String(updated.revision), [`p:${single}`]: invalid });
+  assert.equal(rejected.status, 422);
+  const rejectedMarkup = await rejected.text();
+  assert.equal(rejectedMarkup.includes(invalid), false);
+  assert.ok(referenceOptions(rejectedMarkup, single).some(option => option.id.includes('&lt;script&gt;') && option.selected && option.label.includes('Linked object &lt;script&gt;')));
+  assert.equal(f.objects.getObject(source.id).properties[single], target.id);
+});
+
+test('published views render uppercase reference values as working object links', async t => {
+  const f = await setup(t, async () => { throw new Error('Not used'); });
+  const targetType = f.objects.createType('View targets');
+  let sourceType = f.objects.createType('View source');
+  sourceType = f.objects.addProperty(sourceType.id, sourceType.revision, { label: 'Linked', kind: 'reference', targetTypeId: targetType.id });
+  const propertyId = sourceType.propertyIds[0]!;
+  const target = f.objects.createObject({ typeId: targetType.id, title: 'Linked title', body: '', properties: {} });
+  f.objects.createObject({ typeId: sourceType.id, title: 'Source row', body: '', properties: { [propertyId]: target.id.toUpperCase() } });
+  const draft = f.views.create({ model: 'fixture/reference', spec: { title: 'Reference table', blocks: [{ title: 'Sources', component: 'table' as const, columns: [{ role: 'linked', label: 'Linked' }], sources: [{ typeId: sourceType.id, bindings: { linked: propertyId } }] }] } }, 'Fixture references');
+  const view = f.views.publish(draft.id, draft.revision);
+  const markup = await (await f.get(`/views/${view.id}`)).text();
+  const links: string[] = [];
+  let linkedText = '';
+  new HTMLRewriter()
+    .on('td .reference-values a', { element(element) { links.push(element.getAttribute('href') ?? ''); }, text(text) { linkedText += text.text; } })
+    .transform(markup);
+  assert.deepEqual(links, [`/objects/${target.id}`]);
+  assert.equal(linkedText, 'Linked title');
+  assert.equal((await f.get(links[0]!)).status, 200);
+});
+
 test('native assistant forms distinguish browsing, explicit targets, and rejected submissions', async t => {
   const f = await setup(t, async () => { throw new Error('Must not generate'); });
   const generated = { model: 'fixture/intent', spec: { title: 'View A', blocks: [{ title: 'Pages', component: 'list' as const, sources: [{ typeId: PAGE_TYPE_ID, bindings: {} }] }] } };
@@ -807,12 +884,15 @@ test('native assistant forms distinguish browsing, explicit targets, and rejecte
 });
 
 function selectOptions(markup: string, name: string) {
-  const options: { id: string; selected: boolean }[] = [];
+  const options: { id: string; selected: boolean; label: string }[] = [];
+  let current: { id: string; selected: boolean; label: string } | undefined;
   new HTMLRewriter().on(`select[name="${name}"] option`, {
     element(element) {
       const id = element.getAttribute('value');
-      if (id) options.push({ id, selected: element.hasAttribute('selected') });
+      current = id ? { id, selected: element.hasAttribute('selected'), label: '' } : undefined;
+      if (current) options.push(current);
     },
+    text(text) { if (current) current.label += text.text; },
   }).transform(markup);
   return options;
 }
