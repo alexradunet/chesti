@@ -346,8 +346,8 @@ for (const button of document.querySelectorAll<HTMLButtonElement>('[data-pin-vie
 renderPins();
 if (new URLSearchParams(location.search).get('focus') === 'search') document.querySelector<HTMLInputElement>('main input[type="search"]')?.focus();
 
-async function lookupObjects(query: string, signal: AbortSignal): Promise<ObjectLookupResult> {
-  const response = await fetch(`/objects/lookup?${new URLSearchParams({ q: query })}`, { signal, credentials: 'same-origin' });
+async function lookupObjects(query: string, signal: AbortSignal, typeId?: string): Promise<ObjectLookupResult> {
+  const response = await fetch(`/objects/lookup?${new URLSearchParams({ q: query, ...(typeId ? { typeId } : {}) })}`, { signal, credentials: 'same-origin' });
   if (!response.ok) throw new Error(`Search failed (${response.status}). Try again.`);
   const result: unknown = await response.json();
   if (!Value.Check(ObjectLookupSchema, result)) throw new Error('Search returned an invalid response.');
@@ -362,22 +362,52 @@ if (objectSearch) {
   let pending: AbortController | undefined;
   let returnFocus: HTMLElement | null = null;
   let insertion: WritingSelection | undefined;
+  let referenceSelection: { select: HTMLSelectElement; typeId: string } | undefined;
+  function selectDisabled(select: HTMLSelectElement): boolean {
+    return select.disabled || Boolean(select.closest('fieldset:disabled'));
+  }
+  function optionFor(select: HTMLSelectElement, item: ObjectLookupResult['items'][number]): HTMLOptionElement {
+    const existing = [...select.options].find(option => option.value.toLowerCase() === item.id.toLowerCase());
+    if (existing) return existing;
+    const option = new Option(`${item.title || 'Untitled'} · ${item.typeName}`, item.id, false, false);
+    select.add(option);
+    return option;
+  }
+  function applyReferenceSelection(item: ObjectLookupResult['items'][number]): boolean {
+    const target = referenceSelection;
+    if (!target || !target.select.isConnected || selectDisabled(target.select) || target.select.form?.dataset.busy === 'true') return false;
+    const option = optionFor(target.select, item);
+    if (target.select.multiple) {
+      option.selected = true;
+    } else {
+      for (const current of target.select.options) current.selected = false;
+      option.selected = true;
+    }
+    target.select.dispatchEvent(new Event('input', { bubbles: true }));
+    target.select.dispatchEvent(new Event('change', { bubbles: true }));
+    return true;
+  }
   const search = async () => {
     pending?.abort();
     const controller = new AbortController();
     pending = controller;
+    const reference = referenceSelection;
     results.replaceChildren();
     status.textContent = 'Searching…';
     try {
-      const result = await lookupObjects(input.value, controller.signal);
-      if (controller.signal.aborted) return;
+      const result = await lookupObjects(input.value, controller.signal, reference?.typeId);
+      if (controller.signal.aborted || reference !== referenceSelection) return;
       for (const item of result.items) {
         const row = document.createElement('li');
-        const choice = insertion ? document.createElement('button') : document.createElement('a');
+        const choice = insertion || referenceSelection ? document.createElement('button') : document.createElement('a');
         if (choice instanceof HTMLAnchorElement) choice.href = `/objects/${item.id}`;
         else {
           choice.type = 'button';
           choice.addEventListener('click', () => {
+            if (referenceSelection) {
+              if (applyReferenceSelection(item)) objectSearch.close();
+              return;
+            }
             const target = insertion;
             if (!target || !target.insert(item.title || 'Untitled', `/objects/${item.id}`)) return;
             objectSearch.close();
@@ -391,16 +421,22 @@ if (objectSearch) {
         row.append(choice);
         results.append(row);
       }
-      status.textContent = result.truncated ? 'Showing the first 50 matches. Narrow your search.' : result.items.length ? `${result.items.length} found. Use ↓ or Tab to choose; Enter ${insertion ? 'inserts a link' : 'opens an object'}.` : 'No matching objects.';
+      const action = referenceSelection ? 'selects it' : insertion ? 'inserts a link' : 'opens an object';
+      status.textContent = result.truncated ? 'Showing the first 50 matches. Narrow your search.' : result.items.length ? `${result.items.length} found. Use ↓ or Tab to choose; Enter ${action}.` : 'No matching objects.';
     } catch (error) {
       if (!controller.signal.aborted) status.textContent = error instanceof Error ? error.message : 'Search failed. Try again.';
     }
   };
-  const openSearch = (selection?: WritingSelection) => {
+  const openSearch = (selection?: WritingSelection, reference?: { select: HTMLSelectElement; typeId: string }) => {
     if (objectSearch.open) { input.focus(); return; }
     insertion = selection;
+    referenceSelection = reference;
     returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    objectSearch.querySelector('#object-search-heading')!.textContent = insertion ? 'Insert an object link' : 'Find an object';
+    const heading = objectSearch.querySelector('#object-search-heading')!;
+    const label = searchForm.querySelector('label')!;
+    heading.textContent = referenceSelection ? 'Choose a linked object' : insertion ? 'Insert an object link' : 'Find an object';
+    label.firstChild!.textContent = referenceSelection ? 'Search eligible objects' : 'Search title or writing';
+    status.textContent = referenceSelection ? 'Press Enter to search this reference type. Use arrow keys or Tab to choose a result.' : 'Press Enter to search. Use arrow keys or Tab to choose a result.';
     objectSearch.showModal();
     input.focus();
     input.select();
@@ -432,6 +468,13 @@ if (objectSearch) {
       restore() { textarea.focus(); textarea.setSelectionRange(start, end); },
     });
   });
+  for (const trigger of document.querySelectorAll<HTMLButtonElement>('[data-reference-search]')) trigger.addEventListener('click', () => {
+    const targetId = trigger.dataset.referenceTarget;
+    const typeId = trigger.dataset.referenceType;
+    const select = targetId ? document.getElementById(targetId) : null;
+    if (!typeId || !(select instanceof HTMLSelectElement) || !select.isConnected || selectDisabled(select) || select.form?.dataset.busy === 'true') return;
+    openSearch(undefined, { select, typeId });
+  });
   document.addEventListener('keydown', event => {
     if ((event.ctrlKey || event.metaKey) && !event.shiftKey && !event.altKey && !event.isComposing && event.key.toLowerCase() === 'k') {
       event.preventDefault();
@@ -451,6 +494,8 @@ if (objectSearch) {
     if (insertion) insertion.restore();
     else if (returnFocus?.isConnected) returnFocus.focus();
     insertion = undefined;
+    referenceSelection = undefined;
+    results.replaceChildren();
   });
   searchForm.addEventListener('submit', event => {
     event.preventDefault();

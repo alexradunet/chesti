@@ -64,6 +64,14 @@ export interface ObjectRecord {
   trashed: boolean;
 }
 export interface Catalog { types: ObjectType[]; properties: PropertyDefinition[] }
+export interface NewPropertyDraft {
+  label: string;
+  kind: string;
+  options: string;
+  targetTypeId: string;
+  multiple: boolean;
+  revision: string;
+}
 export interface ObjectWrite {
   typeId: string;
   title: string;
@@ -71,6 +79,7 @@ export interface ObjectWrite {
   body: string;
 }
 export interface ObjectListOptions { typeId?: string; search?: string; trashed?: boolean; limit?: number; offset?: number }
+export interface ObjectRevisionSummary { revision: number; recordedAt: string; title: string; typeId: string; trashed: boolean }
 
 export const ObjectLookupSchema = object({
   items: Type.Array(object({
@@ -141,7 +150,7 @@ export interface Backlink { object: ObjectRecord; propertyId?: string }
 export interface ObjectPageModel {
   csrf: string;
   path: string;
-  screen: 'home' | 'objects' | 'types' | 'type' | 'new-object' | 'object' | 'views' | 'view' | 'journal';
+  screen: 'home' | 'objects' | 'types' | 'type' | 'new-object' | 'object' | 'object-history' | 'views' | 'view' | 'journal';
   section?: 'calendar' | 'tasks';
   catalog: Catalog;
   views: SavedView[];
@@ -150,13 +159,15 @@ export interface ObjectPageModel {
   browseLayout?: 'list' | 'gallery';
   objectExcerpts?: Record<string, string>;
   object?: ObjectRecord;
-  objectDraft?: { title: string; body: string; revision?: string; requestId?: string; typeId?: string; properties?: Record<string, PropertyValue>; fields?: Record<string, string[]> };
+  objectDraft?: { title: string; body: string; revision?: string; requestId?: string; typeId?: string; properties?: Record<string, PropertyValue>; fields?: Record<string, string[]>; historyRevision?: string };
+  history?: { revisions: ObjectRevisionSummary[]; selected?: ObjectRecord; offset: number; hasMore: boolean };
   objectType?: ObjectType;
   journalDate?: string;
   journalDateDefault?: boolean;
   journal?: ObjectRecord;
   basedOnTypeId?: string;
   typeDraft?: { name: string; basedOnTypeId?: string };
+  newPropertyDraft?: NewPropertyDraft;
   evaluatedView?: EvaluatedView;
   backlinks?: Backlink[];
   search?: string;

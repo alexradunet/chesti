@@ -4,16 +4,26 @@ import { validDate, valueError } from './values.js';
 import { markdownReferences, markdownText, validateMarkdown } from './markdown.js';
 import { upgradeObjectMarkdown } from './upgrade-markdown.js';
 import { BUILTIN_PROPERTIES, BUILTIN_TYPES, EVENT_DATES_PROPERTY_ID, EVENT_TIME_PROPERTY_ID, EVENT_TYPE_ID, JOURNAL_DATE_PROPERTY_ID, JOURNAL_TYPE_ID, REMINDER_DATE_PROPERTY_ID, REMINDER_TIME_PROPERTY_ID, REMINDER_TYPE_ID, TASK_DONE_PROPERTY_ID, TASK_TYPE_ID } from './model.js';
-import type { Backlink, Catalog, ObjectListOptions, ObjectRecord, ObjectType, ObjectWrite, PropertyDefinition, PropertyKind, PropertyValue } from './model.js';
+import type { Backlink, Catalog, ObjectListOptions, ObjectRecord, ObjectRevisionSummary, ObjectType, ObjectWrite, PropertyDefinition, PropertyKind, PropertyValue } from './model.js';
 
 const ID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 const KINDS: Record<PropertyKind, true> = { text: true, number: true, boolean: true, date: true, datetime: true, select: true, reference: true, 'date-range': true, 'time-range': true };
 interface TypeRow { id: string; name: string; property_ids_json: string; revision: number }
 interface PropertyRow { id: string; label: string; kind: PropertyKind; options_json: string | null; target_type_id: string | null; multiple: number; revision: number }
 interface ObjectRow { id: string; type_id: string; title: string; properties_json: string; body: string; revision: number; created_at: string; updated_at: string; trashed: number }
+interface RevisionRow { revision: number; snapshot_json: string; recorded_at: string }
+interface RevisionSummaryRow { revision: number; recorded_at: string; title: string; type_id: string; trashed: number }
 
 function objectRecord(row: ObjectRow): ObjectRecord {
   return { id: row.id, typeId: row.type_id, title: row.title, properties: JSON.parse(row.properties_json), body: row.body, revision: row.revision, createdAt: row.created_at, updatedAt: row.updated_at, trashed: row.trashed === 1 };
+}
+function snapshotRecord(value: string): ObjectRecord {
+  const record = JSON.parse(value) as ObjectRecord;
+  if (!plainObject(record) || typeof record.id !== 'string' || !ID.test(record.id) || typeof record.typeId !== 'string' || !ID.test(record.typeId) ||
+      typeof record.title !== 'string' || !plainObject(record.properties) || typeof record.body !== 'string' ||
+      !Number.isSafeInteger(record.revision) || record.revision < 1 || typeof record.createdAt !== 'string' || typeof record.updatedAt !== 'string' ||
+      typeof record.trashed !== 'boolean') throw new AppError(500, 'Historical snapshot is not readable.');
+  return record;
 }
 function objectType(row: TypeRow): ObjectType {
   return { id: row.id, name: row.name, propertyIds: JSON.parse(row.property_ids_json), revision: row.revision };
@@ -237,6 +247,34 @@ export class ObjectRuntime {
     const row = this.db.query<ObjectRow, [string]>('SELECT * FROM objects WHERE id = ?').get(id);
     if (!row) throw new AppError(404, 'Object not found.');
     return objectRecord(row);
+  }
+  listObjectHistory(id: string, offset = 0): { revisions: ObjectRevisionSummary[]; hasMore: boolean } {
+    if (typeof id !== 'string' || !ID.test(id)) throw new AppError(422, 'Invalid object ID.');
+    this.getObject(id);
+    const limit = 20;
+    if (!Number.isInteger(offset) || offset < 0 || offset > 1_000_000) throw new AppError(422, 'Invalid history page.');
+    const rows = this.db.query<RevisionSummaryRow, [string, number, number]>(`SELECT revision, recorded_at,
+        json_extract(snapshot_json, '$.title') AS title,
+        json_extract(snapshot_json, '$.typeId') AS type_id,
+        CASE json_extract(snapshot_json, '$.trashed') WHEN 1 THEN 1 ELSE 0 END AS trashed
+      FROM object_revisions WHERE object_id = ? ORDER BY revision DESC LIMIT ? OFFSET ?`).all(id, limit + 1, offset);
+    return {
+      revisions: rows.slice(0, limit).map(row => {
+        if (typeof row.title !== 'string' || typeof row.type_id !== 'string' || !ID.test(row.type_id)) throw new AppError(500, 'Historical summary is not readable.');
+        return { revision: row.revision, recordedAt: row.recorded_at, title: row.title, typeId: row.type_id, trashed: row.trashed === 1 };
+      }),
+      hasMore: rows.length > limit,
+    };
+  }
+  getObjectRevision(id: string, revision: number): ObjectRecord {
+    if (typeof id !== 'string' || !ID.test(id)) throw new AppError(422, 'Invalid object ID.');
+    if (!Number.isSafeInteger(revision) || revision < 1) throw new AppError(422, 'Choose a historical revision.');
+    this.getObject(id);
+    const row = this.db.query<RevisionRow, [string, number]>('SELECT revision, snapshot_json, recorded_at FROM object_revisions WHERE object_id = ? AND revision = ?').get(id, revision);
+    if (!row) throw new AppError(404, 'Historical revision not found.');
+    const snapshot = snapshotRecord(row.snapshot_json);
+    if (snapshot.id.toLowerCase() !== id.toLowerCase() || snapshot.revision !== revision) throw new AppError(500, 'Historical snapshot does not match this object.');
+    return snapshot;
   }
   getJournal(date: string): ObjectRecord | undefined {
     if (!validDate(date)) throw new AppError(422, 'Choose a real calendar date in YYYY-MM-DD format.');

@@ -2,8 +2,9 @@ import { Value } from 'typebox/value';
 import { AppError } from '../core.js';
 import type { Visitor } from '../visitors.js';
 import { validateMarkdown } from './markdown.js';
+import { valueError } from './values.js';
 import { IdSchema, JOURNAL_DATE_PROPERTY_ID, JOURNAL_TYPE_ID, PAGE_TYPE_ID, TASK_TYPE_ID } from './model.js';
-import type { ObjectLookupResult, ObjectPageModel, ObjectRecord, ObjectWrite, PropertyDefinition, PropertyKind, PropertyValue, SavedView, ViewConversation, ViewGenerator } from './model.js';
+import type { EvaluatedView, ObjectLookupResult, ObjectPageModel, ObjectRecord, ObjectWrite, PropertyDefinition, PropertyKind, PropertyValue, SavedView, ViewConversation, ViewGenerator } from './model.js';
 import type { ObjectRuntime } from './runtime.js';
 import { ViewService } from './views.js';
 import { generateView } from './generator.js';
@@ -13,6 +14,10 @@ import { renderObjectWorkspace } from './render.js';
 function revision(fields: URLSearchParams, name = 'revision'): number {
   const value = fields.get(name) ?? '';
   if (!/^[1-9][0-9]*$/.test(value) || !Number.isSafeInteger(Number(value))) throw new AppError(422, 'A current revision is required. Reload and try again.');
+  return Number(value);
+}
+function positiveInteger(value: string | null, message: string): number {
+  if (!value || !/^[1-9][0-9]*$/.test(value) || !Number.isSafeInteger(Number(value))) throw new AppError(422, message);
   return Number(value);
 }
 function requireFields(fields: URLSearchParams, allowed: string[], properties = false): void {
@@ -60,6 +65,16 @@ function draftFields(fields: URLSearchParams): Record<string, string[]> {
   for (const name of fields.keys()) if (name.startsWith('p:')) draft[name] = fields.getAll(name);
   return draft;
 }
+function newPropertyDraft(fields: URLSearchParams) {
+  return {
+    label: fields.get('label') ?? '',
+    kind: fields.get('kind') ?? '',
+    options: fields.get('options') ?? '',
+    targetTypeId: fields.get('targetTypeId') ?? '',
+    multiple: fields.get('multiple') === 'on' || fields.get('multiple') === 'true',
+    revision: fields.get('revision') ?? '',
+  };
+}
 
 /** The native editor, enhanced editor, and generated view forms share the same commands. */
 export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenerator = generateView) {
@@ -79,21 +94,122 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
     };
     const page = (status = 200) => new Response(renderObjectWorkspace(model), { status, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
     const go = (path: string) => new Response(null, { status: 303, headers: { Location: path } });
-    const pickerObjects = () => {
+    const pickerObjects = (propertySets: (Record<string, PropertyValue> | undefined)[] = [model.object?.properties, model.objectDraft?.properties]) => {
       // ObjectEditor renders all type fields for enhanced switching, plus retained
-      // properties on existing objects. Match that set, querying each target once.
-      const propertyIds = new Set([...catalog.types.flatMap(type => type.propertyIds), ...Object.keys(model.object?.properties ?? {})]);
+      // properties on existing objects and historical drafts. Match that set,
+      // querying each target once, then append selected references even when they
+      // are trashed or outside the bounded picker window.
+      const propertyIds = new Set([...catalog.types.flatMap(type => type.propertyIds)]);
+      const selectedIds = new Map<string, string>();
+      for (const properties of propertySets) {
+        for (const [id, value] of Object.entries(properties ?? {})) {
+          propertyIds.add(id);
+          const property = catalog.properties.find(item => item.id === id);
+          if (property?.kind !== 'reference') continue;
+          for (const target of Array.isArray(value) ? value : [value]) {
+            if (typeof target === 'string') selectedIds.set(target.toLowerCase(), target);
+          }
+        }
+      }
+      for (const [name, values] of Object.entries(model.objectDraft?.fields ?? {})) {
+        const match = /^p:([a-f0-9-]{36})$/i.exec(name);
+        if (!match) continue;
+        const property = catalog.properties.find(item => item.id === match[1]);
+        if (property?.kind !== 'reference') continue;
+        propertyIds.add(property.id);
+        for (const target of values) if (target) selectedIds.set(target.toLowerCase(), target);
+      }
       const targetTypes = new Set<string>();
       for (const property of catalog.properties) {
         if (propertyIds.has(property.id) && property.kind === 'reference' && property.targetTypeId) targetTypes.add(property.targetTypeId);
       }
-      return [...targetTypes].flatMap(typeId => objects.listObjects({ typeId, limit: 200 }));
+      const byId = new Map<string, ObjectRecord>();
+      const add = (record: ObjectRecord) => byId.set(record.id.toLowerCase(), record);
+      for (const typeId of targetTypes) for (const record of objects.listObjects({ typeId, limit: 200 })) add(record);
+      for (const [key, id] of selectedIds) {
+        if (byId.has(key)) continue;
+        try {
+          add(objects.getObject(id));
+        } catch (error) {
+          if (error instanceof AppError && error.status === 404) continue;
+          throw error;
+        }
+      }
+      return [...byId.values()];
+    };
+    const viewObjects = (evaluated: EvaluatedView) => {
+      const byId = new Map<string, ObjectRecord>();
+      const targetTypes = new Set<string>();
+      const selectedIds = new Set<string>();
+      const add = (record?: ObjectRecord) => {
+        if (!record || byId.has(record.id)) return;
+        byId.set(record.id, record);
+      };
+      const addValue = (value: PropertyValue | undefined) => {
+        const ids = Array.isArray(value) ? value : typeof value === 'string' ? [value] : [];
+        for (const id of ids) selectedIds.add(id);
+      };
+      if (evaluated.view.spec.input?.typeId) targetTypes.add(evaluated.view.spec.input.typeId);
+      for (const block of evaluated.blocks) {
+        for (const row of block.rows) {
+          for (const propertyId of Object.values(row.bindings)) {
+            const property = catalog.properties.find(item => item.id === propertyId);
+            if (property?.kind !== 'reference') continue;
+            if (property.targetTypeId) targetTypes.add(property.targetTypeId);
+            addValue(row.object.properties[property.id]);
+          }
+        }
+      }
+      for (const typeId of targetTypes) {
+        for (const record of objects.listObjects({ typeId, limit: 200 })) add(record);
+      }
+      add(evaluated.input);
+      for (const id of selectedIds) {
+        if (byId.has(id)) continue;
+        try {
+          add(objects.getObject(id));
+        } catch (error) {
+          if (error instanceof AppError && error.status === 404) continue;
+          throw error;
+        }
+      }
+      return [...byId.values()];
+    };
+    const unavailableHistoryMessage = 'This historical revision uses a type, property, or value that is no longer editable. Copy its source manually; Taskdesk will not open a lossy restore draft.';
+    const historyAvailable = (snapshot: ObjectRecord): boolean => {
+      if (!catalog.types.some(type => type.id === snapshot.typeId)) return false;
+      for (const [propertyId, value] of Object.entries(snapshot.properties)) {
+        const property = catalog.properties.find(item => item.id === propertyId);
+        if (!property) return false;
+        if (property.kind === 'text') {
+          if (typeof value !== 'string' || /[\r\n]/.test(value)) return false;
+        } else if (property.kind === 'select') {
+          if (typeof value !== 'string' || !property.options?.some(option => option.id === value)) return false;
+        } else if (property.kind === 'reference') {
+          const ids = property.multiple ? value : [value];
+          if (!Array.isArray(ids) || ids.length > 256) return false;
+          if (ids.some(id => typeof id !== 'string' || !Value.Check(IdSchema, id.toLowerCase()))) return false;
+          if (new Set(ids.map(id => String(id).toLowerCase())).size !== ids.length) return false;
+        } else if (valueError(property.kind, value)) return false;
+      }
+      return true;
+    };
+    const historyFallbackPage = (current: ObjectRecord, snapshot: ObjectRecord, status = 422): Response => {
+      model.screen = 'object-history';
+      model.object = current;
+      model.objectType = objects.getType(current.typeId);
+      const listed = objects.listObjectHistory(current.id);
+      model.history = { revisions: listed.revisions, selected: snapshot, offset: 0, hasMore: listed.hasMore };
+      model.objects = pickerObjects([current.properties, snapshot.properties]);
+      model.error = unavailableHistoryMessage;
+      return page(status);
     };
     const readWrite = (data: URLSearchParams, current?: ObjectRecord): ObjectWrite => {
       const type = objects.getType(data.get('typeId') ?? current?.typeId ?? PAGE_TYPE_ID);
-      const ids = new Set([...type.propertyIds, ...Object.keys(current?.properties ?? {})]);
+      const historyRevision = data.has('historyRevision') && current ? objects.getObjectRevision(current.id, positiveInteger(data.get('historyRevision'), 'Choose a historical revision.')) : undefined;
+      const ids = new Set([...type.propertyIds, ...Object.keys(current?.properties ?? {}), ...Object.keys(historyRevision?.properties ?? {})]);
       for (const key of data.keys()) if (key.startsWith('p:') && !ids.has(key.split(':')[1]!)) throw new AppError(422, 'This property is not attached to the object or its type.');
-      const properties: Record<string, PropertyValue> = { ...current?.properties };
+      const properties: Record<string, PropertyValue> = historyRevision ? {} : { ...current?.properties };
       for (const id of ids) {
         const property = objects.getProperty(id);
         const value = formValue(property, data, `p:${id}`);
@@ -105,10 +221,13 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
     try {
       if (req.method === 'GET') {
         if (lookupRoute) {
-          requireFields(url.searchParams, ['q']);
+          requireFields(url.searchParams, ['q', 'typeId']);
           const search = url.searchParams.get('q') ?? '';
+          const typeId = url.searchParams.get('typeId');
           if (search.length > 200) throw new AppError(422, 'Search must be at most 200 characters.');
-          const rows = objects.listObjects({ search, limit: 51 });
+          if (typeId !== null && !Value.Check(IdSchema, typeId)) throw new AppError(422, 'Invalid type filter.');
+          if (typeId !== null) objects.getType(typeId);
+          const rows = objects.listObjects({ search, typeId: typeId ?? undefined, limit: 51 });
           const result: ObjectLookupResult = {
             items: rows.slice(0, 50).map(record => ({ id: record.id, title: record.title, typeName: objects.getType(record.typeId).name })),
             truncated: rows.length > 50,
@@ -172,6 +291,23 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
           model.screen = 'views';
           if (url.pathname === '/calendar') model.section = 'calendar';
         } else {
+          const historyMatch = /^\/objects\/([a-f0-9-]{36})\/history$/.exec(url.pathname);
+          if (historyMatch) {
+            requireFields(url.searchParams, ['offset', 'revision']);
+            model.screen = 'object-history';
+            model.object = objects.getObject(historyMatch[1]!);
+            model.objectType = objects.getType(model.object.typeId);
+            const offsetValue = url.searchParams.get('offset') ?? '0';
+            if (!/^\d{1,7}$/.test(offsetValue) || Number(offsetValue) > 1_000_000) throw new AppError(422, 'Invalid history page.');
+            const listed = objects.listObjectHistory(model.object.id, Number(offsetValue));
+            model.history = { revisions: listed.revisions, offset: Number(offsetValue), hasMore: listed.hasMore };
+            if (url.searchParams.has('revision')) {
+              model.history.selected = objects.getObjectRevision(model.object.id, positiveInteger(url.searchParams.get('revision'), 'Choose a historical revision.'));
+              if (!historyAvailable(model.history.selected)) model.error = unavailableHistoryMessage;
+            }
+            model.objects = pickerObjects([model.object.properties, model.history.selected?.properties]);
+            return page();
+          }
           const match = /^\/(types|objects|views)\/([a-f0-9-]{36})$/.exec(url.pathname);
           if (!match) throw new AppError(404, 'Page not found.');
           if (match[1] === 'types') { model.screen = 'type'; model.objectType = objects.getType(match[2]!); }
@@ -179,18 +315,11 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
             model.screen = 'object'; model.object = objects.getObject(match[2]!);
             model.objectType = objects.getType(model.object.typeId);
             model.objects = pickerObjects();
-            const selected = new Set<string>();
-            for (const [id, value] of Object.entries(model.object.properties)) if (objects.getProperty(id).kind === 'reference') for (const target of Array.isArray(value) ? value : [value]) if (typeof target === 'string') selected.add(target);
-            for (const id of selected) if (!model.objects.some(item => item.id === id)) { try { model.objects.push(objects.getObject(id)); } catch { /* An imported unresolved link remains in stored content. */ } }
             model.backlinks = objects.backlinks(model.object.id);
           } else {
-            model.screen = 'view'; model.objects = objects.listObjects({ limit: 200 });
+            model.screen = 'view';
             model.evaluatedView = views.evaluate(match[2]!, url.searchParams.get('input') || undefined);
-            const inputType = model.evaluatedView.view.spec.input?.typeId;
-            if (inputType) {
-              model.objects = objects.listObjects({ typeId: inputType, limit: 200 });
-              if (model.evaluatedView.input && !model.objects.some(record => record.id === model.evaluatedView!.input!.id)) model.objects.push(model.evaluatedView.input);
-            }
+            model.objects = viewObjects(model.evaluatedView);
           }
         }
         return page();
@@ -218,7 +347,9 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
           objects.renameType(model.objectType.id, revision(fields), fields.get('name') ?? '');
         } else {
           requireFields(fields, ['csrf', 'revision', 'propertyId', 'label', 'kind', 'options', 'targetTypeId', 'multiple']);
-          objects.addProperty(model.objectType.id, revision(fields), fields.get('propertyId') ? { propertyId: fields.get('propertyId')! } : {
+          const propertyId = fields.get('propertyId');
+          if (!propertyId) model.newPropertyDraft = newPropertyDraft(fields);
+          objects.addProperty(model.objectType.id, revision(fields), propertyId ? { propertyId } : {
             label: fields.get('label') ?? '', kind: fields.get('kind') as PropertyKind,
             ...(fields.get('options') ? { options: fields.get('options')!.split(/\r?\n/).map(value => value.trim()).filter(Boolean) } : {}),
             ...(fields.get('targetTypeId') ? { targetTypeId: fields.get('targetTypeId')! } : {}),
@@ -236,9 +367,10 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
         return go(type ? `/types/${type.id}?saved=1` : '/types?saved=1');
       }
       if (url.pathname === '/objects/create') {
-        model.screen = 'new-object'; model.objects = pickerObjects();
+        model.screen = 'new-object';
         model.objectDraft = { title: fields.get('title') ?? '', body: fields.get('body') ?? '', requestId: fields.get('requestId') ?? '', typeId: fields.get('typeId') ?? PAGE_TYPE_ID, fields: draftFields(fields) };
         model.objectType = objects.getType(model.objectDraft.typeId!);
+        model.objects = pickerObjects();
         requireFields(fields, ['csrf', 'requestId', 'typeId', 'title', 'body', 'intent'], true);
         if (fields.get('intent') === 'change-type') {
           model.journalDate = localDate();
@@ -249,12 +381,33 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
         const record = objects.createObject(write, fields.get('requestId') || undefined);
         return go(`/objects/${record.id}?saved=1`);
       }
+      const historyDraftMatch = /^\/objects\/([a-f0-9-]{36})\/history\/draft$/.exec(url.pathname);
+      if (historyDraftMatch) {
+        requireFields(fields, ['csrf', 'revision', 'currentRevision']);
+        model.screen = 'object';
+        model.object = objects.getObject(historyDraftMatch[1]!);
+        const snapshot = objects.getObjectRevision(model.object.id, positiveInteger(fields.get('revision'), 'Choose a historical revision.'));
+        if (!historyAvailable(snapshot)) return historyFallbackPage(model.object, snapshot);
+        model.objectType = objects.getType(snapshot.typeId);
+        const currentRevision = revision(fields, 'currentRevision');
+        model.objectDraft = { title: snapshot.title, body: snapshot.body, revision: String(currentRevision), typeId: snapshot.typeId, properties: { ...snapshot.properties }, historyRevision: String(snapshot.revision) };
+        model.objects = pickerObjects([model.object.properties, model.objectDraft.properties]);
+        model.backlinks = objects.backlinks(model.object.id);
+        return page();
+      }
       const objectMatch = /^\/objects\/([a-f0-9-]{36})\/(update|trash|restore)$/.exec(url.pathname);
       if (objectMatch) {
-        model.screen = 'object'; model.object = objects.getObject(objectMatch[1]!); model.objectType = objects.getType(model.object.typeId); model.objects = pickerObjects();
+        model.screen = 'object'; model.object = objects.getObject(objectMatch[1]!); model.objectType = objects.getType(model.object.typeId);
         if (objectMatch[2] === 'update') {
-          model.objectDraft = { title: fields.get('title') ?? '', body: fields.get('body') ?? model.object.body, revision: fields.get('reviewedRevision') ?? fields.get('revision') ?? '', typeId: fields.get('typeId') ?? model.object.typeId, fields: draftFields(fields) };
-          requireFields(fields, ['csrf', 'revision', 'reviewedRevision', 'typeId', 'title', 'body', 'intent'], true);
+          model.objectDraft = { title: fields.get('title') ?? '', body: fields.get('body') ?? model.object.body, revision: fields.get('reviewedRevision') ?? fields.get('revision') ?? '', typeId: fields.get('typeId') ?? model.object.typeId, fields: draftFields(fields), historyRevision: fields.has('historyRevision') ? fields.get('historyRevision') ?? '' : undefined };
+          model.objects = pickerObjects();
+          requireFields(fields, ['csrf', 'revision', 'reviewedRevision', 'typeId', 'title', 'body', 'intent', 'historyRevision'], true);
+          if (model.objectDraft.historyRevision !== undefined) {
+            const snapshot = objects.getObjectRevision(model.object.id, positiveInteger(model.objectDraft.historyRevision, 'Choose a historical revision.'));
+            if (!historyAvailable(snapshot)) return historyFallbackPage(model.object, snapshot);
+            model.objectDraft.properties = { ...snapshot.properties };
+            model.objects = pickerObjects([model.object.properties, model.objectDraft.properties]);
+          }
           if (fields.get('intent') === 'change-type') {
             objects.getType(model.objectDraft.typeId!);
             return page();
@@ -266,6 +419,7 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
           objects.updateObject(objectMatch[1]!, expectedRevision, write);
           return go(`/objects/${objectMatch[1]}?saved=1`);
         }
+        model.objects = pickerObjects();
         requireFields(fields, ['csrf', 'revision']);
         objects.setTrashed(objectMatch[1]!, revision(fields), objectMatch[2] === 'trash');
         return go(objectMatch[2] === 'trash' ? '/?trash=1' : `/objects/${objectMatch[1]}?saved=1`);

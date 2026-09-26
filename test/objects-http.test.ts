@@ -43,6 +43,122 @@ function nativeObjectFields(markup: string): Record<string, string> {
   return fields;
 }
 
+async function nativePropertyForm(markup: string) {
+  const result = { fields: {} as Record<string, string>, selected: {} as Record<string, string>, checked: false, draft: false };
+  const entities: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', '#39': "'" };
+  const decode = (value: string) => value.replace(/&(amp|lt|gt|quot|#39);/g, (_, entity: string) => entities[entity]!);
+  await new HTMLRewriter()
+    .on('form[data-new-property]', {
+      element(element) { result.draft = element.hasAttribute('data-draft'); },
+    })
+    .on('form[data-new-property] input', {
+      element(element) {
+        const name = element.getAttribute('name');
+        if (!name) return;
+        if (name === 'multiple') result.checked = element.hasAttribute('checked');
+        result.fields[name] = decode(element.getAttribute('value') ?? '');
+      },
+    })
+    .on('form[data-new-property] textarea[name="options"]', {
+      text(chunk) { result.fields.options = (result.fields.options ?? '') + chunk.text; },
+    })
+    .on('form[data-new-property] select[name="kind"] option[selected]', {
+      element(element) { result.selected.kind = decode(element.getAttribute('value') ?? ''); },
+    })
+    .on('form[data-new-property] select[name="targetTypeId"] option[selected]', {
+      element(element) { result.selected.targetTypeId = decode(element.getAttribute('value') ?? ''); },
+    })
+    .transform(new Response(markup)).text();
+  result.fields.options = decode(result.fields.options ?? '').replace(/^\n/, '');
+  return result;
+}
+
+test('rejected native property creation retains select and reference drafts without changing schemas', async t => {
+  const f = await setup(t, async () => { throw new Error('Not used'); });
+  const type = f.objects.createType('Drafted properties');
+  const target = f.objects.createType('Draft target');
+  const label = 'Status "now" & <later>';
+  const options = '\n  Todo  \nDoing\n\nTodo\n';
+  const select = await f.post(`/types/${type.id}/properties`, { revision: String(type.revision), label, kind: 'select', options });
+  assert.equal(select.status, 422);
+  const selectMarkup = await select.text();
+  assert.ok(selectMarkup.includes('Option labels must be unique.'));
+  const selectForm = await nativePropertyForm(selectMarkup);
+  assert.equal(selectForm.draft, true);
+  assert.equal(selectForm.fields.label, label);
+  assert.equal(selectForm.fields.revision, String(type.revision));
+  assert.equal(selectForm.selected.kind, 'select');
+  assert.equal(selectForm.fields.options, options);
+  assert.equal(selectForm.selected.targetTypeId, '');
+  assert.equal(selectForm.checked, false);
+  assert.deepEqual(f.objects.getType(type.id), type);
+  assert.equal(f.objects.catalog().properties.some(property => property.label === label), false);
+
+  const corrected = await f.post(`/types/${type.id}/properties`, { revision: selectForm.fields.revision, label: selectForm.fields.label, kind: selectForm.selected.kind, options: 'Todo\nDoing' });
+  assert.equal(corrected.status, 303);
+  const withSelect = f.objects.getType(type.id);
+  assert.equal(withSelect.propertyIds.length, 1);
+  const property = f.objects.getProperty(withSelect.propertyIds[0]!);
+  assert.equal(property.label, label);
+  assert.equal(property.kind, 'select');
+  assert.deepEqual(property.options?.map(option => option.label), ['Todo', 'Doing']);
+
+  const incompatible = await f.post(`/types/${type.id}/properties`, { revision: String(withSelect.revision), label: 'Wrong fields', kind: 'select', options: 'One', targetTypeId: target.id, multiple: 'true' });
+  assert.equal(incompatible.status, 422);
+  const incompatibleMarkup = await incompatible.text();
+  assert.ok(incompatibleMarkup.includes('Only reference properties have a target type or multiple values.'));
+  const incompatibleForm = await nativePropertyForm(incompatibleMarkup);
+  assert.equal(incompatibleForm.fields.label, 'Wrong fields');
+  assert.equal(incompatibleForm.fields.revision, String(withSelect.revision));
+  assert.equal(incompatibleForm.selected.kind, 'select');
+  assert.equal(incompatibleForm.fields.options, 'One');
+  assert.equal(incompatibleForm.selected.targetTypeId, target.id);
+  assert.equal(incompatibleForm.checked, true);
+  assert.deepEqual(f.objects.getType(type.id), withSelect);
+
+  const missingTarget = randomUUID();
+  const reference = await f.post(`/types/${type.id}/properties`, { revision: String(withSelect.revision), label: 'Related item', kind: 'reference', targetTypeId: missingTarget, multiple: 'true' });
+  assert.equal(reference.status, 404);
+  const referenceForm = await nativePropertyForm(await reference.text());
+  assert.equal(referenceForm.fields.label, 'Related item');
+  assert.equal(referenceForm.fields.revision, String(withSelect.revision));
+  assert.equal(referenceForm.selected.kind, 'reference');
+  assert.equal(referenceForm.selected.targetTypeId, missingTarget);
+  assert.equal(referenceForm.checked, true);
+  assert.deepEqual(f.objects.getType(type.id), withSelect);
+});
+
+test('native property drafts keep stale revisions and can be corrected without affecting reuse', async t => {
+  const f = await setup(t, async () => { throw new Error('Not used'); });
+  let type = f.objects.createType('Property corrections');
+  const reusable = f.objects.addProperty(PAGE_TYPE_ID, f.objects.getType(PAGE_TYPE_ID).revision, { label: 'Reusable note', kind: 'text' });
+  const staleRevision = type.revision;
+  type = f.objects.addProperty(type.id, type.revision, { label: 'Concurrent flag', kind: 'boolean' });
+  const staleFields = { revision: String(staleRevision), label: 'Blocked select', kind: 'select', options: 'One\nTwo' };
+  const stale = await f.post(`/types/${type.id}/properties`, staleFields);
+  assert.equal(stale.status, 409);
+  const staleForm = await nativePropertyForm(await stale.text());
+  assert.equal(staleForm.fields.revision, String(staleRevision));
+  assert.equal(staleForm.fields.label, staleFields.label);
+  assert.equal(staleForm.fields.options, staleFields.options);
+  assert.equal((await f.post(`/types/${type.id}/properties`, staleFields)).status, 409);
+  assert.deepEqual(f.objects.getType(type.id), type);
+
+  const corrected = await f.post(`/types/${type.id}/properties`, { revision: String(type.revision), label: 'Blocked select', kind: 'select', options: 'One\nTwo' });
+  assert.equal(corrected.status, 303);
+  const withSelect = f.objects.getType(type.id);
+  assert.equal(withSelect.propertyIds.length, type.propertyIds.length + 1);
+  const property = f.objects.getProperty(withSelect.propertyIds.at(-1)!);
+  assert.equal(property.label, 'Blocked select');
+  assert.deepEqual(property.options?.map(option => option.label), ['One', 'Two']);
+
+  const beforeReuse = f.objects.getType(type.id);
+  const reuse = await f.post(`/types/${type.id}/properties`, { revision: String(beforeReuse.revision), propertyId: reusable.propertyIds.at(-1)! });
+  assert.equal(reuse.status, 303);
+  const afterReuse = f.objects.getType(type.id);
+  assert.equal(afterReuse.propertyIds.at(-1), reusable.propertyIds.at(-1));
+});
+
 test('native type browsing keeps search and trash scope when switching layouts and pages', async t => {
   const f = await setup(t, async () => { throw new Error('Not used'); });
   const task = f.objects.createType('Task');
@@ -196,23 +312,35 @@ test('rejected native writes preserve title and Markdown without replacing saved
   assert.deepEqual(f.objects.getObject(saved.id), latest);
 });
 
-test('lookup searches the entire live collection by title and writing with literal wildcards', async t => {
+test('lookup searches the entire live collection by title and writing with literal wildcards and optional type scope', async t => {
   const f = await setup(t, async () => { throw new Error('Not used'); });
   const type = f.objects.createType('Research');
+  const otherType = f.objects.createType('Other research');
   const older = f.objects.createObject({ typeId: type.id, title: 'Archive %_ title', body: 'A singular body needle.', properties: {} });
   f.objects.db.query('UPDATE objects SET updated_at = ? WHERE id = ?').run('2000-01-01T00:00:00.000Z', older.id);
+  const wrongType = f.objects.createObject({ typeId: otherType.id, title: 'Archive %_ wrong type', body: 'A singular body needle.', properties: {} });
   const trashed = f.objects.createObject({ typeId: type.id, title: 'Archive %_ trash', body: 'A singular body needle.', properties: {} });
   f.objects.setTrashed(trashed.id, trashed.revision, true);
   for (let index = 0; index < 205; index++) f.objects.createObject({ typeId: PAGE_TYPE_ID, title: `Recent ${index}`, body: 'Ordinary writing', properties: {} });
   assert.equal(f.objects.listObjects({ limit: 200 }).some(record => record.id === older.id), false);
   for (const query of ['Archive', 'singular body needle', '%', '_']) {
-    const response = await f.get(`/objects/lookup?q=${encodeURIComponent(query)}`);
+    const response = await f.get(`/objects/lookup?q=${encodeURIComponent(query)}&typeId=${type.id}`);
     assert.equal(response.status, 200);
     assert.equal(response.headers.get('cache-control'), 'no-store');
     const result: unknown = await response.json();
     assert.ok(Value.Check(ObjectLookupSchema, result));
     assert.deepEqual(result, { items: [{ id: older.id, title: older.title, typeName: type.name }], truncated: false });
   }
+  const untyped = await (await f.get('/objects/lookup?q=Archive')).json() as ObjectLookupResult;
+  assert.deepEqual(new Set(untyped.items.map(item => item.id)), new Set([older.id, wrongType.id]));
+  const empty = await (await f.get(`/objects/lookup?q=&typeId=${type.id}`)).json() as ObjectLookupResult;
+  assert.equal(empty.items.length, 1);
+  assert.equal(empty.items[0]!.id, older.id);
+  for (let index = 0; index < 55; index++) f.objects.createObject({ typeId: type.id, title: `Archive typed overflow ${index}`, body: '', properties: {} });
+  const typedOverflow = await (await f.get(`/objects/lookup?q=Archive&typeId=${type.id}`)).json() as ObjectLookupResult;
+  assert.equal(typedOverflow.items.length, 50);
+  assert.equal(typedOverflow.truncated, true);
+  assert.ok(typedOverflow.items.every(item => item.typeName === type.name));
 });
 
 test('lookup returns at most fifty results and rejects unsupported, repeated, or oversized queries as uncached JSON', async t => {
@@ -234,12 +362,17 @@ test('lookup returns at most fifty results and rejects unsupported, repeated, or
   const boundary = await f.get(`/objects/lookup?q=${'x'.repeat(200)}`);
   assert.equal(boundary.status, 200);
   assert.deepEqual(await boundary.json(), { items: [], truncated: false });
-  for (const query of [`q=${'x'.repeat(201)}`, 'q=a&q=b', 'limit=100', 'trash=1', 'conversation=not-an-id']) {
+  const invalidQueries = [`q=${'x'.repeat(201)}`, 'q=a&q=b', 'typeId=not-a-uuid', 'typeId=', `typeId=${PAGE_TYPE_ID}&typeId=${TASK_TYPE_ID}`, 'limit=100', 'trash=1', 'conversation=not-an-id'];
+  for (const query of invalidQueries) {
     const response = await f.get(`/objects/lookup?${query}`);
-    assert.equal(response.status, 422);
+    assert.equal(response.status, 422, query);
     assert.equal(response.headers.get('cache-control'), 'no-store');
     assert.equal(typeof (await response.json() as { error: string }).error, 'string');
   }
+  const unknownType = await f.get(`/objects/lookup?typeId=${randomUUID()}`);
+  assert.equal(unknownType.status, 404);
+  assert.equal(unknownType.headers.get('cache-control'), 'no-store');
+  assert.equal(typeof (await unknownType.json() as { error: string }).error, 'string');
 });
 
 test('explicit review still conflicts with subsequent writes and preserves the reconciled draft until saved', async t => {
@@ -335,6 +468,124 @@ test('native object forms and an AI-authored calendar share data without regener
   assert.equal((await f.post(`/views/${view.id}/delete`, { revision: String(published.revision) })).status, 303);
   assert.equal((await f.get(taskPath)).status, 200);
   assert.equal(f.objects.listObjects().length, 3);
+});
+
+test('published input boards offer reference action choices from the binding target type only', async t => {
+  const f = await setup(t, async () => { throw new Error('Not used'); });
+  const projectType = f.objects.createType('Project');
+  const personType = f.objects.createType('Person');
+  let workType = f.objects.createType('Work');
+  workType = f.objects.addProperty(workType.id, workType.revision, { label: 'Project', kind: 'reference', targetTypeId: projectType.id });
+  workType = f.objects.addProperty(workType.id, workType.revision, { label: 'Assignee', kind: 'reference', targetTypeId: personType.id });
+  const [projectProperty, assigneeProperty] = workType.propertyIds as [string, string];
+  const project = f.objects.createObject({ typeId: projectType.id, title: 'Website', body: '', properties: {} });
+  const alice = f.objects.createObject({ typeId: personType.id, title: 'Alice', body: '', properties: {} });
+  const bob = f.objects.createObject({ typeId: personType.id, title: 'Bob', body: '', properties: {} });
+  const work = f.objects.createObject({ typeId: workType.id, title: 'Build launch page', body: '', properties: { [projectProperty]: project.id, [assigneeProperty]: alice.id } });
+  const draft = f.views.create({ model: 'fixture/contract', spec: {
+    title: 'Project board',
+    input: { label: 'Project', typeId: projectType.id },
+    blocks: [{
+      title: 'Work by assignee', component: 'board', editable: true,
+      columns: [{ role: 'project', label: 'Project' }],
+      sources: [{ typeId: workType.id, bindings: { group: assigneeProperty, project: projectProperty }, where: [{ propertyId: projectProperty, operator: 'equals', value: { input: true } }] }],
+    }],
+  } }, 'Show project work by assignee');
+  const view = f.views.publish(draft.id, draft.revision);
+  const response = await f.get(`/views/${view.id}?input=${project.id}`);
+  assert.equal(response.status, 200);
+  const markup = await response.text();
+  assert.deepEqual(selectOptions(markup, 'value').map(option => option.id).sort(), [alice.id, bob.id].sort());
+  assert.deepEqual(selectOptions(markup, 'input').map(option => option.id), [project.id]);
+  const controls = await referenceSearchControls(markup);
+  const inputButton = controls.buttons.find(item => controls.selects.get(item.target) === 'input');
+  assert.ok(inputButton);
+  assert.equal(inputButton.typeId, projectType.id);
+  const actionButton = controls.buttons.find(item => controls.selects.get(item.target) === 'value');
+  assert.ok(actionButton);
+  assert.equal(actionButton.typeId, personType.id);
+  assert.equal((await f.post(`/views/${view.id}/act`, {
+    revision: String(view.revision), objectId: work.id, objectRevision: String(work.revision), blockIndex: '0', role: 'group', inputId: project.id, value: bob.id,
+  })).status, 303);
+  assert.equal(f.objects.getObject(work.id).properties[assigneeProperty], bob.id);
+  assert.equal((await f.post(`/views/${view.id}/act`, {
+    revision: String(view.revision), objectId: work.id, objectRevision: String(work.revision), blockIndex: '0', role: 'group', inputId: bob.id, value: alice.id,
+  })).status, 422);
+});
+
+test('published boards bound reference choices per target type and retain selected references', async t => {
+  const f = await setup(t, async () => { throw new Error('Not used'); });
+  const personType = f.objects.createType('Board people');
+  const milestoneType = f.objects.createType('Milestones');
+  let workType = f.objects.createType('Board work');
+  workType = f.objects.addProperty(workType.id, workType.revision, { label: 'Assignee', kind: 'reference', targetTypeId: personType.id });
+  workType = f.objects.addProperty(workType.id, workType.revision, { label: 'Milestone', kind: 'reference', targetTypeId: milestoneType.id });
+  const [assigneeProperty, milestoneProperty] = workType.propertyIds as [string, string];
+  for (let index = 0; index < 205; index++) f.objects.createObject({ typeId: PAGE_TYPE_ID, title: `Crowd ${index}`, body: '', properties: {} });
+  f.objects.db.query('UPDATE objects SET updated_at = ? WHERE type_id = ?').run('2099-01-01T00:00:00Z', PAGE_TYPE_ID);
+  const retained = f.objects.createObject({ typeId: personType.id, title: 'Retained assignee', body: '', properties: {} });
+  const trashed = f.objects.createObject({ typeId: personType.id, title: 'Former assignee', body: '', properties: {} });
+  for (let index = 0; index < 205; index++) f.objects.createObject({ typeId: personType.id, title: `Person ${index}`, body: '', properties: {} });
+  const milestone = f.objects.createObject({ typeId: milestoneType.id, title: 'Beta', body: '', properties: {} });
+  f.objects.db.query('UPDATE objects SET updated_at = ? WHERE id IN (?, ?)').run('2000-01-01T00:00:00Z', retained.id, trashed.id);
+  const activePeople = f.objects.listObjects({ typeId: personType.id, limit: 200 }).map(item => item.id);
+  assert.equal(activePeople.length, 200);
+  assert.ok(!activePeople.includes(retained.id));
+  assert.ok(!activePeople.includes(trashed.id));
+  const retainedWork = f.objects.createObject({ typeId: workType.id, title: 'Retained work', body: '', properties: { [assigneeProperty]: retained.id, [milestoneProperty]: milestone.id } });
+  f.objects.createObject({ typeId: workType.id, title: 'Former work', body: '', properties: { [assigneeProperty]: trashed.id, [milestoneProperty]: milestone.id } });
+  f.objects.setTrashed(trashed.id, trashed.revision, true);
+  const draft = f.views.create({ model: 'fixture/contract', spec: {
+    title: 'Reference board',
+    blocks: [{ title: 'Assignments', component: 'board', editable: true, columns: [{ role: 'milestone', label: 'Milestone' }], sources: [{ typeId: workType.id, bindings: { group: assigneeProperty, milestone: milestoneProperty } }] }],
+  } }, 'Show assignments');
+  const view = f.views.publish(draft.id, draft.revision);
+  const response = await f.get(`/views/${view.id}`);
+  assert.equal(response.status, 200);
+  const markup = await response.text();
+  const choices = selectOptions(markup, 'value');
+  const choiceIds = choices.map(option => option.id);
+  const uniqueChoiceIds = [...new Set(choiceIds)];
+  assert.equal(uniqueChoiceIds.length, 202);
+  assert.deepEqual(uniqueChoiceIds.filter(id => activePeople.includes(id)).sort(), activePeople.sort());
+  assert.ok(uniqueChoiceIds.includes(retained.id));
+  assert.ok(uniqueChoiceIds.includes(trashed.id));
+  assert.ok(!uniqueChoiceIds.includes(milestone.id));
+  assert.deepEqual(choices.filter(option => option.selected).map(option => option.id).sort(), [retained.id, trashed.id].sort());
+  const target = activePeople[0]!;
+  assert.equal((await f.post(`/views/${view.id}/act`, {
+    revision: String(view.revision), objectId: retainedWork.id, objectRevision: String(retainedWork.revision), blockIndex: '0', role: 'group', value: target,
+  })).status, 303);
+  assert.equal(f.objects.getObject(retainedWork.id).properties[assigneeProperty], target);
+  assert.equal(f.objects.getObject(retainedWork.id).properties[milestoneProperty], milestone.id);
+  assert.equal((await f.post(`/views/${view.id}/act`, {
+    revision: String(view.revision), objectId: retainedWork.id, objectRevision: String(retainedWork.revision), blockIndex: '0', role: 'group', value: activePeople[1]!,
+  })).status, 409);
+});
+
+test('view reference candidate lookup rethrows unexpected selected-link failures', async t => {
+  const f = await setup(t, async () => { throw new Error('Not used'); });
+  const personType = f.objects.createType('Failure people');
+  let workType = f.objects.createType('Failure work');
+  workType = f.objects.addProperty(workType.id, workType.revision, { label: 'Assignee', kind: 'reference', targetTypeId: personType.id });
+  const assigneeProperty = workType.propertyIds[0]!;
+  const retained = f.objects.createObject({ typeId: personType.id, title: 'Retained assignee', body: '', properties: {} });
+  for (let index = 0; index < 205; index++) f.objects.createObject({ typeId: personType.id, title: `Candidate ${index}`, body: '', properties: {} });
+  f.objects.db.query('UPDATE objects SET updated_at = ? WHERE id = ?').run('2000-01-01T00:00:00Z', retained.id);
+  assert.ok(!f.objects.listObjects({ typeId: personType.id, limit: 200 }).some(record => record.id === retained.id));
+  f.objects.createObject({ typeId: workType.id, title: 'Retained work', body: '', properties: { [assigneeProperty]: retained.id } });
+  const draft = f.views.create({ model: 'fixture/contract', spec: {
+    title: 'Failure board',
+    blocks: [{ title: 'Assignments', component: 'board', editable: true, sources: [{ typeId: workType.id, bindings: { group: assigneeProperty } }] }],
+  } }, 'Show assignments');
+  const view = f.views.publish(draft.id, draft.revision);
+  const original = f.objects.getObject.bind(f.objects);
+  f.objects.getObject = (id: string) => {
+    if (id === retained.id) throw new AppError(503, 'Selected reference lookup failed.');
+    return original(id);
+  };
+  const response = await f.get(`/views/${view.id}`);
+  assert.equal(response.status, 503);
 });
 
 test('AI failure and invalid generated bindings never publish a fallback or mutate objects', async t => {
@@ -538,6 +789,83 @@ test('native type switching retains multiple reference drafts until the selected
   assert.equal(saved.body, draft.body);
 });
 
+test('case-insensitive reference display uses canonical links and labels without rewriting stored values', async t => {
+  const f = await setup(t, async () => { throw new Error('Not used'); });
+  const targetType = f.objects.createType('Case targets');
+  let sourceType = f.objects.createType('Case source');
+  sourceType = f.objects.addProperty(sourceType.id, sourceType.revision, { label: 'Single', kind: 'reference', targetTypeId: targetType.id });
+  sourceType = f.objects.addProperty(sourceType.id, sourceType.revision, { label: 'Multiple', kind: 'reference', targetTypeId: targetType.id, multiple: true });
+  const [single, multiple] = sourceType.propertyIds as [string, string];
+  const target = f.objects.createObject({ typeId: targetType.id, title: 'Uppercase Target', body: '', properties: {} });
+  const outside = f.objects.createObject({ typeId: targetType.id, title: 'Old retained target', body: '', properties: {} });
+  const upperTarget = target.id.toUpperCase();
+  const upperOutside = outside.id.toUpperCase();
+  const requestId = randomUUID();
+  let source = f.objects.createObject({ typeId: sourceType.id, title: 'Source', body: '', properties: { [single]: upperTarget, [multiple]: [upperTarget, upperOutside] } }, requestId);
+  source = f.objects.updateObject(source.id, source.revision, { typeId: source.typeId, title: source.title, body: source.body, properties: { [single]: upperTarget, [multiple]: [upperTarget, upperOutside] } });
+  for (let index = 0; index < 205; index++) f.objects.createObject({ typeId: targetType.id, title: `New candidate ${index}`, body: '', properties: {} });
+  f.objects.db.query('UPDATE objects SET updated_at = ? WHERE type_id = ? AND id != ?').run('2099-01-01T00:00:00Z', targetType.id, outside.id);
+  f.objects.setTrashed(outside.id, outside.revision, true);
+
+  const receiptBefore = f.objects.db.query<{ fingerprint: string; object_id: string }, [string]>('SELECT fingerprint, object_id FROM object_create_requests WHERE request_id = ?').get(requestId)!;
+  const savedBefore = f.objects.getObject(source.id);
+  const snapshotBefore = f.objects.db.query<{ snapshot_json: string }, [string]>('SELECT snapshot_json FROM object_revisions WHERE object_id = ? ORDER BY revision DESC LIMIT 1').get(source.id);
+  assert.ok(snapshotBefore);
+  assert.deepEqual(JSON.parse(snapshotBefore.snapshot_json).properties, { [single]: upperTarget, [multiple]: [upperTarget, upperOutside] });
+  const objectMarkup = await (await f.get(`/objects/${source.id}`)).text();
+  assert.deepEqual(f.objects.getObject(source.id), savedBefore);
+  assert.deepEqual(f.objects.db.query<{ fingerprint: string; object_id: string }, [string]>('SELECT fingerprint, object_id FROM object_create_requests WHERE request_id = ?').get(requestId), receiptBefore);
+  assert.deepEqual(f.objects.db.query<{ snapshot_json: string }, [string]>('SELECT snapshot_json FROM object_revisions WHERE object_id = ? ORDER BY revision DESC LIMIT 1').get(source.id), snapshotBefore);
+
+  assert.equal((await f.get(`/objects/${target.id}`)).status, 200);
+  assert.equal((await f.get(`/objects/${upperTarget}`)).status, 404);
+
+  const singleOptions = referenceOptions(objectMarkup, single);
+  assert.deepEqual(singleOptions.filter(option => option.id.toLowerCase() === target.id).map(option => option.id), [target.id]);
+  assert.deepEqual(singleOptions.filter(option => option.selected).map(option => option.label), ['Uppercase Target · Case targets']);
+  const multipleOptions = referenceOptions(objectMarkup, multiple);
+  assert.deepEqual(multipleOptions.filter(option => option.id.toLowerCase() === target.id && option.selected).map(option => option.id), [target.id]);
+  assert.deepEqual(multipleOptions.filter(option => option.id.toLowerCase() === outside.id && option.selected).map(option => option.label), ['Old retained target']);
+
+  const saved = f.objects.getObject(source.id);
+  const unchangedFields = new URLSearchParams({ csrf: f.visitor.csrf, title: saved.title, body: saved.body, revision: String(saved.revision), [`p:${single}`]: target.id });
+  unchangedFields.append(`p:${multiple}`, target.id);
+  unchangedFields.append(`p:${multiple}`, outside.id);
+  const unchanged = await fetch(`${f.origin}/objects/${source.id}/update`, { method: 'POST', headers: { Cookie: `taskdesk=${f.visitor.id}`, Origin: f.origin }, body: unchangedFields, redirect: 'manual' });
+  assert.equal(unchanged.status, 303);
+  const updated = f.objects.getObject(source.id);
+  assert.deepEqual(updated.properties[multiple], [target.id, outside.id]);
+
+  const invalid = '<script>alert(1)</script>';
+  const rejected = await f.post(`/objects/${source.id}/update`, { title: 'Draft', body: '', revision: String(updated.revision), [`p:${single}`]: invalid });
+  assert.equal(rejected.status, 422);
+  const rejectedMarkup = await rejected.text();
+  assert.equal(rejectedMarkup.includes(invalid), false);
+  assert.ok(referenceOptions(rejectedMarkup, single).some(option => option.id.includes('&lt;script&gt;') && option.selected && option.label.includes('Linked object &lt;script&gt;')));
+  assert.equal(f.objects.getObject(source.id).properties[single], target.id);
+});
+
+test('published views render uppercase reference values as working object links', async t => {
+  const f = await setup(t, async () => { throw new Error('Not used'); });
+  const targetType = f.objects.createType('View targets');
+  let sourceType = f.objects.createType('View source');
+  sourceType = f.objects.addProperty(sourceType.id, sourceType.revision, { label: 'Linked', kind: 'reference', targetTypeId: targetType.id });
+  const propertyId = sourceType.propertyIds[0]!;
+  const target = f.objects.createObject({ typeId: targetType.id, title: 'Linked title', body: '', properties: {} });
+  f.objects.createObject({ typeId: sourceType.id, title: 'Source row', body: '', properties: { [propertyId]: target.id.toUpperCase() } });
+  const draft = f.views.create({ model: 'fixture/reference', spec: { title: 'Reference table', blocks: [{ title: 'Sources', component: 'table' as const, columns: [{ role: 'linked', label: 'Linked' }], sources: [{ typeId: sourceType.id, bindings: { linked: propertyId } }] }] } }, 'Fixture references');
+  const view = f.views.publish(draft.id, draft.revision);
+  const markup = await (await f.get(`/views/${view.id}`)).text();
+  const links: string[] = [];
+  let linkedText = '';
+  new HTMLRewriter()
+    .on('td .reference-values a', { element(element) { links.push(element.getAttribute('href') ?? ''); }, text(text) { linkedText += text.text; } })
+    .transform(markup);
+  assert.deepEqual(links, [`/objects/${target.id}`]);
+  assert.equal(linkedText, 'Linked title');
+  assert.equal((await f.get(links[0]!)).status, 200);
+});
+
 test('native assistant forms distinguish browsing, explicit targets, and rejected submissions', async t => {
   const f = await setup(t, async () => { throw new Error('Must not generate'); });
   const generated = { model: 'fixture/intent', spec: { title: 'View A', blocks: [{ title: 'Pages', component: 'list' as const, sources: [{ typeId: PAGE_TYPE_ID, bindings: {} }] }] } };
@@ -579,15 +907,38 @@ test('native assistant forms distinguish browsing, explicit targets, and rejecte
   }
 });
 
-function referenceOptions(markup: string, propertyId: string) {
-  const options: { id: string; selected: boolean }[] = [];
-  new HTMLRewriter().on(`select[name="p:${propertyId}"] option`, {
+function selectOptions(markup: string, name: string) {
+  const options: { id: string; selected: boolean; label: string }[] = [];
+  let current: { id: string; selected: boolean; label: string } | undefined;
+  new HTMLRewriter().on(`select[name="${name}"] option`, {
     element(element) {
       const id = element.getAttribute('value');
-      if (id) options.push({ id, selected: element.hasAttribute('selected') });
+      current = id ? { id, selected: element.hasAttribute('selected'), label: '' } : undefined;
+      if (current) options.push(current);
     },
+    text(text) { if (current) current.label += text.text; },
   }).transform(markup);
   return options;
+}
+
+function referenceOptions(markup: string, propertyId: string) {
+  return selectOptions(markup, `p:${propertyId}`);
+}
+
+async function referenceSearchControls(markup: string) {
+  const selects = new Map<string, string>();
+  const buttons: { target: string; typeId: string; label: string }[] = [];
+  await new HTMLRewriter()
+    .on('select', { element(element) {
+      const id = element.getAttribute('id');
+      const name = element.getAttribute('name');
+      if (id && name) selects.set(id, name);
+    } })
+    .on('button[data-reference-search]', { element(element) {
+      buttons.push({ target: element.getAttribute('data-reference-target') ?? '', typeId: element.getAttribute('data-reference-type') ?? '', label: element.getAttribute('aria-label') ?? '' });
+    } })
+    .transform(new Response(markup)).text();
+  return { selects, buttons };
 }
 
 test('reference pickers bound each target type across new, edit, rejected and type-switch forms', async t => {
@@ -608,6 +959,13 @@ test('reference pickers bound each target type across new, edit, rejected and ty
     assert.equal(response.status, 200);
     const markup = await response.text();
     for (const property of [single, multiple]) assert.deepEqual(referenceOptions(markup, property).map(option => option.id), [target.id]);
+    const controls = await referenceSearchControls(markup);
+    for (const property of [single, multiple]) {
+      const button = controls.buttons.find(item => controls.selects.get(item.target) === `p:${property}`);
+      assert.ok(button, `missing search button for ${property}`);
+      assert.equal(button.typeId, targetType.id);
+      assert.match(button.label, /Find object/);
+    }
   }
   for (const path of ['/objects/create', `/objects/${record.id}/update`]) {
     for (const intent of ['', 'change-type']) {
@@ -646,6 +1004,40 @@ test('reference pickers bound each target type across new, edit, rejected and ty
   assert.equal(f.objects.getObject(record.id).revision, selected.revision);
   const invalidCreate = await f.post('/objects/create', { typeId: sourceType.id, title: 'Invalid new link', body: '', requestId: randomUUID(), [`p:${single}`]: target.id });
   assert.equal(invalidCreate.status, 422);
+});
+
+test('submitted out-of-window reference drafts keep known labels on rejection and type switch', async t => {
+  const f = await setup(t, async () => { throw new Error('Not used'); });
+  const targetType = f.objects.createType('Label targets');
+  let sourceType = f.objects.createType('Label source');
+  sourceType = f.objects.addProperty(sourceType.id, sourceType.revision, { label: 'Linked', kind: 'reference', targetTypeId: targetType.id });
+  sourceType = f.objects.addProperty(sourceType.id, sourceType.revision, { label: 'Count', kind: 'number' });
+  const [referenceId, numberId] = sourceType.propertyIds as [string, string];
+  const oldTarget = f.objects.createObject({ typeId: targetType.id, title: 'OLD TARGET LABEL', body: '', properties: {} });
+  f.objects.db.query('UPDATE objects SET updated_at = ? WHERE id = ?').run('2000-01-01T00:00:00Z', oldTarget.id);
+  for (let index = 0; index < 205; index++) f.objects.createObject({ typeId: targetType.id, title: `New label target ${index}`, body: '', properties: {} });
+  assert.ok(!f.objects.listObjects({ typeId: targetType.id, limit: 200 }).some(record => record.id === oldTarget.id));
+  const saved = f.objects.createObject({ typeId: PAGE_TYPE_ID, title: 'Saved source', body: 'Saved body', properties: {} });
+  const requestId = randomUUID();
+  const draft = { typeId: sourceType.id, title: 'Draft title', body: 'Unsaved body', [`p:${referenceId}`]: oldTarget.id };
+
+  const assertRetained = async (response: Response, expectedStatus: number, expected: Record<string, string>) => {
+    assert.equal(response.status, expectedStatus);
+    const markup = await response.text();
+    const fields = nativeObjectFields(markup);
+    for (const [name, value] of Object.entries(expected)) assert.equal(fields[name], value, name);
+    const selected = referenceOptions(markup, referenceId).filter(option => option.selected);
+    assert.deepEqual(selected.map(option => option.id), [oldTarget.id]);
+    assert.equal(selected[0]!.label, 'OLD TARGET LABEL · Label targets');
+  };
+
+  await assertRetained(await f.post('/objects/create', { requestId, ...draft, [`p:${numberId}`]: 'not a number' }), 422, { title: draft.title, body: draft.body, requestId });
+  await assertRetained(await f.post('/objects/create', { requestId, ...draft, intent: 'change-type' }), 200, { title: draft.title, body: draft.body, requestId });
+  assert.equal(f.objects.listObjects({ typeId: sourceType.id }).length, 0);
+
+  await assertRetained(await f.post(`/objects/${saved.id}/update`, { revision: String(saved.revision), ...draft, [`p:${numberId}`]: 'not a number' }), 422, { title: draft.title, body: draft.body, revision: String(saved.revision) });
+  await assertRetained(await f.post(`/objects/${saved.id}/update`, { revision: String(saved.revision), ...draft, intent: 'change-type' }), 200, { title: draft.title, body: draft.body, revision: String(saved.revision) });
+  assert.deepEqual(f.objects.getObject(saved.id), saved);
 });
 
 test('maximum Unicode prompts fit the generation envelope with either context field', async t => {
@@ -690,4 +1082,382 @@ test('maximum Unicode prompts fit the generation envelope with either context fi
   assert.equal(f.views.list().length, count);
   const unchanged = await (await f.get(`/views/conversations/${context.conversation.id}`)).json() as ViewConversation;
   assert.equal(unchanged.turns.length, 5);
+});
+
+test('native history opens historical snapshots as same-object drafts without mutating until explicit save', async t => {
+  const f = await setup(t, async () => { throw new Error('Not used'); });
+  const holder = f.objects.createType('Historical property holder');
+  const type = f.objects.addProperty(holder.id, holder.revision, { label: 'Historical note', kind: 'text' });
+  const propertyId = type.propertyIds.at(-1)!;
+  const before = f.objects.createObject({ typeId: PAGE_TYPE_ID, title: 'Before', properties: { [propertyId]: 'old value' }, body: 'Line 1\r\n\r\n**Keep source**.' });
+  const current = f.objects.updateObject(before.id, before.revision, { typeId: PAGE_TYPE_ID, title: 'After', properties: {}, body: 'Current body' });
+  const history = await f.get(`/objects/${before.id}/history?revision=${before.revision}`);
+  assert.equal(history.status, 200);
+  const historyMarkup = await history.text();
+  assert.ok(historyMarkup.includes('Read-only history'));
+  assert.ok(historyMarkup.includes('Exact Markdown source'));
+  assert.ok(historyMarkup.includes('old value'));
+  assert.ok(historyMarkup.includes('Open unsaved draft from revision 1'));
+  assert.deepEqual(f.objects.getObject(before.id), current);
+  const noCsrf = await f.post(`/objects/${before.id}/history/draft`, { csrf: 'bad', revision: String(before.revision), currentRevision: String(current.revision) });
+  assert.equal(noCsrf.status, 403);
+  assert.deepEqual(f.objects.getObject(before.id), current);
+  const draft = await f.post(`/objects/${before.id}/history/draft`, { revision: String(before.revision), currentRevision: String(current.revision) });
+  assert.equal(draft.status, 200);
+  const fields = nativeObjectFields(await draft.text());
+  assert.equal(fields.title, 'Before');
+  assert.equal(fields.body, before.body);
+  assert.equal(fields.revision, String(current.revision));
+  assert.equal(fields.historyRevision, String(before.revision));
+  assert.equal(fields[`p:${propertyId}`], 'old value');
+  assert.deepEqual(f.objects.getObject(before.id), current);
+  const emptyType = f.objects.createType('Empty target type');
+  const switched = await f.post(`/objects/${before.id}/update`, {
+    revision: fields.revision,
+    historyRevision: fields.historyRevision,
+    intent: 'change-type',
+    typeId: emptyType.id,
+    title: fields.title!,
+    body: fields.body!,
+    [`p:${propertyId}`]: fields[`p:${propertyId}`]!,
+  });
+  assert.equal(switched.status, 200);
+  const switchedFields = nativeObjectFields(await switched.text());
+  assert.equal(switchedFields.historyRevision, String(before.revision));
+  assert.equal(switchedFields[`p:${propertyId}`], 'old value');
+  assert.deepEqual(f.objects.getObject(before.id), current);
+  const saved = await f.post(`/objects/${before.id}/update`, {
+    revision: fields.revision,
+    historyRevision: fields.historyRevision,
+    typeId: PAGE_TYPE_ID,
+    title: 'Recovered title',
+    body: fields.body,
+    [`p:${propertyId}`]: 'restored value',
+  });
+  assert.equal(saved.status, 303);
+  const recovered = f.objects.getObject(before.id);
+  assert.equal(recovered.id, before.id);
+  assert.equal(recovered.revision, current.revision + 1);
+  assert.equal(recovered.title, 'Recovered title');
+  assert.equal(recovered.body, before.body);
+  assert.equal(recovered.properties[propertyId], 'restored value');
+  assert.equal(recovered.trashed, false);
+});
+
+test('history drafts keep stale expected revisions and reject forged history context', async t => {
+  const f = await setup(t, async () => { throw new Error('Not used'); });
+  const holder = f.objects.createType('Past property holder');
+  const type = f.objects.addProperty(holder.id, holder.revision, { label: 'Past field', kind: 'text' });
+  const propertyId = type.propertyIds.at(-1)!;
+  const before = f.objects.createObject({ typeId: PAGE_TYPE_ID, title: 'Before', properties: { [propertyId]: 'past' }, body: 'Past body' });
+  const current = f.objects.updateObject(before.id, before.revision, { typeId: PAGE_TYPE_ID, title: 'Current', properties: {}, body: 'Current body' });
+  const other = f.objects.createObject({ typeId: PAGE_TYPE_ID, title: 'Other', properties: { [propertyId]: 'other' }, body: '' });
+  const otherChanged = f.objects.updateObject(other.id, other.revision, { ...other, title: 'Other changed' });
+  const otherCurrent = f.objects.updateObject(otherChanged.id, otherChanged.revision, { ...otherChanged, title: 'Other changed again' });
+  const concurrent = f.objects.updateObject(current.id, current.revision, { ...current, title: 'Concurrent' });
+  const staleDraft = await f.post(`/objects/${before.id}/history/draft`, { revision: String(before.revision), currentRevision: String(current.revision) });
+  assert.equal(staleDraft.status, 200);
+  const staleMarkup = await staleDraft.text();
+  assert.ok(staleMarkup.includes('Compare before saving'));
+  const staleFields = nativeObjectFields(staleMarkup);
+  assert.equal(staleFields.revision, String(current.revision));
+  assert.equal(staleFields.historyRevision, String(before.revision));
+  assert.equal(staleFields[`p:${propertyId}`], 'past');
+  assert.deepEqual(f.objects.getObject(before.id), concurrent);
+  const rejected = await f.post(`/objects/${before.id}/update`, {
+    revision: staleFields.revision!,
+    historyRevision: staleFields.historyRevision!,
+    typeId: PAGE_TYPE_ID,
+    title: staleFields.title!,
+    body: staleFields.body!,
+    [`p:${propertyId}`]: staleFields[`p:${propertyId}`]!,
+  });
+  assert.equal(rejected.status, 409);
+  const rejectedMarkup = await rejected.text();
+  assert.ok(rejectedMarkup.includes('Compare before saving'));
+  assert.ok(rejectedMarkup.includes('past'));
+  assert.deepEqual(f.objects.getObject(before.id), concurrent);
+  const forged = await f.post(`/objects/${before.id}/update`, {
+    revision: String(concurrent.revision),
+    historyRevision: String(otherCurrent.revision),
+    typeId: PAGE_TYPE_ID,
+    title: 'Forged',
+    body: '',
+    [`p:${propertyId}`]: 'forged',
+  });
+  assert.equal(forged.status, 404);
+  assert.deepEqual(f.objects.getObject(before.id), concurrent);
+  assert.deepEqual(f.objects.getObject(other.id), otherCurrent);
+});
+
+test('history recovery uses current reference and journal validation with atomic backlinks', async t => {
+  const f = await setup(t, async () => { throw new Error('Not used'); });
+  const people = f.objects.createType('History person');
+  const ada = f.objects.createObject({ typeId: people.id, title: 'Ada', properties: {}, body: '' });
+  const grace = f.objects.createObject({ typeId: people.id, title: 'Grace', properties: {}, body: '' });
+  const holder = f.objects.createType('Reference holder');
+  const withReference = f.objects.addProperty(holder.id, holder.revision, { label: 'Historical people', kind: 'reference', targetTypeId: people.id, multiple: true });
+  const referenceId = withReference.propertyIds.at(-1)!;
+  const before = f.objects.createObject({ typeId: PAGE_TYPE_ID, title: 'Referenced past', properties: { [referenceId]: [ada.id] }, body: '' });
+  const current = f.objects.updateObject(before.id, before.revision, { ...before, properties: {} });
+  assert.equal(f.objects.backlinks(ada.id).length, 0);
+  f.objects.setTrashed(grace.id, grace.revision, true);
+  const invalid = await f.post(`/objects/${before.id}/update`, {
+    revision: String(current.revision),
+    historyRevision: String(before.revision),
+    typeId: PAGE_TYPE_ID,
+    title: 'Invalid reference restore',
+    body: '',
+    [`p:${referenceId}`]: grace.id,
+  });
+  assert.equal(invalid.status, 422);
+  assert.equal(f.objects.getObject(before.id).revision, current.revision);
+  assert.equal(f.objects.backlinks(grace.id).length, 0);
+  const valid = await f.post(`/objects/${before.id}/update`, {
+    revision: String(current.revision),
+    historyRevision: String(before.revision),
+    typeId: PAGE_TYPE_ID,
+    title: 'Valid reference restore',
+    body: '',
+    [`p:${referenceId}`]: ada.id,
+  });
+  assert.equal(valid.status, 303);
+  const recovered = f.objects.getObject(before.id);
+  assert.deepEqual(recovered.properties[referenceId], [ada.id]);
+  assert.equal(f.objects.backlinks(ada.id).length, 1);
+
+  const first = f.objects.openJournal('2026-09-25');
+  const second = f.objects.openJournal('2026-09-26');
+  const firstEdited = f.objects.updateObject(first.id, first.revision, { ...first, title: 'Past journal' });
+  const firstCurrent = f.objects.updateObject(firstEdited.id, firstEdited.revision, { ...firstEdited, properties: { [JOURNAL_DATE_PROPERTY_ID]: '2026-09-27' } });
+  const conflict = await f.post(`/objects/${first.id}/update`, {
+    revision: String(firstCurrent.revision),
+    historyRevision: String(firstEdited.revision),
+    typeId: JOURNAL_TYPE_ID,
+    title: 'Restore occupied day',
+    body: firstEdited.body,
+    [`p:${JOURNAL_DATE_PROPERTY_ID}`]: second.properties[JOURNAL_DATE_PROPERTY_ID] as string,
+  });
+  assert.equal(conflict.status, 409);
+  assert.equal(f.objects.getObject(first.id).revision, firstCurrent.revision);
+});
+
+test('history refuses multiline historical text values without lossy drafts or mutations', async t => {
+  const f = await setup(t, async () => { throw new Error('Not used'); });
+  const holder = f.objects.createType('Multiline history holder');
+  const withProperty = f.objects.addProperty(holder.id, holder.revision, { label: 'Historical text', kind: 'text' });
+  const propertyId = withProperty.propertyIds.at(-1)!;
+  const emptyType = f.objects.createType('Empty multiline target');
+  const snapshots = () => f.objects.db.query('SELECT * FROM object_revisions ORDER BY object_id, revision').all();
+  const receipts = () => f.objects.db.query('SELECT * FROM object_create_requests ORDER BY request_id').all();
+
+  for (const value of ['first\nsecond', 'first\r\nsecond']) {
+    const before = f.objects.createObject({ typeId: PAGE_TYPE_ID, title: `Has multiline ${value.length}`, properties: { [propertyId]: value }, body: 'copy multiline source' }, randomUUID());
+    const current = f.objects.updateObject(before.id, before.revision, { ...before, properties: {}, body: 'current multiline' });
+    const beforeSnapshots = snapshots();
+    const beforeReceipts = receipts();
+    const beforeBacklinks = f.objects.backlinks(before.id);
+
+    const history = await f.get(`/objects/${before.id}/history?revision=${before.revision}`);
+    assert.equal(history.status, 200);
+    const historyMarkup = await history.text();
+    assert.ok(historyMarkup.includes('Historical text'));
+    assert.ok(historyMarkup.includes('copy multiline source'));
+    assert.ok(historyMarkup.includes('will not open a lossy restore draft'));
+    assert.equal(historyMarkup.includes('Open unsaved draft'), false);
+
+    const draft = await f.post(`/objects/${before.id}/history/draft`, { revision: String(before.revision), currentRevision: String(current.revision) });
+    assert.equal(draft.status, 422);
+    const draftMarkup = await draft.text();
+    assert.ok(draftMarkup.includes('copy multiline source'));
+    assert.ok(draftMarkup.includes('will not open a lossy restore draft'));
+    assert.equal(draftMarkup.includes('data-object-editor'), false);
+
+    const switched = await f.post(`/objects/${before.id}/update`, {
+      revision: String(current.revision),
+      historyRevision: String(before.revision),
+      intent: 'change-type',
+      typeId: emptyType.id,
+      title: 'Switch refused',
+      body: 'draft body',
+      [`p:${propertyId}`]: value,
+    });
+    assert.equal(switched.status, 422);
+    assert.ok((await switched.text()).includes('will not open a lossy restore draft'));
+
+    const saved = await f.post(`/objects/${before.id}/update`, {
+      revision: String(current.revision),
+      historyRevision: String(before.revision),
+      typeId: PAGE_TYPE_ID,
+      title: 'Save refused',
+      body: 'draft body',
+      [`p:${propertyId}`]: value.replace(/\r?\n/g, ''),
+    });
+    assert.equal(saved.status, 422);
+    assert.ok((await saved.text()).includes('will not open a lossy restore draft'));
+    assert.deepEqual(f.objects.getObject(before.id), current);
+    assert.deepEqual(snapshots(), beforeSnapshots);
+    assert.deepEqual(receipts(), beforeReceipts);
+    assert.deepEqual(f.objects.backlinks(before.id), beforeBacklinks);
+  }
+});
+
+test('history refuses unavailable historical schemas without lossy drafts or mutations', async t => {
+  const f = await setup(t, async () => { throw new Error('Not used'); });
+  const holder = f.objects.createType('Unavailable property holder');
+  const withProperty = f.objects.addProperty(holder.id, holder.revision, { label: 'Removed later', kind: 'text' });
+  const propertyId = withProperty.propertyIds.at(-1)!;
+  const before = f.objects.createObject({ typeId: PAGE_TYPE_ID, title: 'Has removed field', properties: { [propertyId]: 'copy me' }, body: 'copy source' });
+  const current = f.objects.updateObject(before.id, before.revision, { ...before, properties: {}, body: 'current' });
+  const beforeRows = f.objects.db.query('SELECT * FROM object_revisions ORDER BY revision').all();
+  f.objects.db.query('DELETE FROM object_properties WHERE id = ?').run(propertyId);
+
+  const history = await f.get(`/objects/${before.id}/history?revision=${before.revision}`);
+  assert.equal(history.status, 200);
+  const historyMarkup = await history.text();
+  assert.ok(historyMarkup.includes('Unavailable property'));
+  assert.ok(historyMarkup.includes('copy me'));
+  assert.ok(historyMarkup.includes('copy source'));
+  assert.ok(historyMarkup.includes('will not open a lossy restore draft'));
+  assert.equal(historyMarkup.includes('Open unsaved draft'), false);
+
+  const draft = await f.post(`/objects/${before.id}/history/draft`, { revision: String(before.revision), currentRevision: String(current.revision) });
+  assert.equal(draft.status, 422);
+  const draftMarkup = await draft.text();
+  assert.ok(draftMarkup.includes('copy me'));
+  assert.ok(draftMarkup.includes('will not open a lossy restore draft'));
+  assert.equal(draftMarkup.includes('data-object-editor'), false);
+  assert.deepEqual(f.objects.getObject(before.id), current);
+  assert.deepEqual(f.objects.db.query('SELECT * FROM object_revisions ORDER BY revision').all(), beforeRows);
+
+  const type = f.objects.createType('Removed historical type');
+  const typed = f.objects.createObject({ typeId: type.id, title: 'Old type', properties: {}, body: 'typed source' });
+  const typedCurrent = f.objects.updateObject(typed.id, typed.revision, { ...typed, typeId: PAGE_TYPE_ID });
+  f.objects.db.query('DELETE FROM object_types WHERE id = ?').run(type.id);
+  const typedHistory = await f.get(`/objects/${typed.id}/history?revision=${typed.revision}`);
+  assert.equal(typedHistory.status, 200);
+  const typedMarkup = await typedHistory.text();
+  assert.ok(typedMarkup.includes('Unavailable type'));
+  assert.ok(typedMarkup.includes('typed source'));
+  assert.equal(typedMarkup.includes('Open unsaved draft'), false);
+  const typedDraft = await f.post(`/objects/${typed.id}/history/draft`, { revision: String(typed.revision), currentRevision: String(typedCurrent.revision) });
+  assert.equal(typedDraft.status, 422);
+  assert.deepEqual(f.objects.getObject(typed.id), typedCurrent);
+
+  const kindHolder = f.objects.createType('Changed kind holder');
+  const withText = f.objects.addProperty(kindHolder.id, kindHolder.revision, { label: 'Changed kind', kind: 'text' });
+  const changedKindId = withText.propertyIds.at(-1)!;
+  const kindBefore = f.objects.createObject({ typeId: PAGE_TYPE_ID, title: 'Changed kind before', properties: { [changedKindId]: 'Unrepresentable text' }, body: 'changed kind source' });
+  const kindCurrent = f.objects.updateObject(kindBefore.id, kindBefore.revision, { ...kindBefore, properties: {} });
+  f.objects.db.query('UPDATE object_properties SET kind = ? WHERE id = ?').run('number', changedKindId);
+  const kindHistory = await f.get(`/objects/${kindBefore.id}/history?revision=${kindBefore.revision}`);
+  assert.equal(kindHistory.status, 200);
+  const kindMarkup = await kindHistory.text();
+  assert.ok(kindMarkup.includes('Unrepresentable text'));
+  assert.ok(kindMarkup.includes('changed kind source'));
+  assert.ok(kindMarkup.includes('will not open a lossy restore draft'));
+  const kindDraft = await f.post(`/objects/${kindBefore.id}/history/draft`, { revision: String(kindBefore.revision), currentRevision: String(kindCurrent.revision) });
+  assert.equal(kindDraft.status, 422);
+  assert.deepEqual(f.objects.getObject(kindBefore.id), kindCurrent);
+
+  const selectHolder = f.objects.createType('Removed option holder');
+  const withSelect = f.objects.addProperty(selectHolder.id, selectHolder.revision, { label: 'Removed option', kind: 'select', options: ['Keep', 'Remove'] });
+  const selectPropertyId = withSelect.propertyIds.at(-1)!;
+  const removedOption = f.objects.getProperty(selectPropertyId).options!.find(option => option.label === 'Remove')!;
+  const keepOption = f.objects.getProperty(selectPropertyId).options!.find(option => option.label === 'Keep')!;
+  const selectBefore = f.objects.createObject({ typeId: PAGE_TYPE_ID, title: 'Removed option before', properties: { [selectPropertyId]: removedOption.id }, body: 'removed option source' });
+  const selectCurrent = f.objects.updateObject(selectBefore.id, selectBefore.revision, { ...selectBefore, properties: {} });
+  f.objects.db.query('UPDATE object_properties SET options_json = ? WHERE id = ?').run(JSON.stringify([keepOption]), selectPropertyId);
+  const selectHistory = await f.get(`/objects/${selectBefore.id}/history?revision=${selectBefore.revision}`);
+  assert.equal(selectHistory.status, 200);
+  const selectMarkup = await selectHistory.text();
+  assert.ok(selectMarkup.includes(removedOption.id));
+  assert.ok(selectMarkup.includes('removed option source'));
+  assert.ok(selectMarkup.includes('will not open a lossy restore draft'));
+  const selectDraft = await f.post(`/objects/${selectBefore.id}/history/draft`, { revision: String(selectBefore.revision), currentRevision: String(selectCurrent.revision) });
+  assert.equal(selectDraft.status, 422);
+  assert.deepEqual(f.objects.getObject(selectBefore.id), selectCurrent);
+});
+
+test('history HTTP boundaries reject unsupported query and forged draft context', async t => {
+  const f = await setup(t, async () => { throw new Error('Not used'); });
+  const holder = f.objects.createType('Boundary holder');
+  const withProperty = f.objects.addProperty(holder.id, holder.revision, { label: 'Boundary field', kind: 'text' });
+  const propertyId = withProperty.propertyIds.at(-1)!;
+  const before = f.objects.createObject({ typeId: PAGE_TYPE_ID, title: 'Boundary before', properties: { [propertyId]: 'past' }, body: '' });
+  const current = f.objects.updateObject(before.id, before.revision, { ...before, properties: {} });
+  const other = f.objects.createObject({ typeId: PAGE_TYPE_ID, title: 'Other boundary', properties: { [propertyId]: 'other' }, body: '' });
+  const otherCurrent = f.objects.updateObject(other.id, other.revision, { ...other, title: 'Other changed' });
+
+  assert.equal((await f.get(`/objects/${before.id}/history?unknown=1`)).status, 422);
+  assert.equal((await f.get(`/objects/${before.id}/history?offset=0&offset=1`)).status, 422);
+  assert.equal((await f.get(`/objects/${before.id}/history?offset=-1`)).status, 422);
+  assert.equal((await f.get(`/objects/${before.id}/history?revision=0`)).status, 422);
+  assert.equal((await f.post(`/objects/${before.id}/history/draft`, { revision: String(before.revision), currentRevision: '0' })).status, 422);
+
+  const emptyMarker = await f.post(`/objects/${before.id}/update`, {
+    revision: String(current.revision), historyRevision: '', intent: 'change-type', typeId: PAGE_TYPE_ID, title: 'Empty marker', body: '',
+  });
+  assert.equal(emptyMarker.status, 422);
+  const foreignMarker = await f.post(`/objects/${before.id}/update`, {
+    revision: String(current.revision), historyRevision: String(otherCurrent.revision), intent: 'change-type', typeId: PAGE_TYPE_ID, title: 'Foreign marker', body: '',
+  });
+  assert.equal(foreignMarker.status, 404);
+  const ordinaryExtra = await f.post(`/objects/${before.id}/update`, {
+    revision: String(current.revision), typeId: PAGE_TYPE_ID, title: 'No marker', body: '', [`p:${propertyId}`]: 'forged',
+  });
+  assert.equal(ordinaryExtra.status, 422);
+
+  const cleared = await f.post(`/objects/${before.id}/update`, {
+    revision: String(current.revision), historyRevision: String(before.revision), typeId: PAGE_TYPE_ID, title: 'Cleared history field', body: '',
+  });
+  assert.equal(cleared.status, 303);
+  assert.equal(f.objects.getObject(before.id).properties[propertyId], undefined);
+  assert.deepEqual(f.objects.getObject(other.id), otherCurrent);
+});
+
+test('historical extra reference selections survive draft open, type switch and parse rejection', async t => {
+  const f = await setup(t, async () => { throw new Error('Not used'); });
+  const people = f.objects.createType('History reference person');
+  const ada = f.objects.createObject({ typeId: people.id, title: 'Ada Selected', properties: {}, body: '' });
+  const grace = f.objects.createObject({ typeId: people.id, title: 'Grace Modified', properties: {}, body: '' });
+  for (let index = 0; index < 205; index++) {
+    f.objects.createObject({ typeId: people.id, title: `Newer candidate ${index}`, properties: {}, body: '' });
+  }
+  const holder = f.objects.createType('History reference holder');
+  const withRef = f.objects.addProperty(holder.id, holder.revision, { label: 'Past person', kind: 'reference', targetTypeId: people.id });
+  const withNumber = f.objects.addProperty(holder.id, withRef.revision, { label: 'Past score', kind: 'number' });
+  const referenceId = withRef.propertyIds[0]!;
+  const numberId = withNumber.propertyIds[1]!;
+  const before = f.objects.createObject({ typeId: PAGE_TYPE_ID, title: 'Reference before', properties: { [referenceId]: ada.id.toUpperCase(), [numberId]: 1 }, body: '' });
+  const current = f.objects.updateObject(before.id, before.revision, { ...before, properties: {} });
+  f.objects.setTrashed(ada.id, ada.revision, true);
+
+  const history = await f.get(`/objects/${before.id}/history?revision=${before.revision}`);
+  assert.equal(history.status, 200);
+  const historyMarkup = await history.text();
+  assert.ok(historyMarkup.includes('Ada Selected'));
+
+  const draft = await f.post(`/objects/${before.id}/history/draft`, { revision: String(before.revision), currentRevision: String(current.revision) });
+  assert.equal(draft.status, 200);
+  const draftMarkup = await draft.text();
+  assert.ok(draftMarkup.includes('Ada Selected'));
+  assert.ok(/<option[^>]*selected[^>]*>Ada Selected/.test(draftMarkup));
+
+  const switched = await f.post(`/objects/${before.id}/update`, {
+    revision: String(current.revision), historyRevision: String(before.revision), intent: 'change-type', typeId: PAGE_TYPE_ID, title: 'Switch', body: '', [`p:${referenceId}`]: ada.id, [`p:${numberId}`]: '1',
+  });
+  assert.equal(switched.status, 200);
+  const switchedMarkup = await switched.text();
+  assert.ok(/<option[^>]*selected[^>]*>Ada Selected/.test(switchedMarkup));
+
+  const rejected = await f.post(`/objects/${before.id}/update`, {
+    revision: String(current.revision), historyRevision: String(before.revision), typeId: PAGE_TYPE_ID, title: 'Rejected modified extra', body: '', [`p:${referenceId}`]: grace.id, [`p:${numberId}`]: 'not-a-number',
+  });
+  assert.equal(rejected.status, 422);
+  const rejectedMarkup = await rejected.text();
+  assert.ok(rejectedMarkup.includes('Past score must be a finite number.'));
+  assert.ok(/<option[^>]*selected[^>]*>Grace Modified/.test(rejectedMarkup));
+  assert.ok(rejectedMarkup.includes('value="not-a-number"'));
+  assert.deepEqual(f.objects.getObject(before.id), current);
 });

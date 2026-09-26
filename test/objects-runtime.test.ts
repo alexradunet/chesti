@@ -284,3 +284,39 @@ test('event and reminder schedules require one representation and switch atomica
   assert.equal(precise.properties[REMINDER_DATE_PROPERTY_ID], undefined);
   assert.equal(precise.properties[REMINDER_TIME_PROPERTY_ID], '2026-09-25T21:00:00Z');
 });
+
+test('object history browsing is bounded, object-scoped and nonmutating', t => {
+  const { db, runtime } = fixture(t);
+  const first = runtime.createObject(input(PAGE_TYPE_ID, 'First', {}, 'Body 1'));
+  let current = first;
+  for (let index = 2; index <= 25; index++) current = runtime.updateObject(current.id, current.revision, { ...current, title: `Title ${index}`, body: `Body ${index}` });
+  const other = runtime.createObject(input(PAGE_TYPE_ID, 'Other'));
+  const trashed = runtime.setTrashed(current.id, current.revision, true);
+  const before = {
+    object: runtime.getObject(first.id),
+    revisions: db.query('SELECT * FROM object_revisions ORDER BY object_id, revision').all(),
+    refs: db.query('SELECT * FROM object_references').all(),
+    receipts: db.query('SELECT * FROM object_create_requests').all(),
+  };
+  const page = runtime.listObjectHistory(first.id);
+  assert.equal(page.revisions.length, 20);
+  assert.equal(page.hasMore, true);
+  assert.equal(page.revisions[0]!.revision, current.revision);
+  assert.equal(page.revisions[0]!.trashed, false);
+  const next = runtime.listObjectHistory(first.id, 20);
+  assert.equal(next.revisions.length, 5);
+  assert.equal(next.hasMore, false);
+  assert.deepEqual(runtime.getObjectRevision(first.id, first.revision), first);
+  assert.deepEqual(runtime.getObject(first.id), before.object);
+  assert.deepEqual(db.query('SELECT * FROM object_revisions ORDER BY object_id, revision').all(), before.revisions);
+  assert.deepEqual(db.query('SELECT * FROM object_references').all(), before.refs);
+  assert.deepEqual(db.query('SELECT * FROM object_create_requests').all(), before.receipts);
+  assert.deepEqual(runtime.listObjectHistory(other.id), { revisions: [], hasMore: false });
+  assert.equal(runtime.getObject(first.id).trashed, true);
+  assert.deepEqual(runtime.getObject(first.id), trashed);
+  assert.throws(() => runtime.listObjectHistory('not-an-id'), status(422));
+  assert.throws(() => runtime.listObjectHistory(first.id, -1), status(422));
+  assert.throws(() => runtime.getObjectRevision(first.id, 0), status(422));
+  assert.throws(() => runtime.getObjectRevision(first.id, 999), status(404));
+  assert.throws(() => runtime.getObjectRevision(other.id, first.revision), status(404));
+});
