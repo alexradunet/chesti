@@ -550,14 +550,17 @@ test('case-insensitive reference display uses canonical links and labels without
   const upperTarget = target.id.toUpperCase();
   const upperOutside = outside.id.toUpperCase();
   const requestId = randomUUID();
-  const source = f.objects.createObject({ typeId: sourceType.id, title: 'Source', body: '', properties: { [single]: upperTarget, [multiple]: [upperTarget, upperOutside] } }, requestId);
+  let source = f.objects.createObject({ typeId: sourceType.id, title: 'Source', body: '', properties: { [single]: upperTarget, [multiple]: [upperTarget, upperOutside] } }, requestId);
+  source = f.objects.updateObject(source.id, source.revision, { typeId: source.typeId, title: source.title, body: source.body, properties: { [single]: upperTarget, [multiple]: [upperTarget, upperOutside] } });
   for (let index = 0; index < 205; index++) f.objects.createObject({ typeId: targetType.id, title: `New candidate ${index}`, body: '', properties: {} });
   f.objects.db.query('UPDATE objects SET updated_at = ? WHERE type_id = ? AND id != ?').run('2099-01-01T00:00:00Z', targetType.id, outside.id);
   f.objects.setTrashed(outside.id, outside.revision, true);
 
   const receiptBefore = f.objects.db.query<{ fingerprint: string; object_id: string }, [string]>('SELECT fingerprint, object_id FROM object_create_requests WHERE request_id = ?').get(requestId)!;
   const savedBefore = f.objects.getObject(source.id);
-  const snapshotBefore = f.objects.db.query<{ snapshot_json: string }, [string]>('SELECT snapshot_json FROM object_revisions WHERE object_id = ? ORDER BY revision DESC LIMIT 1').get(source.id)!;
+  const snapshotBefore = f.objects.db.query<{ snapshot_json: string }, [string]>('SELECT snapshot_json FROM object_revisions WHERE object_id = ? ORDER BY revision DESC LIMIT 1').get(source.id);
+  assert.ok(snapshotBefore);
+  assert.deepEqual(JSON.parse(snapshotBefore.snapshot_json).properties, { [single]: upperTarget, [multiple]: [upperTarget, upperOutside] });
   const objectMarkup = await (await f.get(`/objects/${source.id}`)).text();
   assert.deepEqual(f.objects.getObject(source.id), savedBefore);
   assert.deepEqual(f.objects.db.query<{ fingerprint: string; object_id: string }, [string]>('SELECT fingerprint, object_id FROM object_create_requests WHERE request_id = ?').get(requestId), receiptBefore);
