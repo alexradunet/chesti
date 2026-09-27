@@ -3,9 +3,12 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { buildSyntheticFixture } from '../scripts/sqlite-fixture.js';
-import { assertSameIds, collectBenchmarkReport, parseArgs, propertyIndexScenario, referenceScenario, searchCases, searchScenario } from '../scripts/sqlite-bench.js';
+import type { Database } from 'bun:sqlite';
+import { dirname } from 'node:path';
+import { buildSyntheticFixture, normalizeSyntheticFixtureOptions } from '../scripts/sqlite-fixture.js';
+import { assertSameIds, collectBenchmarkReport, collectOne, parseArgs, propertyIndexScenario, referenceScenario, searchCases, searchScenario } from '../scripts/sqlite-bench.js';
 import { PAGE_TYPE_ID } from '../src/objects/model.js';
+import { ObjectRuntime } from '../src/objects/runtime.js';
 
 test('sqlite benchmark CLI parsing is bounded and rejects database paths', () => {
   assert.deepEqual(parseArgs(['--objects=12', '--large-objects=20', '--body-bytes=64', '--revisions=0', '--reference-every=2', '--repetitions=1', '--warmups=0']), {
@@ -34,6 +37,9 @@ test('property index benchmark compares one state to view evaluation and reports
     assert.ok(result.baseline.ids.length > 0);
     assert.deepEqual(result.baseline.ids, result.candidate.ids);
     assert.match(String(result.metadata.projection), /ViewService/);
+    assert.match(String(result.metadata.readIndexDdl), new RegExp(String(result.metadata.propertyId)));
+    assert.match(String(result.metadata.writeIndexDdl), new RegExp(String(result.metadata.writeFixturePropertyId)));
+    assert.doesNotMatch(String(result.metadata.writeIndexDdl), new RegExp(String(result.metadata.propertyId)));
     assert.equal(result.write.insertBaselineSamples, 1);
     assert.equal(result.write.insertCandidateSamples, 1);
     assert.equal(result.write.updateBaselineSamples, 1);
@@ -57,6 +63,17 @@ test('reference benchmark excludes writing edges and reports existing-index and 
     assert.ok((result.storage.candidateIndexBytes ?? 0) > 0);
     assert.equal(result.write.insertBaselineSamples, 1);
     assert.equal(result.write.insertCandidateSamples, 1);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test('reference scenario fails visibly when derived edge state diverges from JSON authority', () => {
+  const fixture = buildSyntheticFixture({ objects: 48, bodyBytes: 16, revisions: 0, referenceEvery: 1, benchmarkProperties: true });
+  try {
+    const edge = fixture.db.query<{ source_id: string; target_id: string }, [string]>('SELECT source_id, target_id FROM object_references WHERE property_id = ? LIMIT 1').get(fixture.multiReferencePropertyId)!;
+    fixture.db.query('DELETE FROM object_references WHERE source_id = ? AND target_id = ? AND property_id = ?').run(edge.source_id, edge.target_id, fixture.multiReferencePropertyId);
+    assert.throws(() => referenceScenario(fixture, 0, 1), /semantic mismatch/);
   } finally {
     fixture.cleanup();
   }
@@ -113,6 +130,33 @@ test('search benchmark uses LIKE fallback for unsafe boundaries and synchronizes
   } finally {
     fixture.cleanup();
   }
+});
+
+test('benchmark setup timing is accounted structurally and partial initialization cleans owned fixtures', () => {
+  const report = collectOne('accounting', normalizeSyntheticFixtureOptions({ objects: 8, bodyBytes: 16, revisions: 0, referenceEvery: 2, benchmarkProperties: true }), { repetitions: 1, warmups: 0 });
+  assert.equal(report.totalSetupMs, report.setupMs + report.scenarioSetup.propertyMs! + report.scenarioSetup.referenceMs! + report.scenarioSetup.searchMs!);
+  assert.match(report.setupScope, /Elapsed wall-clock construction/);
+
+  const original = ObjectRuntime.prototype.createObject;
+  const directories: string[] = [];
+  let fixtureIndex = 0;
+  ObjectRuntime.prototype.createObject = function failThirdFixture(...args: Parameters<ObjectRuntime['createObject']>) {
+    if (args[0]?.title === 'Synthetic object 00000') {
+      fixtureIndex += 1;
+      const main = (this.db as Database).query<{ file: string }, []>('PRAGMA database_list').all().find(row => row.file.endsWith('workspace.sqlite'));
+      assert.ok(main);
+      directories.push(dirname(main.file));
+      if (fixtureIndex === 3) throw new Error('forced collectOne fixture failure');
+    }
+    return original.apply(this, args);
+  };
+  try {
+    assert.throws(() => collectOne('cleanup failure', normalizeSyntheticFixtureOptions({ objects: 8, bodyBytes: 16, revisions: 0, referenceEvery: 2, benchmarkProperties: true }), { repetitions: 1, warmups: 0 }), /forced collectOne fixture failure/);
+  } finally {
+    ObjectRuntime.prototype.createObject = original;
+  }
+  assert.ok(directories.length >= 3);
+  for (const directory of directories) assert.equal(existsSync(directory), false, directory);
 });
 
 test('benchmark report uses only owned temp fixtures and records fixture matrix metadata', () => {

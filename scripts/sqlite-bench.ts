@@ -118,10 +118,25 @@ function assertScenarioEquivalent(name: string, checks: Array<[string, string[],
 }
 
 function measureWriteSamples(warmups: number, repetitions: number, fn: (index: number) => void): Measurement {
+  let sample = 0;
   return measure(warmups, repetitions, () => {
-    fn(Math.floor(Math.random() * 1_000_000_000));
+    fn(sample++);
     return true;
   }).measurement;
+}
+
+function jsonPropertyPath(propertyId: string): string {
+  return `$.${JSON.stringify(propertyId)}`;
+}
+
+function propertyExpression(propertyId: string): string {
+  return `json_extract(o.properties_json, '${jsonPropertyPath(propertyId)}')`;
+}
+
+function propertyIndexDdl(db: Database, indexName: string): string {
+  const row = db.query<{ sql: string }, [string]>("SELECT sql FROM sqlite_schema WHERE type = 'index' AND name = ?").get(indexName);
+  if (!row) throw new Error(`Missing index ${indexName}`);
+  return row.sql;
 }
 
 function flattenMeasurement(prefix: string, measurement: Measurement): Record<string, number> {
@@ -151,8 +166,8 @@ function createBenchmarkObject(fixture: SyntheticFixture, title: string, schedul
 
 export function propertyIndexScenario(fixture: SyntheticFixture, warmups = 1, repetitions = 3): ScenarioResult {
   const db = fixture.db;
-  const path = `$\."${fixture.scheduledPropertyId}"`.replace('\\.', '.');
-  const expression = `json_extract(o.properties_json, '${path}')`;
+  const path = jsonPropertyPath(fixture.scheduledPropertyId);
+  const expression = propertyExpression(fixture.scheduledPropertyId);
   const spec: ViewSpec = { title: 'Scheduled pages', blocks: [{ title: 'Scheduled pages', component: 'table', columns: [{ role: 'date', label: 'Date' }], sources: [{ typeId: PAGE_TYPE_ID, bindings: { date: fixture.scheduledPropertyId }, where: [{ propertyId: fixture.scheduledPropertyId, operator: 'after', value: '2026-11-14' }], orderBy: { propertyId: fixture.scheduledPropertyId, direction: 'ascending' } }] }] };
   const sql = `SELECT o.id, o.type_id, o.title, o.properties_json, o.revision, o.created_at, o.updated_at, o.trashed, 0 AS source_index, CASE WHEN (${expression} IS NULL OR ${expression} = '') THEN 1 ELSE 0 END AS sort_missing, ${expression} AS sort_ascending, NULL AS sort_descending FROM objects AS o WHERE ((o.trashed = 0) AND (o.type_id = ?) AND (${expression} > ?)) ORDER BY source_index ASC, sort_missing ASC, sort_ascending ASC, sort_descending DESC, title COLLATE NOCASE ASC, id ASC LIMIT 101`;
   const values: SqlBinding[] = [PAGE_TYPE_ID, '2026-11-14'];
@@ -162,32 +177,38 @@ export function propertyIndexScenario(fixture: SyntheticFixture, warmups = 1, re
   const baseline = measure(warmups, repetitions, () => db.query<{ id: string }, SqlBinding[]>(sql).all(...values).map(row => row.id));
   const beforeBytes = dbBytes(db, fixture.file);
   db.query(`CREATE INDEX bench_property_scheduled ON objects(type_id, trashed, json_extract(properties_json, '${path}'))`).run();
+  const readIndexDdl = propertyIndexDdl(db, 'bench_property_scheduled');
   db.query('ANALYZE').run();
   const candidatePlan = explain(db, sql, values);
   const candidate = measure(warmups, repetitions, () => db.query<{ id: string }, SqlBinding[]>(sql).all(...values).map(row => row.id));
   assertScenarioEquivalent('property-path-expression-index', [['view/baseline', view.displayed, baseline.value.slice(0, 100)], ['baseline/candidate', baseline.value, candidate.value]]);
 
-  const baselineWrites = buildSyntheticFixture({ objects: fixture.options.objects, bodyBytes: fixture.options.bodyBytes, revisions: 0, referenceEvery: fixture.options.referenceEvery, benchmarkProperties: true });
-  const candidateWrites = buildSyntheticFixture({ objects: fixture.options.objects, bodyBytes: fixture.options.bodyBytes, revisions: 0, referenceEvery: fixture.options.referenceEvery, benchmarkProperties: true });
+  const writeOptions = { objects: fixture.options.objects, bodyBytes: fixture.options.bodyBytes, revisions: 0, referenceEvery: fixture.options.referenceEvery, benchmarkProperties: true };
+  const baselineWrites = buildSyntheticFixture(writeOptions);
+  const candidateWrites = buildSyntheticFixture(writeOptions);
   try {
-    candidateWrites.db.query(`CREATE INDEX bench_property_scheduled ON objects(type_id, trashed, json_extract(properties_json, '${path}'))`).run();
+    const candidateWritePath = jsonPropertyPath(candidateWrites.scheduledPropertyId);
+    candidateWrites.db.query(`CREATE INDEX bench_property_scheduled ON objects(type_id, trashed, json_extract(properties_json, '${candidateWritePath}'))`).run();
+    const writeIndexDdl = propertyIndexDdl(candidateWrites.db, 'bench_property_scheduled');
     const insertBaseline = measureWriteSamples(warmups, repetitions, index => createBenchmarkObject(baselineWrites, `Bench property insert baseline ${index}`));
     const insertCandidate = measureWriteSamples(warmups, repetitions, index => createBenchmarkObject(candidateWrites, `Bench property insert candidate ${index}`));
     const pageBaseline = baselineWrites.ids.find(id => baselineWrites.runtime.getObject(id).typeId === PAGE_TYPE_ID)!;
     const pageCandidate = candidateWrites.ids.find(id => candidateWrites.runtime.getObject(id).typeId === PAGE_TYPE_ID)!;
     const updateBaseline = measureWriteSamples(warmups, repetitions, index => {
       const object = baselineWrites.runtime.getObject(pageBaseline);
-      baselineWrites.runtime.updateObject(object.id, object.revision, { typeId: object.typeId, title: object.title, properties: { ...object.properties, [baselineWrites.scheduledPropertyId]: `2026-11-${String((index % 14) + 15).padStart(2, '0')}` }, body: object.body });
+      const day = index % 2 === 0 ? '2026-11-15' : '2026-11-28';
+      baselineWrites.runtime.updateObject(object.id, object.revision, { typeId: object.typeId, title: 'Bench property update target', properties: { ...object.properties, [baselineWrites.scheduledPropertyId]: day }, body: object.body });
     });
     const updateCandidate = measureWriteSamples(warmups, repetitions, index => {
       const object = candidateWrites.runtime.getObject(pageCandidate);
-      candidateWrites.runtime.updateObject(object.id, object.revision, { typeId: object.typeId, title: object.title, properties: { ...object.properties, [candidateWrites.scheduledPropertyId]: `2026-11-${String((index % 14) + 15).padStart(2, '0')}` }, body: object.body });
+      const day = index % 2 === 0 ? '2026-11-15' : '2026-11-28';
+      candidateWrites.runtime.updateObject(object.id, object.revision, { typeId: object.typeId, title: 'Bench property update target', properties: { ...object.properties, [candidateWrites.scheduledPropertyId]: day }, body: object.body });
     });
     const afterBytes = dbBytes(db, fixture.file);
     return {
       name: 'property-path-expression-index',
       equivalent: true,
-      metadata: { propertyId: fixture.scheduledPropertyId, predicate: 'date after 2026-11-14', viewRows: view.displayed.length, viewTruncated: view.truncated, sqlLimitRows: baseline.value.length, indexUsed: candidatePlan.some(step => step.includes('bench_property_scheduled')), projection: 'matches ViewService object projection plus sort columns', edgeSemantics: 'ISO date text boundaries; missing/empty excluded by predicate' },
+      metadata: { propertyId: fixture.scheduledPropertyId, predicate: 'date after 2026-11-14', viewRows: view.displayed.length, viewTruncated: view.truncated, sqlLimitRows: baseline.value.length, indexUsed: candidatePlan.some(step => step.includes('bench_property_scheduled')), readIndexDdl, writeIndexDdl, readIndexPath: path, writeIndexPath: candidateWritePath, writeFixturePropertyId: candidateWrites.scheduledPropertyId, projection: 'matches ViewService object projection plus sort columns', edgeSemantics: 'ISO date text boundaries; missing/empty excluded by predicate' },
       baseline: { ids: baseline.value, plan: baselinePlan, read: baseline.measurement, notes: ['Baseline analyzed and read before any write probes.'] },
       candidate: { ids: candidate.value, plan: candidatePlan, read: candidate.measurement, notes: ['Same fixture state, same SQL and bindings after adding only the expression index.'] },
       storage: { indexBytes: afterBytes.bench_property_scheduled ?? 0, statsBytes: afterBytes.sqlite_stat1 ?? 0, databaseBytesBefore: beforeBytes.databaseFile ?? 0, databaseBytesAfter: afterBytes.databaseFile ?? 0 },
@@ -204,7 +225,7 @@ export function referenceScenario(fixture: SyntheticFixture, warmups = 1, repeti
   const popular = db.query<{ target_id: string; count: number }, [string]>('SELECT target_id, COUNT(*) AS count FROM object_references WHERE property_id = ? GROUP BY target_id ORDER BY count DESC, target_id LIMIT 1').get(fixture.multiReferencePropertyId);
   if (!popular) throw new Error('Fixture did not create a multiple-reference edge. Lower --reference-every or increase --objects.');
   const target = popular.target_id;
-  const path = `$."${fixture.multiReferencePropertyId}"`;
+  const path = jsonPropertyPath(fixture.multiReferencePropertyId);
   const spec: ViewSpec = { title: 'Reference pages', blocks: [{ title: 'Reference pages', component: 'table', columns: [{ role: 'related', label: 'Related' }], sources: [{ typeId: PAGE_TYPE_ID, bindings: { related: fixture.multiReferencePropertyId }, where: [{ propertyId: fixture.multiReferencePropertyId, operator: 'contains', value: target }] }] }] };
   const baselineSql = `SELECT o.id, o.type_id, o.title, o.properties_json, o.revision, o.created_at, o.updated_at, o.trashed, 0 AS source_index, 0 AS sort_missing, NULL AS sort_ascending, NULL AS sort_descending FROM objects AS o WHERE ((o.trashed = 0) AND (o.type_id = ?) AND (EXISTS (SELECT 1 FROM json_each(json_extract(o.properties_json, '${path}')) AS member WHERE member.value COLLATE NOCASE = ?))) ORDER BY source_index ASC, sort_missing ASC, sort_ascending ASC, sort_descending DESC, title COLLATE NOCASE ASC, id ASC LIMIT 101`;
   const baselineValues: SqlBinding[] = [PAGE_TYPE_ID, target.toUpperCase()];
@@ -313,6 +334,12 @@ function addSearchBoundaryObjects(fixture: SyntheticFixture): { titleId: string;
   return { titleId: title.id, bodyId: body.id, unicodeId: unicode.id, removableId: removable.id };
 }
 
+function syntheticBodyForUpdate(body: string): string {
+  const marker = '\nupdate-mutation-needle-';
+  const markerIndex = body.indexOf(marker);
+  return markerIndex === -1 ? body : body.slice(0, markerIndex);
+}
+
 export function searchScenario(fixture: SyntheticFixture, warmups = 1, repetitions = 3): ScenarioResult {
   const db = fixture.db;
   const boundary = addSearchBoundaryObjects(fixture);
@@ -332,23 +359,26 @@ export function searchScenario(fixture: SyntheticFixture, warmups = 1, repetitio
   assertSameIds('search read semantic mismatch', baseline.value, candidate.value);
 
   const baselineWriteFixture = buildSyntheticFixture({ objects: fixture.options.objects, bodyBytes: fixture.options.bodyBytes, revisions: 0, referenceEvery: fixture.options.referenceEvery, benchmarkProperties: true });
-  const insertBaseline = measureWriteSamples(warmups, repetitions, index => baselineWriteFixture.runtime.createObject({ typeId: PAGE_TYPE_ID, title: `baseline search insert ${index}`, properties: { [baselineWriteFixture.scheduledPropertyId]: '2026-11-07' }, body: 'insert-mutation-needle' }));
-  const insertCandidate = measureWriteSamples(warmups, repetitions, index => {
-    const inserted = fixture.runtime.createObject({ typeId: PAGE_TYPE_ID, title: `candidate search insert ${index}`, properties: { [fixture.scheduledPropertyId]: '2026-11-07' }, body: 'insert-mutation-needle' });
-    const newKey = db.query<{ next: number }, []>('SELECT COALESCE(MAX(search_key), 0) + 1 AS next FROM bench_search_key').get()!.next;
-    db.query('INSERT INTO bench_search_key(search_key, object_id) VALUES (?, ?)').run(newKey, inserted.id);
-    db.query('INSERT INTO bench_object_search(rowid, object_id, title, body_text) SELECT ?, id, title, body_text FROM objects WHERE id = ?').run(newKey, inserted.id);
-  });
-  const baselineUpdateTarget = baselineWriteFixture.ids.find(id => baselineWriteFixture.runtime.getObject(id).typeId === PAGE_TYPE_ID)!;
-  const updateBaseline = measureWriteSamples(warmups, repetitions, () => {
-    const object = baselineWriteFixture.runtime.getObject(baselineUpdateTarget);
-    baselineWriteFixture.runtime.updateObject(object.id, object.revision, { typeId: object.typeId, title: `${object.title} baseline-update`, properties: object.properties, body: `${object.body}\nupdate-mutation-needle` });
-  });
-  const updateCandidate = measureWriteSamples(warmups, repetitions, () => {
-    const object = fixture.runtime.getObject(boundary.titleId);
-    const updated = fixture.runtime.updateObject(object.id, object.revision, { typeId: object.typeId, title: `${object.title} update-mutation-needle`, properties: object.properties, body: object.body });
-    syncSearchObject(db, updated.id);
-  });
+  try {
+    const insertBaseline = measureWriteSamples(warmups, repetitions, index => baselineWriteFixture.runtime.createObject({ typeId: PAGE_TYPE_ID, title: `baseline search insert ${index}`, properties: { [baselineWriteFixture.scheduledPropertyId]: '2026-11-07' }, body: 'insert-mutation-needle' }));
+    const insertCandidate = measureWriteSamples(warmups, repetitions, index => {
+      const inserted = fixture.runtime.createObject({ typeId: PAGE_TYPE_ID, title: `candidate search insert ${index}`, properties: { [fixture.scheduledPropertyId]: '2026-11-07' }, body: 'insert-mutation-needle' });
+      const newKey = db.query<{ next: number }, []>('SELECT COALESCE(MAX(search_key), 0) + 1 AS next FROM bench_search_key').get()!.next;
+      db.query('INSERT INTO bench_search_key(search_key, object_id) VALUES (?, ?)').run(newKey, inserted.id);
+      db.query('INSERT INTO bench_object_search(rowid, object_id, title, body_text) SELECT ?, id, title, body_text FROM objects WHERE id = ?').run(newKey, inserted.id);
+    });
+    const baselineUpdateTarget = baselineWriteFixture.ids.find(id => baselineWriteFixture.runtime.getObject(id).typeId === PAGE_TYPE_ID)!;
+    const updateBaseline = measureWriteSamples(warmups, repetitions, index => {
+      const object = baselineWriteFixture.runtime.getObject(baselineUpdateTarget);
+      const suffix = index % 2 === 0 ? 'update-mutation-needle-a' : 'update-mutation-needle-b';
+      baselineWriteFixture.runtime.updateObject(object.id, object.revision, { typeId: object.typeId, title: `baseline search update ${suffix}`, properties: object.properties, body: `${syntheticBodyForUpdate(object.body)}\n${suffix}` });
+    });
+    const updateCandidate = measureWriteSamples(warmups, repetitions, index => {
+      const object = fixture.runtime.getObject(boundary.titleId);
+      const suffix = index % 2 === 0 ? 'update-mutation-needle-a' : 'update-mutation-needle-b';
+      const updated = fixture.runtime.updateObject(object.id, object.revision, { typeId: object.typeId, title: `candidate search update ${suffix}`, properties: object.properties, body: object.body });
+      syncSearchObject(db, updated.id);
+    });
   const removable = fixture.runtime.getObject(boundary.removableId);
   const removed = fixture.runtime.updateObject(removable.id, removable.revision, { typeId: removable.typeId, title: 'removed old search text', properties: removable.properties, body: removable.body.replace('mutation', 'changed') });
   syncSearchObject(db, removed.id);
@@ -369,17 +399,19 @@ export function searchScenario(fixture: SyntheticFixture, warmups = 1, repetitio
   const keyRows = db.query<{ mismatches: number }, []>('SELECT COUNT(*) AS mismatches FROM bench_search_key AS k LEFT JOIN bench_object_search AS s ON s.rowid = k.search_key WHERE s.object_id IS NOT k.object_id').get()!.mismatches;
   const cases = searchCases(fixture);
   for (const row of cases) if (!row.equivalent) throw new Error(`search case ${JSON.stringify(row.query)} semantic mismatch`);
-  const afterBytes = dbBytes(db, fixture.file);
-  baselineWriteFixture.cleanup();
-  return {
+    const afterBytes = dbBytes(db, fixture.file);
+    return {
     name: 'literal-search-fts5-trigram-candidate-plus-like',
     equivalent: true,
     metadata: { query, cases, mutationSynchronized: sameIds(mutationNeedleBaseline, mutationNeedleCandidate), replacementRemovalSynchronized: sameIds(removedBaseline, removedCandidate), trashSynchronized: sameIds(trashedBaseline, trashedCandidate), restoreSynchronized: sameIds(restoredBaseline, restoredCandidate), explicitIntegerKeyMismatches: keyRows, eligibility: 'ASCII letters/digits/space/hyphen, length 3-80, no AND/OR/NOT; every other shape executes LIKE fallback', unicodeBoundaryId: boundary.unicodeId },
     baseline: { ids: baseline.value, plan: explain(db, baselineSql, baselineValues), read: baseline.measurement },
     candidate: { ids: candidate.value, plan: explain(db, candidateSql, candidateValues), read: candidate.measurement, notes: ['FTS MATCH receives a quoted literal phrase only for documented ASCII-safe strings; unsafe, quoted, wildcard, operator and Unicode strings execute the exact LIKE baseline path.'] },
     storage: { ftsBytes: Object.entries(afterBytes).filter(([name]) => name.startsWith('bench_object_search') || name === 'bench_search_key').reduce((sum, [, bytes]) => sum + bytes, 0), databaseBytesBefore: beforeBytes.databaseFile ?? 0, databaseBytesAfter: afterBytes.databaseFile ?? 0 },
-    write: { ftsBuildMs: buildMs, ...flattenMeasurement('insertBaseline', insertBaseline), ...flattenMeasurement('insertCandidate', insertCandidate), ...flattenMeasurement('updateBaseline', updateBaseline), ...flattenMeasurement('updateCandidate', updateCandidate), ftsRows: db.query<{ count: number }, []>('SELECT COUNT(*) AS count FROM bench_object_search').get()!.count },
-  };
+      write: { ftsBuildMs: buildMs, ...flattenMeasurement('insertBaseline', insertBaseline), ...flattenMeasurement('insertCandidate', insertCandidate), ...flattenMeasurement('updateBaseline', updateBaseline), ...flattenMeasurement('updateCandidate', updateCandidate), ftsRows: db.query<{ count: number }, []>('SELECT COUNT(*) AS count FROM bench_object_search').get()!.count },
+    };
+  } finally {
+    baselineWriteFixture.cleanup();
+  }
 }
 
 function benchmarkFixtureOptions(input: SyntheticFixtureOptions): Required<SyntheticFixtureOptions> {
@@ -392,9 +424,11 @@ function referenceDistribution(db: Database, propertyId: string) {
   return { topTargets: rows, arrayLengths };
 }
 
-function collectOne(label: string, options: Required<SyntheticFixtureOptions>, bench: Pick<BenchmarkOptions, 'warmups' | 'repetitions'>) {
-  const setupFixture = buildSyntheticFixture(options);
-  const setupMs = 0;
+export function collectOne(label: string, options: Required<SyntheticFixtureOptions>, bench: Pick<BenchmarkOptions, 'warmups' | 'repetitions'>) {
+  const setup = time(() => buildSyntheticFixture(options));
+  const setupFixture = setup.value;
+  const setupMs = setup.milliseconds;
+  const ownedFixtures: SyntheticFixture[] = [setupFixture];
   try {
     const db = setupFixture.db;
     const sqliteVersion = db.query<{ version: string }, []>('SELECT sqlite_version() AS version').get()!.version;
@@ -402,18 +436,23 @@ function collectOne(label: string, options: Required<SyntheticFixtureOptions>, b
     const pragmas = { journalMode: db.query<{ journal_mode: string }, []>('PRAGMA journal_mode').get()!.journal_mode, synchronous: db.query<{ synchronous: number }, []>('PRAGMA synchronous').get()!.synchronous, trustedSchema: db.query<{ trusted_schema: number }, []>('PRAGMA trusted_schema').get()!.trusted_schema };
     const distribution = { requestedObjects: options.objects, pageRows: db.query<{ count: number }, []>(`SELECT COUNT(*) AS count FROM objects WHERE type_id = '${PAGE_TYPE_ID}'`).get()!.count, trashedRows: db.query<{ count: number }, []>('SELECT COUNT(*) AS count FROM objects WHERE trashed = 1').get()!.count, referenceRows: db.query<{ count: number }, []>('SELECT COUNT(*) AS count FROM object_references').get()!.count, bodyBytes: options.bodyBytes, revisions: options.revisions, reference: referenceDistribution(db, setupFixture.multiReferencePropertyId) };
     const scenarioOptions = { objects: options.objects, bodyBytes: options.bodyBytes, revisions: options.revisions, referenceEvery: options.referenceEvery, benchmarkProperties: true };
-    const propertyFixture = buildSyntheticFixture(scenarioOptions);
-    const referenceFixture = buildSyntheticFixture(scenarioOptions);
-    const searchFixture = buildSyntheticFixture(scenarioOptions);
-    try {
-      return { label, fixture: setupFixture.options, setupMs, distribution, engine: { bunVersion: Bun.version, sqliteVersion, sourceId, pragmas }, scenarios: [propertyIndexScenario(propertyFixture, bench.warmups, bench.repetitions), referenceScenario(referenceFixture, bench.warmups, bench.repetitions), searchScenario(searchFixture, bench.warmups, bench.repetitions)] };
-    } finally {
-      propertyFixture.cleanup();
-      referenceFixture.cleanup();
-      searchFixture.cleanup();
-    }
+    const scenarioSetup: Record<string, number> = {};
+    const propertySetup = time(() => buildSyntheticFixture(scenarioOptions));
+    const propertyFixture = propertySetup.value;
+    ownedFixtures.push(propertyFixture);
+    scenarioSetup.propertyMs = propertySetup.milliseconds;
+    const referenceSetup = time(() => buildSyntheticFixture(scenarioOptions));
+    const referenceFixture = referenceSetup.value;
+    ownedFixtures.push(referenceFixture);
+    scenarioSetup.referenceMs = referenceSetup.milliseconds;
+    const searchSetup = time(() => buildSyntheticFixture(scenarioOptions));
+    const searchFixture = searchSetup.value;
+    ownedFixtures.push(searchFixture);
+    scenarioSetup.searchMs = searchSetup.milliseconds;
+    const totalSetupMs = setupMs + scenarioSetup.propertyMs + scenarioSetup.referenceMs + scenarioSetup.searchMs;
+    return { label, fixture: setupFixture.options, setupMs, scenarioSetup, totalSetupMs, setupScope: 'Elapsed wall-clock construction of owned synthetic fixtures before read/write measurements; excludes candidate index/FTS build times reported in scenarios.', distribution, engine: { bunVersion: Bun.version, sqliteVersion, sourceId, pragmas }, scenarios: [propertyIndexScenario(propertyFixture, bench.warmups, bench.repetitions), referenceScenario(referenceFixture, bench.warmups, bench.repetitions), searchScenario(searchFixture, bench.warmups, bench.repetitions)] };
   } finally {
-    setupFixture.cleanup();
+    for (const owned of ownedFixtures.reverse()) owned.cleanup();
   }
 }
 

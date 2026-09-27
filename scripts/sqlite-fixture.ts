@@ -126,7 +126,11 @@ export function buildSyntheticFixture(input: SyntheticFixtureOptions = {}): Synt
               }
             : {};
         if (!isTask && lastPageId && index % options.referenceEvery === 0) properties[referencePropertyId] = lastPageId;
-        if (options.benchmarkProperties && !isTask && pageIds.length >= 2 && index % Math.max(2, Math.floor(options.referenceEvery / 2)) === 0) properties[multiReferencePropertyId] = [pageIds[0]!, pageIds.at(-1)!];
+        if (options.benchmarkProperties && !isTask && pageIds.length >= 2 && index % Math.max(2, Math.floor(options.referenceEvery / 2)) === 0) {
+          const referenceCount = options.referenceEvery <= 2 && pageIds.length >= 12 ? 12 : 2;
+          const recentTargets = pageIds.slice(Math.max(0, pageIds.length - (referenceCount - 1)));
+          properties[multiReferencePropertyId] = [pageIds[0]!, ...recentTargets].slice(0, referenceCount);
+        }
         let object = runtime.createObject({
           typeId: isTask ? TASK_TYPE_ID : PAGE_TYPE_ID,
           title: `Synthetic object ${String(index).padStart(5, '0')}`,

@@ -6,45 +6,34 @@ Plan 020 adds a synthetic, disposable benchmark suite for three possible SQLite 
 
 ```sh
 bun run sqlite:bench
-```
-
-The command creates and deletes temporary databases under the OS temp directory. It rejects caller-selected database paths, so it cannot benchmark or mutate a real workspace. Normal tests use small fixtures and assert semantic equivalence only; they do not assert timing thresholds.
-
-Useful bounded variants:
-
-```sh
-bun run sqlite:bench -- --objects=1000 --large-objects=10000 --body-bytes=384 --revisions=1 --reference-every=7 --repetitions=9 --warmups=2
 bun run sqlite:bench -- --objects=1000 --large-objects=10000 --body-bytes=2048 --revisions=2 --reference-every=2 --repetitions=5 --warmups=1
+bun run sqlite:bench -- --objects=24 --large-objects=30 --body-bytes=64 --revisions=0 --reference-every=2 --repetitions=50 --warmups=20
 ```
+
+The command creates only owned temporary databases under the OS temp directory and rejects caller-selected database paths. Reported setup time is elapsed construction of the owned synthetic fixtures before read/write measurements; candidate index/FTS build costs are reported separately in scenario output. Storage numbers use `dbstat` table/index bytes, not WAL/main-file deltas.
 
 ## Checked run
 
 - Command: `bun run sqlite:bench`
-- Artifact: `/tmp/taskdesk-plan020-final/sqlite-bench-default.json`; summary: `/tmp/taskdesk-plan020-final/summary.txt`.
+- Artifact: `/tmp/taskdesk-plan020-repair/sqlite-bench-default.json`
 - Bun: `1.4.2`; SQLite version/source ID and PRAGMAs are embedded in the JSON artifact.
-- Fixture matrix: modest/sparse profile requested 1,000 objects, 384-byte bodies, one history revision, 43 trashed rows, 607 reference edges, 250 two-reference arrays and 500 missing arrays. Dense/larger profile requested 10,000 objects, 2,048-byte bodies, one history revision, 434 trashed rows, 7,498 reference edges, 2,499 two-reference arrays and 5,001 missing arrays.
-- Measurements: 2 warmups, 9 measured repetitions; table values are medians in milliseconds.
+- Measurements: 2 warmups, 9 measured repetitions; table values are median milliseconds.
+- Profiles: modest/sparse requested 1,000 objects, 384-byte bodies, one history revision, 43 trashed rows, 607 reference edges, array lengths 0/2. Larger/dense requested 10,000 objects, 2,048-byte bodies, one history revision, 434 trashed rows, 32,458 reference edges, array lengths 0/2/12.
 
-| Candidate | 1k baseline | 1k candidate | 10k baseline | 10k candidate | Equivalence | Extra dbstat storage | Recommendation |
-| --- | ---: | ---: | ---: | ---: | --- | ---: | --- |
-| Static property date expression index | 0.810 ms | 0.221 ms | 9.599 ms | 2.436 ms | yes; full ViewService projection/order/cap matched before write probes | 57 KiB at 1k, 545 KiB at 10k | Defer production adoption. The literal-path experiment shows planner use and possible read benefit, but per-property DDL/migration/write policy is outside this plan. |
-| `object_references` membership lookup plus composite index | 0.825 ms | 0.731 ms | 14.841 ms | 15.940 ms | yes; exact property ID, source scope, NOCASE target, writing-link exclusion | 78 KiB at 1k, 913 KiB at 10k | Defer. Existing edge storage can reproduce semantics, but this common-target fixture did not show a read win from the optional composite index. Existing-index measurements are recorded separately in JSON metadata and require zero extra schema. |
-| FTS5 trigram candidate retrieval followed by exact LIKE | 0.033 ms | 0.832 ms | 0.027 ms | 39.746 ms | yes for eligible query; unsafe/short strings execute baseline fallback | 1.6 MiB at 1k, 69.0 MiB at 10k | Defer. Exact LIKE is faster for this bounded search shape; FTS adds build/storage/update complexity. |
+| Candidate | Modest baseline | Modest candidate | Dense baseline | Dense candidate | Extra dbstat storage | Conclusion |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| Static property date expression index | 2.610 ms | 0.684 ms | 12.351 ms | 3.443 ms | 57 KiB / 545 KiB | Defer. It can help this literal date predicate, but production per-property DDL/migration/write policy is outside this plan. |
+| `object_references` membership with optional composite index | 1.805 ms | 1.365 ms | 19.902 ms | 19.689 ms | 78 KiB / 3.7 MiB | Defer. Existing edge state can reproduce semantics; the optional composite index is not compelling on this synthetic common-target workload. |
+| FTS5 trigram candidates plus exact LIKE | 0.049 ms | 1.673 ms | 0.034 ms | 44.501 ms | 1.6 MiB / 65.8 MiB | Defer. Exact bounded LIKE is faster here; FTS adds build/storage/update complexity. |
 
-Write/build examples from the same run: property insert medians were 0.074/0.066 ms baseline/candidate at 1k and 0.073/0.068 ms at 10k; reference insert medians were 0.086/0.096 ms at 1k and 0.097/0.125 ms at 10k; FTS build was 14.0 ms at 1k and 703.4 ms at 10k, with baseline/candidate insert/update medians and sample counts in the JSON.
-
-## Additional bounded matrix
-
-The larger-writing/dense-reference variant is recorded at `/tmp/taskdesk-plan020-final/sqlite-bench-dense-largewriting.json`. It uses 2,048-byte bodies, two history revisions, dense reference cadence, 5 measured repetitions, and the same semantic checks. It preserved equivalence. Property reads still improved; reference composite reads remained close/slower on common-target predicates; FTS remained slower and much larger.
+Write/build examples from the same run: property insert medians were 0.200/0.240 ms baseline/candidate at 1k; reference insert medians were 0.272/0.304 ms; FTS build was 33.9 ms at 1k and 937.5 ms at 10k. Full insert/update medians, p95, min/max, and sample counts are in the JSON artifact.
 
 ## Semantic boundaries covered
 
-- Property filtering uses the same validated UUID literal JSON path shape as `ViewService`, full object projection (`id`, `type`, `title`, `properties`, revision, timestamps, trash plus sort columns), analyzed baseline and analyzed candidate plans, and explicit 101-row SQL lookahead versus 100 displayed rows. Date boundary and missing-value behavior are covered for the selected date property only; no claim is made for boolean, zero, instant, or time-range semantics.
-- Reference membership compares current `json_each(...) COLLATE NOCASE` with an `object_references` lookup before and after the optional composite index. Tests cover multiple properties to the same target, writing-only links, exact property ID scoping, uppercase stored values, missing/empty arrays, trashed sources, retained trashed targets, remove/replace maintenance through canonical commands, and >100-match truncation/lookahead behavior.
-- Search keeps the original escaped literal `LIKE` predicate as final authority. FTS5 receives only a quoted ASCII-safe literal phrase (letters, digits, spaces and hyphens, length 3–80, excluding `AND`/`OR`/`NOT`); empty, length 1/2, wildcard, underscore, backslash, quotes/operator text, and Unicode including `😀a` execute the exact LIKE fallback. Tests cover independent title/body matches plus insertion, replacement/removal of old matches, trash/restore synchronization, and explicit integer `bench_search_key` rowid mapping that preserves public UUID identity.
+- Property filtering uses the same validated UUID JSON path shape as the view SQL, the full body-free object projection and ordering, `LIMIT 101` lookahead for 100 displayed rows, and actual index DDL checks for the owning fixture. Tests cover missing, boundary, before/after, and trash behavior for the selected date property only.
+- Reference membership compares current `json_each(...) COLLATE NOCASE`, existing `object_references` lookup, and the optional composite index. Tests cover exact property ID scoping, writing-only links exclusion, uppercase stored values, missing/empty arrays, canonical change/remove/replace, trashed sources, retained references to a target trashed after creation, and >100-match truncation/lookahead. A deliberately deleted derived edge fails the scenario instead of reporting timings.
+- Search keeps the original escaped literal `LIKE` predicate as final authority. FTS5 receives only a quoted ASCII-safe literal phrase; empty, length 1/2, wildcard, underscore, backslash, quotes/operator text, and Unicode including `😀a` execute the exact LIKE fallback. Tests cover title/body positives and negatives, insertion, replacement/removal, trash/restore synchronization, and explicit integer key/rowid mapping.
 
 ## Limitations
 
-This is synthetic data, not a user database. Sparse/dense references, short/larger writing, controlled history, live/trash effects, common/rare predicates, and adversarial search strings are bounded fixtures rather than a representative workload survey. Read timings run in-process and cache/order effects remain possible; write timings are canonical object writes measured separately from a production migration and should not be treated as end-to-end durable latency for a deployed index rollout.
-
-JSONB, generated columns, deep pagination, automatic per-property DDL, production FTS maintenance, schema migrations, and UI/native-dialog changes remain outside this scope. Any production adoption should be reviewed separately against actual call sites, transactional maintenance, migration cost, and representative workloads.
+This remains synthetic data, not a user-database survey. The matrix is intentionally small, and no result promises real-user speedups. JSONB, generated columns, deep pagination, automatic per-property DDL, production FTS maintenance, migrations, provider calls, and UI/native-dialog changes remain deferred.
