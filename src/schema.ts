@@ -9,6 +9,7 @@ interface PropertyRow { id: string; kind: string; options_json: string | null; t
 const ID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 const JOURNAL_DATE_PATH = `$."${JOURNAL_DATE_PROPERTY_ID}"`;
 const PROPERTY_KINDS = `'text','number','boolean','date','datetime','select','reference','date-range','time-range'`;
+const POSITIVE_INTEGER_REVISION = `typeof(revision) = 'integer' AND revision > 0`;
 
 function tableExists(db: Database, name: string): boolean {
   return Boolean(db.query<{ value: number }, [string]>("SELECT 1 AS value FROM sqlite_schema WHERE type = 'table' AND name = ?").get(name));
@@ -24,7 +25,7 @@ function installCoreTables(db: Database): void {
     CREATE TABLE IF NOT EXISTS object_types (
       id TEXT PRIMARY KEY, name TEXT NOT NULL,
       property_ids_json TEXT NOT NULL CHECK(json_valid(property_ids_json)) ${structuralConstraints()},
-      revision INTEGER NOT NULL CHECK(revision > 0)
+      revision INTEGER NOT NULL CHECK(${POSITIVE_INTEGER_REVISION})
     ) STRICT;
     CREATE TABLE IF NOT EXISTS object_properties (
       id TEXT PRIMARY KEY, label TEXT NOT NULL,
@@ -35,13 +36,13 @@ function installCoreTables(db: Database): void {
         CONSTRAINT object_properties_reference_target CHECK((kind = 'reference' AND target_type_id IS NOT NULL) OR (kind != 'reference' AND target_type_id IS NULL)),
       multiple INTEGER NOT NULL DEFAULT 0 CHECK(multiple IN (0, 1))
         CONSTRAINT object_properties_reference_multiple CHECK((kind = 'reference' AND multiple IN (0, 1)) OR (kind != 'reference' AND multiple = 0)),
-      revision INTEGER NOT NULL CHECK(revision > 0)
+      revision INTEGER NOT NULL CHECK(${POSITIVE_INTEGER_REVISION})
     ) STRICT;
     CREATE TABLE IF NOT EXISTS objects (
       id TEXT PRIMARY KEY COLLATE NOCASE, type_id TEXT NOT NULL REFERENCES object_types(id), title TEXT NOT NULL,
       properties_json TEXT NOT NULL CHECK(json_valid(properties_json))
         CONSTRAINT objects_properties_object CHECK(json_valid(properties_json) AND json_type(properties_json) = 'object'),
-      body TEXT NOT NULL DEFAULT '', revision INTEGER NOT NULL CHECK(revision > 0),
+      body TEXT NOT NULL DEFAULT '', revision INTEGER NOT NULL CHECK(${POSITIVE_INTEGER_REVISION}),
       created_at TEXT NOT NULL, updated_at TEXT NOT NULL, trashed INTEGER NOT NULL CHECK(trashed IN (0, 1)),
       body_text TEXT NOT NULL
     ) STRICT;
@@ -54,7 +55,7 @@ function installCoreTables(db: Database): void {
     CREATE INDEX IF NOT EXISTS object_references_target ON object_references(target_id);
     CREATE TABLE IF NOT EXISTS object_revisions (
       object_id TEXT NOT NULL COLLATE NOCASE REFERENCES objects(id),
-      revision INTEGER NOT NULL CONSTRAINT object_revisions_revision_positive CHECK(revision > 0),
+      revision INTEGER NOT NULL CONSTRAINT object_revisions_revision_positive CHECK(${POSITIVE_INTEGER_REVISION}),
       snapshot_json TEXT NOT NULL CHECK(json_valid(snapshot_json))
         CONSTRAINT object_revisions_snapshot_object CHECK(json_valid(snapshot_json) AND json_type(snapshot_json) = 'object'),
       recorded_at TEXT NOT NULL, PRIMARY KEY(object_id, revision)
@@ -69,7 +70,7 @@ function installViewTables(db: Database): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS object_views (
       id TEXT PRIMARY KEY,
-      revision INTEGER NOT NULL CONSTRAINT object_views_revision_positive CHECK(revision > 0),
+      revision INTEGER NOT NULL CONSTRAINT object_views_revision_positive CHECK(${POSITIVE_INTEGER_REVISION}),
       status TEXT NOT NULL CHECK(status IN ('draft','published')),
       spec_json TEXT NOT NULL CONSTRAINT object_views_spec_object CHECK(json_valid(spec_json) AND json_type(spec_json) = 'object'),
       prompt TEXT NOT NULL, model TEXT NOT NULL,
@@ -79,7 +80,7 @@ function installViewTables(db: Database): void {
     );
     CREATE TABLE IF NOT EXISTS object_view_revisions (
       id TEXT NOT NULL,
-      revision INTEGER NOT NULL CONSTRAINT object_view_revisions_revision_positive CHECK(revision > 0),
+      revision INTEGER NOT NULL CONSTRAINT object_view_revisions_revision_positive CHECK(${POSITIVE_INTEGER_REVISION}),
       status TEXT NOT NULL CONSTRAINT object_view_revisions_status_closed CHECK(status IN ('draft','published')),
       spec_json TEXT NOT NULL CONSTRAINT object_view_revisions_spec_object CHECK(json_valid(spec_json) AND json_type(spec_json) = 'object'),
       prompt TEXT NOT NULL, model TEXT NOT NULL,
@@ -130,16 +131,16 @@ function validateExistingVersion4Data(db: Database, existing: Set<string>): void
   }
   if (existing.has('objects')) assertNoRows(db, "SELECT 1 FROM objects WHERE NOT (json_valid(properties_json) AND json_type(properties_json) = 'object') LIMIT 1", 'objects_properties_object');
   if (existing.has('object_revisions')) {
-    assertNoRows(db, 'SELECT 1 FROM object_revisions WHERE revision <= 0 LIMIT 1', 'object_revisions_revision_positive');
+    assertNoRows(db, `SELECT 1 FROM object_revisions WHERE NOT (${POSITIVE_INTEGER_REVISION}) LIMIT 1`, 'object_revisions_revision_positive');
     assertNoRows(db, "SELECT 1 FROM object_revisions WHERE NOT (json_valid(snapshot_json) AND json_type(snapshot_json) = 'object') LIMIT 1", 'object_revisions_snapshot_object');
   }
   if (existing.has('object_views')) {
-    assertNoRows(db, 'SELECT 1 FROM object_views WHERE revision <= 0 LIMIT 1', 'object_views_revision_positive');
+    assertNoRows(db, `SELECT 1 FROM object_views WHERE NOT (${POSITIVE_INTEGER_REVISION}) LIMIT 1`, 'object_views_revision_positive');
     assertNoRows(db, "SELECT 1 FROM object_views WHERE NOT (json_valid(spec_json) AND json_type(spec_json) = 'object') LIMIT 1", 'object_views_spec_object');
     assertNoRows(db, "SELECT 1 FROM object_views WHERE NOT (json_valid(schema_json) AND json_type(schema_json) = 'array') LIMIT 1", 'object_views_schema_array');
   }
   if (existing.has('object_view_revisions')) {
-    assertNoRows(db, 'SELECT 1 FROM object_view_revisions WHERE revision <= 0 LIMIT 1', 'object_view_revisions_revision_positive');
+    assertNoRows(db, `SELECT 1 FROM object_view_revisions WHERE NOT (${POSITIVE_INTEGER_REVISION}) LIMIT 1`, 'object_view_revisions_revision_positive');
     assertNoRows(db, "SELECT 1 FROM object_view_revisions WHERE status NOT IN ('draft','published') LIMIT 1", 'object_view_revisions_status_closed');
     assertNoRows(db, "SELECT 1 FROM object_view_revisions WHERE NOT (json_valid(spec_json) AND json_type(spec_json) = 'object') LIMIT 1", 'object_view_revisions_spec_object');
     assertNoRows(db, "SELECT 1 FROM object_view_revisions WHERE NOT (json_valid(schema_json) AND json_type(schema_json) = 'array') LIMIT 1", 'object_view_revisions_schema_array');
@@ -158,16 +159,16 @@ function addVersion4Constraints(db: Database, existing: Set<string>): void {
   }
   if (existing.has('objects')) addConstraint(db, 'objects', `CONSTRAINT objects_properties_object CHECK(json_valid(properties_json) AND json_type(properties_json) = 'object')`);
   if (existing.has('object_revisions')) {
-    addConstraint(db, 'object_revisions', `CONSTRAINT object_revisions_revision_positive CHECK(revision > 0)`);
+    addConstraint(db, 'object_revisions', `CONSTRAINT object_revisions_revision_positive CHECK(${POSITIVE_INTEGER_REVISION})`);
     addConstraint(db, 'object_revisions', `CONSTRAINT object_revisions_snapshot_object CHECK(json_valid(snapshot_json) AND json_type(snapshot_json) = 'object')`);
   }
   if (existing.has('object_views')) {
-    addConstraint(db, 'object_views', `CONSTRAINT object_views_revision_positive CHECK(revision > 0)`);
+    addConstraint(db, 'object_views', `CONSTRAINT object_views_revision_positive CHECK(${POSITIVE_INTEGER_REVISION})`);
     addConstraint(db, 'object_views', `CONSTRAINT object_views_spec_object CHECK(json_valid(spec_json) AND json_type(spec_json) = 'object')`);
     addConstraint(db, 'object_views', `CONSTRAINT object_views_schema_array CHECK(json_valid(schema_json) AND json_type(schema_json) = 'array')`);
   }
   if (existing.has('object_view_revisions')) {
-    addConstraint(db, 'object_view_revisions', `CONSTRAINT object_view_revisions_revision_positive CHECK(revision > 0)`);
+    addConstraint(db, 'object_view_revisions', `CONSTRAINT object_view_revisions_revision_positive CHECK(${POSITIVE_INTEGER_REVISION})`);
     addConstraint(db, 'object_view_revisions', `CONSTRAINT object_view_revisions_status_closed CHECK(status IN ('draft','published'))`);
     addConstraint(db, 'object_view_revisions', `CONSTRAINT object_view_revisions_spec_object CHECK(json_valid(spec_json) AND json_type(spec_json) = 'object')`);
     addConstraint(db, 'object_view_revisions', `CONSTRAINT object_view_revisions_schema_array CHECK(json_valid(schema_json) AND json_type(schema_json) = 'array')`);
@@ -253,7 +254,7 @@ export function initializeApplicationSchema(db: Database): void {
   db.transaction(() => {
     db.exec('CREATE TABLE IF NOT EXISTS object_metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT');
     let version = db.query<{ value: string }, []>("SELECT value FROM object_metadata WHERE key = 'schema_version'").get()?.value;
-    if (version && !['1', '2', '3', '4'].includes(version)) throw new Error('Unsupported object database schema.');
+    if (version !== undefined && !['1', '2', '3', '4'].includes(version)) throw new Error('Unsupported object database schema.');
     const existing = new Set(['object_types', 'object_properties', 'objects', 'object_revisions', 'object_views', 'object_view_revisions'].filter(name => tableExists(db, name)));
     if (version === '1') {
       upgradeObjectMarkdown(db, fingerprint);

@@ -105,6 +105,52 @@ function captureRows(db: ReturnType<typeof openDatabase>): Record<string, unknow
     .map(table => [table, db.query(`SELECT * FROM ${table} ORDER BY 1`).all()]));
 }
 
+function assertVersion4StructuralGuards(db: ReturnType<typeof openDatabase>): void {
+  let next = 0;
+  const id = (prefix: string): string => `${prefix}-${++next}`;
+  const validSpec = oldViewSpec();
+  const validSchema = oldSchemaSignature();
+  db.query('INSERT INTO object_views VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, 0)').run(id('valid-view'), 'draft', validSpec, 'prompt', 'model', validSchema, timestamp, timestamp);
+  db.query('INSERT INTO object_view_revisions VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, 0)').run(id('valid-history'), 'draft', validSpec, 'prompt', 'model', validSchema, timestamp, timestamp);
+
+  const badRevisions: Array<string | number | Uint8Array | null> = [0, -1, 1.5, 'oops', new Uint8Array([1]), null];
+  for (const revision of badRevisions) {
+    assert.throws(() => db.query('INSERT INTO object_views VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)').run(id('bad-view'), revision, 'draft', validSpec, 'prompt', 'model', validSchema, timestamp, timestamp));
+    assert.throws(() => db.query('UPDATE object_views SET revision = ? WHERE id = ?').run(revision, 'valid-view-1'));
+    assert.throws(() => db.query('INSERT INTO object_view_revisions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)').run(id('bad-history'), revision, 'draft', validSpec, 'prompt', 'model', validSchema, timestamp, timestamp));
+  }
+  db.query('INSERT INTO object_views VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)').run(id('string-integer-view'), '2', 'draft', validSpec, 'prompt', 'model', validSchema, timestamp, timestamp);
+  db.query('INSERT INTO object_view_revisions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)').run(id('string-integer-history'), '2', 'draft', validSpec, 'prompt', 'model', validSchema, timestamp, timestamp);
+
+  const typeJsonCases = ['{}', 'null', '"id"', 'not json'];
+  for (const value of typeJsonCases) {
+    assert.throws(() => db.query('INSERT INTO object_types VALUES (?, ?, ?, 1)').run(crypto.randomUUID(), 'Bad', value), /object_types_property_ids_array|json_valid/);
+  }
+  const propertyJsonCases = ['[]', 'null', '"text"', 'not json'];
+  for (const value of propertyJsonCases) {
+    assert.throws(() => db.query('INSERT INTO objects VALUES (?, ?, ?, ?, ?, 1, ?, ?, 0, ?)').run(crypto.randomUUID(), PAGE_TYPE_ID, 'Bad', value, '', timestamp, timestamp, ''), /objects_properties_object|json_valid/);
+    assert.throws(() => db.query('INSERT INTO object_revisions VALUES (?, 1, ?, ?)').run(page, value, timestamp), /object_revisions_snapshot_object|malformed JSON|json_valid/);
+    assert.throws(() => db.query('INSERT INTO object_views VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, 0)').run(id('bad-spec'), 'draft', value, 'prompt', 'model', validSchema, timestamp, timestamp), /object_views_spec_object|malformed JSON|json_valid/);
+    assert.throws(() => db.query('INSERT INTO object_view_revisions VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, 0)').run(id('bad-history-spec'), 'draft', value, 'prompt', 'model', validSchema, timestamp, timestamp), /object_view_revisions_spec_object|malformed JSON|json_valid/);
+  }
+  const schemaJsonCases = ['{}', 'null', '"schema"', 'not json'];
+  for (const value of schemaJsonCases) {
+    assert.throws(() => db.query('INSERT INTO object_views VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, 0)').run(id('bad-schema'), 'draft', validSpec, 'prompt', 'model', value, timestamp, timestamp), /object_views_schema_array|malformed JSON|json_valid/);
+    assert.throws(() => db.query('INSERT INTO object_view_revisions VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, 0)').run(id('bad-history-schema'), 'draft', validSpec, 'prompt', 'model', value, timestamp, timestamp), /object_view_revisions_schema_array|malformed JSON|json_valid/);
+  }
+
+  assert.throws(() => db.query('INSERT INTO object_properties VALUES (?, ?, ?, NULL, NULL, 0, 1)').run(crypto.randomUUID(), 'Bad', 'bogus'), /object_properties_kind_supported/);
+  assert.throws(() => db.query('INSERT INTO object_properties VALUES (?, ?, ?, NULL, NULL, 0, 1)').run(crypto.randomUUID(), 'Bad', 'select'), /object_properties_select_options/);
+  assert.throws(() => db.query('INSERT INTO object_properties VALUES (?, ?, ?, ?, NULL, 0, 1)').run(crypto.randomUUID(), 'Bad', 'text', '[]'), /object_properties_select_options/);
+  assert.throws(() => db.query('INSERT INTO object_properties VALUES (?, ?, ?, NULL, NULL, 0, 1)').run(crypto.randomUUID(), 'Bad', 'reference'), /object_properties_reference_target/);
+  assert.throws(() => db.query('INSERT INTO object_properties VALUES (?, ?, ?, NULL, ?, 0, 1)').run(crypto.randomUUID(), 'Bad', 'text', PAGE_TYPE_ID), /object_properties_reference_target/);
+  assert.throws(() => db.query('INSERT INTO object_properties VALUES (?, ?, ?, NULL, NULL, 1, 1)').run(crypto.randomUUID(), 'Bad', 'text'), /object_properties_reference_multiple/);
+  assert.throws(() => db.query('INSERT INTO object_views VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, 0)').run(id('bad-status'), 'deleted', validSpec, 'prompt', 'model', validSchema, timestamp, timestamp), /CHECK constraint failed/);
+  assert.throws(() => db.query('INSERT INTO object_views VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, 2)').run(id('bad-deleted'), 'draft', validSpec, 'prompt', 'model', validSchema, timestamp, timestamp), /CHECK constraint failed/);
+  assert.throws(() => db.query('INSERT INTO object_view_revisions VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, 0)').run(id('bad-history-status'), 'deleted', validSpec, 'prompt', 'model', validSchema, timestamp, timestamp), /object_view_revisions_status_closed/);
+  assert.throws(() => db.query('INSERT INTO object_view_revisions VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, 2)').run(id('bad-history-deleted'), 'draft', validSpec, 'prompt', 'model', validSchema, timestamp, timestamp), /object_view_revisions_deleted_closed/);
+}
+
 test('version-3 application schema upgrades to version 4 without changing logical data', t => {
   const file = temporaryWorkspace(t);
   const before = installV3Fixture(file);
@@ -115,6 +161,7 @@ test('version-3 application schema upgrades to version 4 without changing logica
   assert.deepEqual(captureRows(db), { ...before.rows, object_metadata: [{ key: 'schema_version', value: '4' }] });
   assert.deepEqual(db.query<Record<string, string>, []>('PRAGMA integrity_check').all(), [{ integrity_check: 'ok' }]);
   assert.deepEqual(db.query('PRAGMA foreign_key_check').all(), []);
+  assertVersion4StructuralGuards(db);
   const upgradedPage = runtime.getObject(page);
   db.close();
 
@@ -122,6 +169,33 @@ test('version-3 application schema upgrades to version 4 without changing logica
   const reopened = new ObjectRuntime(db);
   assert.deepEqual(reopened.getObject(page), upgradedPage);
   db.close();
+});
+
+test('explicit unsupported schema versions are rejected without changing existing data', t => {
+  for (const version of ['', ' ', '5']) {
+    const file = temporaryWorkspace(t);
+    let db = openDatabase(file);
+    db.exec('CREATE TABLE object_metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT; CREATE TABLE sentinel (value TEXT) STRICT;');
+    db.query("INSERT INTO object_metadata VALUES ('schema_version', ?)").run(version);
+    db.query("INSERT INTO sentinel VALUES ('preserve')").run();
+    const schema = db.query('SELECT type, name, tbl_name, sql FROM sqlite_schema ORDER BY type, name').all();
+    const rows = captureRows(db);
+    const sentinel = db.query('SELECT * FROM sentinel').all();
+    db.close();
+
+    db = openDatabase(file);
+    try {
+      assert.throws(() => new ObjectRuntime(db), /Unsupported object database schema/);
+    } finally {
+      db.close();
+    }
+    db = openDatabase(file);
+    assert.deepEqual(db.query('SELECT type, name, tbl_name, sql FROM sqlite_schema ORDER BY type, name').all(), schema);
+    assert.deepEqual(captureRows(db), rows);
+    assert.deepEqual(db.query('SELECT * FROM sentinel').all(), sentinel);
+    assert.equal(db.query<{ value: string }, []>("SELECT value FROM object_metadata WHERE key = 'schema_version'").get()!.value, version);
+    db.close();
+  }
 });
 
 test('version-3 workspaces without optional service tables gain them during upgrade', t => {
@@ -150,33 +224,51 @@ test('version-4 structural checks reject invalid direct SQL on every connection'
   const first = new ObjectRuntime(openDatabase(file));
   const second = openDatabase(file);
   t.after(() => { first.db.close(); second.close(); });
-  assert.throws(() => second.query('INSERT INTO object_types VALUES (?, ?, ?, 1)').run(customType, 'Bad', '{}'), /object_types_property_ids_array/);
-  assert.throws(() => second.query('INSERT INTO object_properties VALUES (?, ?, ?, NULL, NULL, 0, 1)').run(textProperty, 'Bad', 'bogus'), /object_properties_kind_supported/);
-  assert.throws(() => second.query('INSERT INTO object_properties VALUES (?, ?, ?, NULL, NULL, 0, 1)').run(selectProperty, 'Bad', 'select'), /object_properties_select_options/);
-  assert.throws(() => second.query('INSERT INTO object_properties VALUES (?, ?, ?, NULL, NULL, 1, 1)').run(selectProperty, 'Bad', 'text'), /object_properties_reference_multiple/);
-  assert.throws(() => second.query('INSERT INTO objects VALUES (?, ?, ?, ?, ?, 1, ?, ?, 0, ?)').run(page, PAGE_TYPE_ID, 'Bad', '[]', '', timestamp, timestamp, ''), /objects_properties_object/);
-  assert.throws(() => second.query('INSERT INTO object_revisions VALUES (?, 0, ?, ?)').run(page, '{}', timestamp), /object_revisions_revision_positive/);
-  assert.throws(() => second.query('INSERT INTO object_views VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, 0)').run(viewId, 'draft', '[]', 'prompt', 'model', '[]', timestamp, timestamp), /object_views_spec_object/);
-  assert.throws(() => second.query('INSERT INTO object_view_revisions VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, 0)').run(viewId, 'deleted', '{}', 'prompt', 'model', '[]', timestamp, timestamp), /object_view_revisions_status_closed/);
+  assertVersion4StructuralGuards(second);
 
   const type = first.createType('Boundary');
   const withReference = first.addProperty(type.id, type.revision, { label: 'Related', kind: 'reference', targetTypeId: PAGE_TYPE_ID, multiple: true });
   assert.equal(first.getProperty(withReference.propertyIds[0]!).multiple, true);
   const views = new ViewService(first);
-  assert.equal(views.list().length, 0);
+  assert.equal(views.list().length, 2);
 });
 
 test('invalid existing structural data rolls back the version-4 upgrade completely', t => {
-  const file = temporaryWorkspace(t);
-  const before = installV3Fixture(file);
-  let db = openDatabase(file);
-  db.query('UPDATE object_views SET spec_json = ? WHERE id = ?').run('[]', viewId);
-  const rows = captureRows(db);
-  db.close();
-  assert.throws(() => new ObjectRuntime(openDatabase(file)), /object_views_spec_object/);
-  db = openDatabase(file);
-  assert.deepEqual(db.query('SELECT type, name, tbl_name, sql FROM sqlite_schema ORDER BY type, name').all(), before.schema);
-  assert.deepEqual(captureRows(db), rows);
-  assert.equal(db.query<{ value: string }, []>("SELECT value FROM object_metadata WHERE key = 'schema_version'").get()!.value, '3');
-  db.close();
+  const cases: { name: string; mutate: (db: ReturnType<typeof openDatabase>) => void; message: RegExp }[] = [
+    { name: 'type properties must be an array', mutate: db => db.query('UPDATE object_types SET property_ids_json = ? WHERE id = ?').run('{}', customType), message: /object_types_property_ids_array/ },
+    { name: 'property kind must be supported', mutate: db => db.query('UPDATE object_properties SET kind = ? WHERE id = ?').run('bogus', textProperty), message: /object_properties_kind_supported/ },
+    { name: 'select properties require array options', mutate: db => db.query('UPDATE object_properties SET options_json = NULL WHERE id = ?').run(selectProperty), message: /object_properties_select_options/ },
+    { name: 'reference properties require a target', mutate: db => db.query('INSERT INTO object_properties VALUES (?, ?, ?, NULL, NULL, 0, 1)').run(crypto.randomUUID(), 'Broken reference', 'reference'), message: /object_properties_reference_target/ },
+    { name: 'non-reference properties cannot be multiple', mutate: db => db.query('UPDATE object_properties SET multiple = 1 WHERE id = ?').run(textProperty), message: /object_properties_reference_multiple/ },
+    { name: 'object properties must be an object', mutate: db => db.query('UPDATE objects SET properties_json = ? WHERE id = ?').run('[]', page), message: /objects_properties_object/ },
+    { name: 'history snapshots must be objects', mutate: db => db.query('UPDATE object_revisions SET snapshot_json = ? WHERE object_id = ?').run('[]', page), message: /object_revisions_snapshot_object/ },
+    { name: 'view revisions must be stored as integers', mutate: db => db.query('UPDATE object_views SET revision = ? WHERE id = ?').run('oops', viewId), message: /object_views_revision_positive/ },
+    { name: 'view specs must be valid JSON objects', mutate: db => db.query('UPDATE object_views SET spec_json = ? WHERE id = ?').run('not json', viewId), message: /object_views_spec_object/ },
+    { name: 'view schemas must be arrays', mutate: db => db.query('UPDATE object_views SET schema_json = ? WHERE id = ?').run('{}', viewId), message: /object_views_schema_array/ },
+    { name: 'history statuses are closed', mutate: db => db.query('INSERT INTO object_view_revisions VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, 0)').run('invalid-history-status', 'deleted', oldViewSpec(), 'prompt', 'model', oldSchemaSignature(), timestamp, timestamp), message: /object_view_revisions_status_closed/ },
+    { name: 'history specs must be objects', mutate: db => db.query('INSERT INTO object_view_revisions VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, 0)').run('invalid-history-spec', 'draft', '[]', 'prompt', 'model', oldSchemaSignature(), timestamp, timestamp), message: /object_view_revisions_spec_object/ },
+    { name: 'history schemas must be arrays', mutate: db => db.query('INSERT INTO object_view_revisions VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, 0)').run('invalid-history-schema', 'draft', oldViewSpec(), 'prompt', 'model', '{}', timestamp, timestamp), message: /object_view_revisions_schema_array/ },
+    { name: 'history deleted is closed', mutate: db => db.query('INSERT INTO object_view_revisions VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, 2)').run('invalid-history-deleted', 'draft', oldViewSpec(), 'prompt', 'model', oldSchemaSignature(), timestamp, timestamp), message: /object_view_revisions_deleted_closed/ },
+    { name: 'history revisions must be stored as integers', mutate: db => db.query('INSERT INTO object_view_revisions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)').run('invalid-history-revision', new Uint8Array([1]), 'draft', oldViewSpec(), 'prompt', 'model', oldSchemaSignature(), timestamp, timestamp), message: /object_view_revisions_revision_positive/ },
+  ];
+  for (const value of cases) {
+    const file = temporaryWorkspace(t);
+    const before = installV3Fixture(file);
+    let db = openDatabase(file);
+    value.mutate(db);
+    const rows = captureRows(db);
+    db.close();
+
+    db = openDatabase(file);
+    try {
+      assert.throws(() => new ObjectRuntime(db), value.message, value.name);
+    } finally {
+      db.close();
+    }
+    db = openDatabase(file);
+    assert.deepEqual(db.query('SELECT type, name, tbl_name, sql FROM sqlite_schema ORDER BY type, name').all(), before.schema, value.name);
+    assert.deepEqual(captureRows(db), rows, value.name);
+    assert.equal(db.query<{ value: string }, []>("SELECT value FROM object_metadata WHERE key = 'schema_version'").get()!.value, '3', value.name);
+    db.close();
+  }
 });
