@@ -10,7 +10,7 @@ import { VisitorStore } from '../src/visitors.js';
 import { ObjectRuntime } from '../src/objects/runtime.js';
 import { ViewConversationService } from '../src/objects/conversations.js';
 import { ViewService } from '../src/objects/views.js';
-import { ObjectLookupSchema, PAGE_TYPE_ID, TASK_TYPE_ID, TASK_DUE_PROPERTY_ID, JOURNAL_TYPE_ID, JOURNAL_DATE_PROPERTY_ID } from '../src/objects/model.js';
+import { ObjectLookupSchema, PAGE_TYPE_ID, TASK_TYPE_ID, TASK_DONE_PROPERTY_ID, TASK_DUE_PROPERTY_ID, TASK_SCHEDULED_PROPERTY_ID, JOURNAL_TYPE_ID, JOURNAL_DATE_PROPERTY_ID } from '../src/objects/model.js';
 import type { ObjectLookupResult, ViewConversation, ViewGenerator, ViewSpec } from '../src/objects/model.js';
 
 async function setup(t: TestContext, generator: ViewGenerator) {
@@ -1583,4 +1583,55 @@ test('JSON endpoints and successful redirects do not load saved views while HTML
   assert.ok(staleMarkup.includes('Rejected draft'));
   assert.equal(nativeObjectFields(staleMarkup).body, 'Draft body');
   assert.equal(listCalls, 2);
+});
+
+test('calendar day workspace is nonmutating and supports journal, task and favorite native actions', async t => {
+  const { objects, get, post } = await setup(t, async () => { throw new Error('no model'); });
+  const date = '2026-09-27';
+  const scheduled = objects.createObject({ typeId: TASK_TYPE_ID, title: 'Scheduled only', properties: { [TASK_SCHEDULED_PROPERTY_ID]: date }, body: '' });
+  const due = objects.createObject({ typeId: TASK_TYPE_ID, title: 'Due only', properties: { [TASK_DUE_PROPERTY_ID]: date }, body: '' });
+  const both = objects.createObject({ typeId: TASK_TYPE_ID, title: 'Both', properties: { [TASK_DUE_PROPERTY_ID]: date, [TASK_SCHEDULED_PROPERTY_ID]: date }, body: '' });
+
+  let response = await get(`/calendar?date=${date}`);
+  let html = await response.text();
+  assert.equal(response.status, 200);
+  assert.equal(objects.getJournal(date), undefined);
+  assert.match(html, /Scheduled only/);
+  assert.match(html, /Due only/);
+  assert.match(html, /Both/);
+  assert.equal((html.match(/Both/g) ?? []).length >= 1, true);
+  assert.match(html, /Server-local day/);
+
+  response = await post('/calendar/journal', { date, body: '', revision: '1', requestId: randomUUID() });
+  assert.equal(response.status, 422);
+  assert.equal(objects.getJournal(date), undefined);
+
+  response = await post('/calendar/journal', { date, body: 'Daily note', revision: '1', requestId: randomUUID() });
+  assert.equal(response.status, 303);
+  const journal = objects.getJournal(date)!;
+  assert.equal(journal.body, 'Daily note');
+
+  response = await post('/calendar/task', { date, objectId: scheduled.id, revision: String(scheduled.revision), done: 'true' });
+  assert.equal(response.status, 303);
+  assert.equal(objects.getObject(scheduled.id).properties[TASK_DONE_PROPERTY_ID], true);
+
+  response = await post(`/objects/${due.id}/favorite`, { favorite: 'true', context: 'calendar', date });
+  assert.equal(response.status, 303);
+  assert.equal(response.headers.get('location'), `/calendar?date=${date}`);
+  html = await (await get('/objects/favorites')).text();
+  assert.match(html, /Due only/);
+
+  response = await post('/calendar/task', { date, objectId: both.id, revision: String(both.revision), done: 'maybe' });
+  assert.equal(response.status, 422);
+});
+
+test('calendar and navigation reject duplicate date inputs and remove type-heavy sidebar', async t => {
+  const { get } = await setup(t, async () => { throw new Error('no model'); });
+  const response = await get('/calendar?date=2026-09-27&date=2026-09-28');
+  assert.equal(response.status, 422);
+  const home = await (await get('/')).text();
+  assert.match(home, /New note/);
+  assert.match(home, /Favorites/);
+  assert.doesNotMatch(home, /Object types<\/h2>/);
+  assert.match(home, /Manage types/);
 });

@@ -2,7 +2,7 @@ import { Value } from 'typebox/value';
 import { AppError } from '../core.js';
 import type { Visitor } from '../visitors.js';
 import { validateMarkdown } from './markdown.js';
-import { valueError } from './values.js';
+import { serverTimeZone, validDate, valueError } from './values.js';
 import { IdSchema, JOURNAL_DATE_PROPERTY_ID, JOURNAL_TYPE_ID, PAGE_TYPE_ID, TASK_TYPE_ID } from './model.js';
 import type { EvaluatedView, ObjectLookupResult, ObjectPageModel, ObjectRecord, ObjectSummary, ObjectWrite, PropertyDefinition, PropertyKind, PropertyValue, SavedView, ViewConversation, ViewGenerator } from './model.js';
 import type { ObjectRuntime } from './runtime.js';
@@ -82,7 +82,7 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
   const conversations = new ViewConversationService(objects.db, views);
   const generating = new Set<string>();
   return async (req: Request, url: URL, visitor: Visitor, fields?: URLSearchParams): Promise<Response | undefined> => {
-    if (!(url.pathname === '/' || url.pathname === '/calendar' || url.pathname === '/tasks' || /^\/(?:journal|types|objects|properties|views)(?:\/|$)/.test(url.pathname))) return;
+    if (!(url.pathname === '/' || /^\/calendar(?:\/|$)/.test(url.pathname) || url.pathname === '/tasks' || /^\/(?:journal|types|objects|properties|views)(?:\/|$)/.test(url.pathname))) return;
     const conversationRoute = url.pathname.startsWith('/views/conversations/');
     const lookupRoute = url.pathname === '/objects/lookup';
     const json = lookupRoute || conversationRoute || (url.pathname === '/views/generate' && req.headers.get('accept')?.includes('application/json'));
@@ -95,9 +95,22 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
     };
     const page = (status = 200) => {
       model.views = views.list();
+      model.favorites ??= objects.listFavoriteObjects();
       return new Response(renderObjectWorkspace(model), { status, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
     };
     const go = (path: string) => new Response(null, { status: 303, headers: { Location: path } });
+    const calendarPath = (date: string, extra: Record<string, string> = {}) => `/calendar?${new URLSearchParams({ date, ...extra })}`;
+    const returnAfterFavorite = (data: URLSearchParams, objectId: string): string => {
+      const context = data.get('context') ?? 'object';
+      if (context === 'calendar') {
+        const date = data.get('date') ?? '';
+        if (!validDate(date)) throw new AppError(422, 'Choose a real calendar date in YYYY-MM-DD format.');
+        return calendarPath(date);
+      }
+      if (context === 'favorites') return '/objects/favorites';
+      if (context !== 'object') throw new AppError(422, 'Invalid return context.');
+      return `/objects/${objectId}`;
+    };
     const backlinksOffset = () => {
       if (url.searchParams.getAll('backlinksOffset').length > 1) throw new AppError(422, 'Invalid backlinks page.');
       const value = url.searchParams.get('backlinksOffset') ?? '0';
@@ -286,6 +299,20 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
             model.objects = rows.slice(0, 50);
             if (layout === 'gallery') model.objectExcerpts = objects.objectExcerpts(model.objects.map(record => record.id));
           }
+        } else if (url.pathname === '/calendar') {
+          requireFields(url.searchParams, ['date', 'tasksOffset', 'createdOffset', 'month']);
+          if (url.searchParams.getAll('date').length > 1 || url.searchParams.getAll('tasksOffset').length > 1 || url.searchParams.getAll('createdOffset').length > 1) throw new AppError(422, 'Invalid calendar request.');
+          model.screen = 'calendar';
+          model.journalDateDefault = !url.searchParams.has('date');
+          model.journalDate = url.searchParams.get('date') ?? localDate();
+          if (!validDate(model.journalDate)) throw new AppError(422, 'Choose a real calendar date in YYYY-MM-DD format.');
+          const tasksOffset = url.searchParams.get('tasksOffset') ?? '0';
+          const createdOffset = url.searchParams.get('createdOffset') ?? '0';
+          if (!/^\d{1,7}$/.test(tasksOffset) || Number(tasksOffset) > 1_000_000 || !/^\d{1,7}$/.test(createdOffset) || Number(createdOffset) > 1_000_000) throw new AppError(422, 'Invalid calendar page.');
+          model.journal = objects.getJournal(model.journalDate);
+          model.dayTasks = objects.listDayTasks(model.journalDate, Number(tasksOffset));
+          model.dayCreated = objects.listObjectsCreatedOn(model.journalDate, Number(createdOffset));
+          model.timeZone = serverTimeZone();
         } else if (url.pathname === '/journal') {
           model.screen = 'journal';
           model.journalDateDefault = !url.searchParams.has('date');
@@ -303,10 +330,21 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
           model.journalDateDefault = !url.searchParams.has('date');
           model.journalDate = url.searchParams.get('date') ?? localDate();
           if (model.objectType.id === JOURNAL_TYPE_ID) model.journal = objects.getJournal(model.journalDate);
-        } else if (url.pathname === '/views' || url.pathname === '/calendar') {
+        } else if (url.pathname === '/views') {
           model.screen = 'views';
-          if (url.pathname === '/calendar') model.section = 'calendar';
         } else {
+          if (url.pathname === '/objects/favorites') {
+            requireFields(url.searchParams, ['offset']);
+            const offset = url.searchParams.get('offset') ?? '0';
+            if (!/^\d{1,7}$/.test(offset) || Number(offset) > 1_000_000) throw new AppError(422, 'Invalid favorites page.');
+            model.screen = 'objects';
+            model.section = 'favorites';
+            model.offset = Number(offset);
+            model.favorites = objects.listFavoriteObjects(model.offset);
+            model.objects = model.favorites.items;
+            model.hasMore = model.favorites.hasMore;
+            return page();
+          }
           const historyMatch = /^\/objects\/([a-f0-9-]{36})\/history$/.exec(url.pathname);
           if (historyMatch) {
             requireFields(url.searchParams, ['offset', 'revision']);
@@ -330,6 +368,7 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
           else if (match[1] === 'objects') {
             model.screen = 'object'; model.object = objects.getObject(match[2]!);
             model.objectType = objects.getType(model.object.typeId);
+            model.favorite = objects.isFavorite(model.object.id);
             model.objects = pickerObjects();
             loadBacklinks(model.object.id);
           } else {
@@ -341,6 +380,41 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
         return page();
       }
       if (!fields) throw new AppError(400, 'Submit a form.');
+      if (url.pathname === '/calendar/journal') {
+        model.screen = 'calendar';
+        model.journalDate = fields.get('date') ?? '';
+        model.timeZone = serverTimeZone();
+        model.objectDraft = { title: model.journalDate, body: fields.get('body') ?? '', revision: fields.get('revision') ?? '', requestId: fields.get('requestId') ?? '' };
+        requireFields(fields, ['csrf', 'date', 'body', 'revision', 'requestId']);
+        if (!validDate(model.journalDate)) throw new AppError(422, 'Choose a real calendar date in YYYY-MM-DD format.');
+        const existing = objects.getJournal(model.journalDate);
+        if (existing?.trashed) throw new AppError(409, 'This journal is in Trash. Open the existing object to restore it.');
+        if (existing) {
+          model.journal = existing;
+          objects.updateObject(existing.id, revision(fields), { typeId: JOURNAL_TYPE_ID, title: existing.title, properties: { ...existing.properties }, body: fields.get('body') ?? '' });
+        } else {
+          const body = fields.get('body') ?? '';
+          if (!body.trim()) throw new AppError(422, 'Write something before saving a new journal.');
+          objects.createObject({ typeId: JOURNAL_TYPE_ID, title: model.journalDate, properties: { [JOURNAL_DATE_PROPERTY_ID]: model.journalDate }, body }, fields.get('requestId') || undefined);
+        }
+        return go(`${calendarPath(model.journalDate)}&saved=1`);
+      }
+      if (url.pathname === '/calendar/task') {
+        requireFields(fields, ['csrf', 'date', 'objectId', 'revision', 'done']);
+        const date = fields.get('date') ?? '';
+        const done = fields.get('done');
+        if (done !== 'true' && done !== 'false') throw new AppError(422, 'Invalid completion state.');
+        objects.setTaskDoneForDay(fields.get('objectId') ?? '', revision(fields), date, done === 'true');
+        return go(calendarPath(date));
+      }
+      const favoriteMatch = /^\/objects\/([a-f0-9-]{36})\/favorite$/.exec(url.pathname);
+      if (favoriteMatch) {
+        requireFields(fields, ['csrf', 'favorite', 'context', 'date']);
+        const desired = fields.get('favorite');
+        if (desired !== 'true' && desired !== 'false') throw new AppError(422, 'Invalid favorite state.');
+        objects.setFavorite(favoriteMatch[1]!, desired === 'true');
+        return go(returnAfterFavorite(fields, favoriteMatch[1]!));
+      }
       if (url.pathname === '/journal/open') {
         model.screen = 'journal';
         model.journalDate = fields.get('date') ?? '';

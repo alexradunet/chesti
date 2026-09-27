@@ -165,8 +165,8 @@ export interface BacklinkPage { links: Backlink[]; offset: number; hasMore: bool
 export interface ObjectPageModel {
   csrf: string;
   path: string;
-  screen: 'home' | 'objects' | 'types' | 'type' | 'new-object' | 'object' | 'object-history' | 'views' | 'view' | 'journal';
-  section?: 'calendar' | 'tasks';
+  screen: 'home' | 'objects' | 'types' | 'type' | 'new-object' | 'object' | 'object-history' | 'views' | 'view' | 'journal' | 'calendar';
+  section?: 'calendar' | 'tasks' | 'favorites';
   catalog: Catalog;
   views: SavedView[];
   objects: ObjectSummary[];
@@ -180,6 +180,11 @@ export interface ObjectPageModel {
   journalDate?: string;
   journalDateDefault?: boolean;
   journal?: ObjectRecord;
+  dayTasks?: BoundedPage<DayTaskSummary>;
+  dayCreated?: BoundedPage<ObjectSummary>;
+  favorites?: BoundedPage<ObjectSummary>;
+  favorite?: boolean;
+  timeZone?: string;
   basedOnTypeId?: string;
   typeDraft?: { name: string; basedOnTypeId?: string };
   newPropertyDraft?: NewPropertyDraft;

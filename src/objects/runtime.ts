@@ -272,6 +272,19 @@ export class ObjectRuntime {
       }
     }).immediate();
   }
+  setTaskDoneForDay(id: string, revision: number, date: string, done: boolean): ObjectRecord {
+    if (!validDate(date)) throw new AppError(422, 'Choose a real calendar date in YYYY-MM-DD format.');
+    if (typeof done !== 'boolean') throw new AppError(422, 'Invalid completion state.');
+    return this.db.transaction(() => {
+      const object = this.getObject(id);
+      revisionIs(object.revision, revision);
+      if (object.trashed || object.typeId !== TASK_TYPE_ID) throw new AppError(409, 'This task is no longer in the selected day.');
+      const due = object.properties[TASK_DUE_PROPERTY_ID];
+      const scheduled = object.properties[TASK_SCHEDULED_PROPERTY_ID];
+      if (due !== date && scheduled !== date) throw new AppError(409, 'This task is no longer in the selected day.');
+      return this.updateObjectFromPrevious(object, revision, { ...object, properties: { ...object.properties, [TASK_DONE_PROPERTY_ID]: done } });
+    }).immediate();
+  }
   isFavorite(id: string): boolean {
     if (typeof id !== 'string' || !ID.test(id)) throw new AppError(422, 'Invalid object ID.');
     return Boolean(this.db.query<{ value: number }, [string]>('SELECT 1 AS value FROM object_favorites WHERE object_id = ?').get(id.toLowerCase()));

@@ -104,7 +104,8 @@
 .object-shell .brand { display: inline-flex; align-items: center; gap: var(--space-3); font-size: var(--text-xl); color: var(--text-primary); text-decoration: none; letter-spacing: -.045em; font-weight: var(--weight-bold); }
 .object-shell .brand-mark { display: grid; place-items: center; width: 36px; height: 36px; border-radius: var(--radius-md); color: var(--text-on-accent); background: var(--action-primary); box-shadow: var(--shadow-sm); }
 .object-shell .brand-mark .icon { width: 20px; height: 20px; }
-.object-shell .nav-new { display: flex; align-items: center; justify-content: flex-start; width: 100%; gap: var(--space-3); padding: var(--space-3); margin-bottom: var(--space-5); }
+.object-shell .nav-actions { display: grid; gap: var(--space-2); margin-bottom: var(--space-5); }
+.object-shell .nav-new { display: flex; align-items: center; justify-content: flex-start; width: 100%; gap: var(--space-3); padding: var(--space-3); }
 .object-shell .nav-links { display: flex; flex-direction: column; gap: var(--space-1); }
 .object-shell .nav-links > a { position: relative; display: flex; align-items: center; gap: var(--space-3); min-height: var(--control-height); padding: var(--space-2) var(--space-3); border-radius: var(--radius-md); color: var(--text-secondary); text-decoration: none; font-size: var(--text-sm); line-height: var(--leading-normal); transition: background var(--duration-fast), color var(--duration-fast); }
 .object-shell .nav-links > a > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
@@ -279,7 +280,8 @@
 .object-shell .form-state { min-height: 0; font-size: var(--text-sm); color: var(--text-muted); margin: var(--space-2) 0 0; }
 .object-shell .form-state:empty { display: none; }
 .object-shell .form-state.error { color: var(--status-danger); }
-.object-shell .object-sections { display: flex; flex-wrap: wrap; gap: var(--space-2); margin: 0 0 var(--space-6); padding-bottom: var(--space-4); border-bottom: 1px solid var(--border-subtle); }
+.object-shell .object-actions-row { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: var(--space-3); margin: 0 0 var(--space-6); padding-bottom: var(--space-4); border-bottom: 1px solid var(--border-subtle); }
+.object-shell .object-sections { display: flex; flex-wrap: wrap; gap: var(--space-2); margin: 0; }
 .object-shell .object-sections a { display: inline-flex; align-items: center; min-height: var(--control-height); padding: var(--space-2) var(--space-3); color: var(--text-secondary); text-decoration: none; border-radius: var(--radius-md); font-size: var(--text-sm); }
 .object-shell .object-sections a:hover, .object-shell .object-sections a:focus-visible { background: var(--surface-selected); color: var(--action-primary); }
 .object-shell .object-editing { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-6); }
@@ -527,4 +529,23 @@
 @media (prefers-reduced-motion: reduce) {
   .object-shell *, .object-shell *::before, .object-shell *::after { scroll-behavior: auto !important; transition: none !important; animation: none !important; }
   .object-shell button:active:not(:disabled), .object-shell .button:active { transform: none; }
+}
+.object-shell .day-workspace { display: grid; grid-template-columns: minmax(0, 1fr) minmax(220px, 280px); gap: var(--space-8); align-items: start; }
+.object-shell .day-main { min-width: 0; }
+.object-shell .day-rail { position: sticky; top: var(--space-6); padding: var(--space-5); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); background: var(--surface-panel); }
+.object-shell .day-rail h2 { margin-top: 0; font-size: var(--text-base); }
+.object-shell .month-links { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: var(--space-1); }
+.object-shell .month-links a { display: grid; place-items: center; min-height: 34px; border-radius: var(--radius-sm); text-decoration: none; color: var(--text-secondary); font-size: var(--text-sm); }
+.object-shell .month-links a:hover, .object-shell .month-links a:focus-visible { background: var(--surface-hover); }
+.object-shell .month-links a[aria-current="date"] { background: var(--action-primary); color: var(--text-on-accent); font-weight: var(--weight-semibold); }
+.object-shell .day-mobile-picker { display: none; }
+.object-shell .day-list { list-style: none; padding: 0; margin: var(--space-4) 0; border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); background: var(--surface-panel); overflow: hidden; }
+.object-shell .day-list > li { display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); padding: var(--space-4) var(--space-5); border-bottom: 1px solid var(--border-subtle); }
+.object-shell .day-list > li:last-child { border-bottom: 0; }
+.object-shell .day-list a { font-weight: var(--weight-medium); text-decoration: none; }
+.object-shell .day-list .fine { display: block; }
+@container workspace (max-width: 860px) {
+  .object-shell .day-workspace { display: block; }
+  .object-shell .day-rail { position: static; margin-top: var(--space-6); }
+  .object-shell .day-mobile-picker { display: flex; }
 }

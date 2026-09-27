@@ -36,10 +36,10 @@ The bundled views are already published so you can try their actions offline. Cr
 
 ## Create shared data
 
-1. Open **Manage types** in the left sidebar. Task already has **Done** and **Due date**. Built-in types and their core fields are protected, but you can rename display labels and add fields.
+1. Open **Manage types** in the left sidebar. Task already has **Done**, **Due date**, and **Scheduled date**. Built-in types and their core fields are protected, but you can rename display labels and add fields.
 2. Under **Create a type**, enter `Work item`, choose Task under **Based on**, and choose **Create type & add properties**. This reuses the current Done and Due date property identities. The new type is independent: later field additions and built-in lifecycle rules do not propagate.
 3. Add an `Effort` property with the **Number** format to Work item. Use **Use an existing property** when the same concept is already represented elsewhere. Property cards show formats and choices; **Rename property** identifies other types that share its label.
-4. Open **New content**, enter a title, then choose Task and add a date in **Properties**, above the optional writing. Choose **Create object** to save. Create another task without a date and a Work item with a date. Switching types keeps title, writing, and field drafts; without JavaScript, choose **Use type** to load the selected fields without saving. Only the selected type’s properties are saved on creation; existing objects also retain their existing fields.
+4. Open **New note** for a generic Page, or open **Objects** and choose a type-specific new object. For a Task, add Scheduled date and/or Due date in **Properties**, above the optional writing. Choose **Create object** to save. Create another task without a date and a Work item with a date. Switching types keeps title, writing, and field drafts; without JavaScript, choose **Use type** to load the selected fields without saving. Only the selected type’s properties are saved on creation; existing objects also retain their existing fields.
 5. Choose **Insert object link** above writing, search, and choose an object. Markdown source also accepts a normal link such as `[Project](/objects/UUID)`. Open the linked object to see its backlink.
 
 Types and properties can be renamed. Existing objects keep their identity and properties when changing type; references targeting the old type must be resolved before an incompatible type change. Trash retains data and can be restored. Existing references survive trash, but new references to trashed objects are rejected.
@@ -47,20 +47,24 @@ Types and properties can be renamed. Existing objects keep their identity and pr
 ## Use the built-ins
 
 - **Page:** a generic text page with no required extra properties.
-- **Task:** an action with Done and an optional Due date. Unchecked means incomplete.
+- **Task:** an action with Done, an optional Scheduled date, and an optional Due date. Unchecked means incomplete.
 - **Event:** fill either All-day dates or Event time, not both. Ends are exclusive: a one-day event on September 24 runs from September 24 to September 25. Timed ranges require explicit timestamp offsets and an IANA time zone such as `Europe/London` or `UTC`.
 - **Reminder:** fill either Reminder date or Reminder time. It is only a calendar item; it does not send an alert, snooze, repeat, or track completion.
 - **Journal:** one canonical writing page per calendar day.
 
-Choose **Journal** in the sidebar, find a day, then choose **Open journal**. Opening an existing day preserves its writing; opening a new day creates one empty page titled with its date. Nothing is created just by visiting the date picker. **Today** uses your browser’s local day with JavaScript, or the server’s local day without it. A chosen date always takes precedence.
+Use **Calendar** for daily journaling in the day workspace, or open `/journal` directly for the standalone journal picker. Opening an existing day preserves its writing; opening a new day from `/journal` creates one empty page titled with its date. The Calendar day workspace creates an empty day's journal only after you write and save. A chosen date always takes precedence.
 
 Rename a journal freely without changing its day. Change Journal date only to an unoccupied day. A journal in Trash still owns its date: open the existing page and choose **Restore object**, rather than creating a replacement. Duplicate creation keeps your unsaved draft and links to the existing page; no writing is automatically merged or discarded.
 
 Add fields such as Mood to Journal or Priority to Task to customize the built-ins. A custom type based on Journal shares its date property but is not another canonical daily journal; it can have multiple objects per date.
 
-## Browse by type
+## Browse, favorite, and use the day workspace
 
-The home page, **Objects**, shows totals for objects, types, and saved views, followed by types and their object counts—not a mixed object feed. Choose a type card or its sidebar link to see only objects of that type. **New object** on that page starts an object with the chosen type.
+The home page, **Objects**, shows totals for objects, types, and saved views, followed by types and their object counts—not a mixed object feed. Choose a type card to see only objects of that type. **New object** on that page starts an object with the chosen type. **New note** in the sidebar starts a generic Page.
+
+Favorite a saved object from its object page to show it in the sidebar Favorites list. Favorites are shared workspace metadata in SQLite; they survive restart and renames, do not change object revisions, and are hidden while the object is in Trash. Use **All favorites** when there are more than 50.
+
+**Calendar** opens today's server-local day workspace by default. Pick another date with the previous/next/today links or the month date picker. The day shows an explicitly saved Journal, canonical Task objects whose Scheduled date or Due date matches the selected date, and live objects created during that local day. Tasks matching both dates appear once with both labels; completed tasks remain visible. Empty day journals are created only when you write and save.
 
 Use **List** for compact rows or **Gallery** for cards with titles, saved-writing excerpts, and update dates. List is the default; the selected layout is part of the page URL, so refreshing or using browser Back retains it. Switching layouts keeps your search and page. Both layouts work without JavaScript and do not create or modify a saved view.
 
@@ -88,7 +92,7 @@ For a combined life calendar, ask for Task due dates, Journal dates, both Event 
 
 ## Navigate without losing the conversation
 
-The left sidebar stays available while the assistant is open on desktop. **Calendar** lists calendar-containing saved views; **Tasks** opens the built-in Task type even if you rename it. **Journal** opens the daily date picker; the Journal object-type link browses all journal pages. Other object-type links browse their types. Use **Pin view** to add a saved view to your sidebar.
+The left sidebar stays available while the assistant is open on desktop. **Calendar** opens the day workspace; saved calendar views remain under **Views**. Objects opens type browsing, Search opens cross-type search, Manage types edits schemas, and Trash shows recoverable objects. Use **Pin view** to add a saved view to your sidebar.
 
 Close/reopen the assistant or navigate to another object: the active conversation and unsent prompt stay in the current browser tab. The **Working on** chip identifies the refinement target; browsing does not change it. **Create view** or **New conversation** starts fresh. Successful turns survive server restarts in SQLite; the active-thread pointer lives in browser tab storage.
 
@@ -151,7 +155,7 @@ Alternatively stop the server and back up the database together with any `-wal`/
 
 Synthetic storage measurements are documented in [SQLite storage measurements](sqlite-measurements.md).
 
-Back up before upgrading to object schema version 4. Startup transactionally centralizes the current application schema and adds conservative structural checks for object JSON, property metadata, revisions, and saved-view history without changing existing objects, views, conversations, visitor identities, labels, revisions, creation receipts, or unrelated tables. Existing version-3 databases are preserved; version-2 databases first add built-in types, core fields, and journal date constraints; version-1 structured writing and history first convert to Markdown in the same transaction, preserving identities and links. Incompatible reserved definitions or existing rows that violate the new structural checks abort rather than overwrite data.
+Back up before upgrading to object schema version 5. Startup transactionally centralizes the current application schema and adds conservative structural checks for object JSON, property metadata, revisions, and saved-view history without changing existing objects, views, conversations, visitor identities, labels, revisions, creation receipts, or unrelated tables. Existing version-3 databases are preserved; version-2 databases first add built-in types, core fields, and journal date constraints; version-1 structured writing and history first convert to Markdown in the same transaction, preserving identities and links. Incompatible reserved definitions or existing rows that violate the new structural checks abort rather than overwrite data.
 
 Empty editor paragraphs retain blank-line source, and ending or consecutive hard breaks become ordinary Markdown whitespace breaks. Markdown may collapse empty editor blocks visually; it does not add placeholders or raw HTML. Emphasis is preserved across punctuation, whitespace, and adjacent or nested marks; conversion may use character entities to prevent Markdown delimiter ambiguity. These conversions also apply to historical revisions and creation receipts, and the converted Markdown must fit the 256 KiB writing limit. Unknown or malformed structures and unsupported content such as inline code containing newlines still abort the upgrade. On failure, the transaction leaves the version-1 database intact and usable by the previous application version; the reported conversion issue must be resolved before upgrading.
 

@@ -2,8 +2,8 @@ import type { JSX } from 'hono/jsx/jsx-runtime';
 import { raw } from 'hono/html';
 import { renderMarkdown } from './markdown.js';
 import { Badge, Button, ButtonLink, EmptyState, Icon, PageHeading, type IconName } from './ui.js';
-import { BUILTIN_PROPERTIES, BUILTIN_TYPES, EVENT_DATES_PROPERTY_ID, EVENT_TIME_PROPERTY_ID, EVENT_TYPE_ID, JOURNAL_DATE_PROPERTY_ID, JOURNAL_TYPE_ID, PAGE_TYPE_ID, REMINDER_DATE_PROPERTY_ID, REMINDER_TIME_PROPERTY_ID, REMINDER_TYPE_ID, TASK_DONE_PROPERTY_ID, TASK_DUE_PROPERTY_ID, TASK_TYPE_ID } from './model.js';
-import type { EvaluatedBlock, ObjectPageModel, ObjectSummary, PropertyDefinition, PropertyValue, SavedView, ViewRow } from './model.js';
+import { BUILTIN_PROPERTIES, BUILTIN_TYPES, EVENT_DATES_PROPERTY_ID, EVENT_TIME_PROPERTY_ID, EVENT_TYPE_ID, JOURNAL_DATE_PROPERTY_ID, JOURNAL_TYPE_ID, PAGE_TYPE_ID, REMINDER_DATE_PROPERTY_ID, REMINDER_TIME_PROPERTY_ID, REMINDER_TYPE_ID, TASK_DONE_PROPERTY_ID, TASK_DUE_PROPERTY_ID, TASK_SCHEDULED_PROPERTY_ID, TASK_TYPE_ID } from './model.js';
+import type { DayTaskSummary, EvaluatedBlock, ObjectPageModel, ObjectSummary, PropertyDefinition, PropertyValue, SavedView, ViewRow } from './model.js';
 
 const Hidden = ({ name, value }: { name: string; value: string | number }) => <input type="hidden" name={name} value={value} />;
 const Token = ({ model }: { model: ObjectPageModel }) => <Hidden name="csrf" value={model.csrf} />;
@@ -34,18 +34,18 @@ function WorkspaceNav({ model }: { model: ObjectPageModel }) {
   const links: { href: string; label: string; icon: IconName; active: boolean }[] = [
     { href: '/', label: 'Objects', icon: 'objects', active: model.screen === 'home' && !model.trashed },
     { href: '/?focus=search', label: 'Search', icon: 'search', active: browsing && !currentType },
-    { href: '/calendar', label: 'Calendar', icon: 'calendar', active: model.section === 'calendar' },
+    { href: '/calendar', label: 'Calendar', icon: 'calendar', active: model.screen === 'calendar' },
     { href: '/tasks', label: 'Tasks', icon: 'tasks', active: model.section === 'tasks' },
     { href: '/journal', label: 'Journal', icon: 'calendar', active: model.screen === 'journal' },
     { href: '/views', label: 'Views', icon: 'views', active: !model.section && (model.screen === 'views' || model.screen === 'view') },
   ];
   return <nav id="workspace-nav" class="workspace-nav" aria-label="Workspace">
     <div class="nav-brand"><a class="brand" href="/"><span class="brand-mark"><Icon name="objects" /></span>Taskdesk</a><Button class="icon-button js-only nav-close" type="button" data-nav-close="" aria-label="Close navigation"><Icon name="close" /></Button></div>
-    <ButtonLink variant="primary" class="nav-new" href="/objects/new" aria-current={model.screen === 'new-object' ? 'page' : undefined}><Icon name="plus" />New content</ButtonLink>
-    <div class="nav-links">{links.map(link => <a href={link.href} data-object-search={link.icon === 'search' ? '' : undefined} aria-keyshortcuts={link.icon === 'search' ? 'Control+k Meta+k' : undefined} aria-current={link.active ? 'page' : undefined}><Icon name={link.icon} /><span>{link.label}</span>{link.icon === 'search' && <kbd class="js-only">Ctrl/⌘ K</kbd>}</a>)}</div>
+    <div class="nav-actions"><ButtonLink variant="primary" class="nav-new" href="/objects/new?type=00000000-0000-4000-8000-000000000001" aria-current={model.screen === 'new-object' ? 'page' : undefined}><Icon name="plus" />New note</ButtonLink><ButtonLink class="nav-new" href="/calendar" aria-current={model.screen === 'calendar' ? 'page' : undefined}><Icon name="calendar" />Calendar</ButtonLink></div>
+    <div class="nav-links">{links.filter(link => link.label !== 'Tasks' && link.label !== 'Journal').map(link => <a href={link.href} data-object-search={link.icon === 'search' ? '' : undefined} aria-keyshortcuts={link.icon === 'search' ? 'Control+k Meta+k' : undefined} aria-current={link.active ? 'page' : undefined}><Icon name={link.icon} /><span>{link.label}</span>{link.icon === 'search' && <kbd class="js-only">Ctrl/⌘ K</kbd>}</a>)}</div>
+    <section class="nav-section" aria-labelledby="favorites-heading"><h2 id="favorites-heading">Favorites</h2>{model.favorites?.items.length ? <div class="nav-links">{model.favorites.items.map(record => <a href={objectUrl(record.id)} aria-current={model.object?.id === record.id ? 'page' : undefined}><Icon name={typeIcon(record.typeId)} /><span>{titleOf(record)}</span></a>)}{model.favorites.hasMore && <a href="/objects/favorites"><Icon name="arrow" /><span>All favorites</span></a>}</div> : <p class="nav-hint">Favorite saved objects to keep them here.</p>}</section>
     <section class="nav-section js-only" aria-labelledby="pinned-heading"><h2 id="pinned-heading">Pinned views</h2><p class="nav-hint" data-pins-empty="">Pin a view to keep it here.</p><div class="nav-links">{model.views.map(view => <a href={`/views/${view.id}`} data-pinned-view="" data-view-id={view.id} hidden aria-current={model.evaluatedView?.view.id === view.id ? 'page' : undefined}><Icon name="pin" /><span>{view.spec.title}</span></a>)}</div></section>
-    <section class="nav-section" aria-labelledby="object-types-heading"><h2 id="object-types-heading">Object types</h2><div class="nav-links">{model.catalog.types.map((type, index) => <a href={`/?type=${encodeURIComponent(type.id)}`} aria-current={!model.section && !model.trashed && currentType === type.id ? 'page' : undefined}><span class={`type-icon type-accent-${index % 5}`}><Icon name={typeIcon(type.id)} /></span><span>{type.name}</span></a>)}<a class="nav-manage" href="/types" aria-current={model.screen === 'types' || model.screen === 'type' ? 'page' : undefined}><Icon name="settings" /><span>Manage types</span></a></div></section>
-    <div class="nav-bottom nav-links"><a href="/?trash=1" aria-current={model.trashed ? 'page' : undefined}><Icon name="trash" /><span>Trash</span></a><p class="nav-hint">Your objects. Your workspace.</p></div>
+    <div class="nav-bottom nav-links"><a href="/types" aria-current={model.screen === 'types' || model.screen === 'type' ? 'page' : undefined}><Icon name="settings" /><span>Manage types</span></a><a href="/?trash=1" aria-current={model.trashed ? 'page' : undefined}><Icon name="trash" /><span>Trash</span></a><p class="nav-hint">Your objects. Your workspace.</p></div>
   </nav>;
 }
 
@@ -168,9 +168,9 @@ function Objects({ model }: { model: ObjectPageModel }) {
     layout: selectedLayout,
     offset: String(pageOffset),
   })}`;
-  let heading = selectedType ?? 'Search';
+  let heading = model.section === 'favorites' ? 'Favorites' : selectedType ?? 'Search';
   if (model.trashed) heading = selectedType ? `${selectedType} · Trash` : 'Search trash';
-  let emptyMessage = 'Enter a title or phrase to search across types.';
+  let emptyMessage = model.section === 'favorites' ? 'No favorites yet. Favorite saved objects to keep them here.' : 'Enter a title or phrase to search across types.';
   if (model.search?.trim()) emptyMessage = 'No objects match your search.';
   else if (model.trashed) emptyMessage = 'No objects of this type in the trash.';
   else if (selectedType) emptyMessage = `No ${selectedType} objects yet. Create one to get started.`;
@@ -179,7 +179,7 @@ function Objects({ model }: { model: ObjectPageModel }) {
     <PageHeading title={heading} description={!selectedType ? 'Find objects across your types.' : undefined}>
       {selectedType && !model.trashed && <ButtonLink variant="primary" href={`/objects/new?type=${encodeURIComponent(model.selectedTypeId!)}`}><Icon name="plus" />New object</ButtonLink>}
     </PageHeading>
-    <div class="browse-toolbar">
+    {model.section !== 'favorites' && <div class="browse-toolbar">
       <form class="filter-bar" method="get" action={path}>
         <label>{selectedType ? `Search ${selectedType}` : 'Search'}<input type="search" name="q" value={model.search ?? ''} maxlength={200} /></label>
         {model.selectedTypeId ? model.section !== 'tasks' && <Hidden name="type" value={model.selectedTypeId} /> : <>
@@ -194,8 +194,8 @@ function Objects({ model }: { model: ObjectPageModel }) {
         <a href={query(offset, 'list')} aria-current={layout === 'list' ? 'page' : undefined}><Icon name="tasks" />List</a>
         <a href={query(offset, 'gallery')} aria-current={layout === 'gallery' ? 'page' : undefined}><Icon name="objects" />Gallery</a>
       </nav>}
-    </div>
-    {model.objects.length ? <ul class={layout === 'gallery' ? 'object-gallery' : 'object-index'} aria-label={selectedType ? `${selectedType} objects` : 'Search results'} data-object-results="">
+    </div>}
+    {model.objects.length ? <ul class={layout === 'gallery' ? 'object-gallery' : 'object-index'} aria-label={model.section === 'favorites' ? 'Favorite objects' : selectedType ? `${selectedType} objects` : 'Search results'} data-object-results="">
       {model.objects.map(record => <li>
         {layout === 'gallery' ? <a class="object-card" href={objectUrl(record.id)}>
           <div class="object-card-heading"><Icon name={typeIcon(record.typeId)} /><strong>{titleOf(record)}</strong></div>
@@ -211,8 +211,8 @@ function Objects({ model }: { model: ObjectPageModel }) {
     <div class="browse-footer">
       {selectedType && <a href={query(0, layout, !model.trashed)}>{model.trashed ? `Back to ${selectedType}` : `${selectedType} trash`}</a>}
       <nav class="pagination" aria-label="Object pages">
-        {offset > 0 && <a href={query(Math.max(0, offset - 50))}>Previous</a>}
-        {model.hasMore && <a href={query(offset + 50)}>Next</a>}
+        {offset > 0 && <a href={model.section === 'favorites' ? `/objects/favorites?offset=${Math.max(0, offset - 50)}` : query(Math.max(0, offset - 50))}>Previous</a>}
+        {model.hasMore && <a href={model.section === 'favorites' ? `/objects/favorites?offset=${offset + 50}` : query(offset + 50)}>Next</a>}
       </nav>
     </div>
     {model.section === 'tasks' && <div class="view-invitation"><Icon name="ai" /><div><strong>See your tasks differently</strong><p>Generate a board or calendar using your existing task properties.</p></div><ButtonLink href="/views?ai=1" data-ai-start="">Create task view</ButtonLink></div>}
@@ -294,6 +294,47 @@ function TypeEditor({ model }: { model: ObjectPageModel }) {
         </form>
       </section>
     <section class="panel reuse-property"><span class="eyebrow">Keep things connected</span><h2>Use an existing property</h2><p class="muted">Already tracking this elsewhere? Reuse the same property so views can bring your objects together.</p>{available.length ? <form method="post" action={`/types/${type.id}/properties`} data-enhance=""><Token model={model} /><Hidden name="revision" value={type.revision} /><label>Shared property<select name="propertyId" required><option value="" selected>Choose a property</option>{available.map(property => <option value={property.id}>{property.label} · {kindLabel(property)}</option>)}</select></label><p class="fine">Labels and choices are shared. Each object keeps its own value.</p><Button type="submit">Use property</Button><State /></form> : <p class="fine">No other properties to reuse yet. New properties you add will be available to other types.</p>}</section></div></>;
+}
+
+function addDays(date: string, days: number): string {
+  const [year, month, day] = date.split('-').map(Number) as [number, number, number];
+  const next = new Date(year, month - 1, day + days);
+  return `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}-${String(next.getDate()).padStart(2, '0')}`;
+}
+function taskMatchLabel(task: DayTaskSummary): string {
+  if (task.matchesScheduled && task.matchesDue) return 'Scheduled and due';
+  return task.matchesScheduled ? 'Scheduled' : 'Due';
+}
+function DayWorkspace({ model }: { model: ObjectPageModel }) {
+  const date = model.journalDate ?? '';
+  const journal = model.journal;
+  const body = model.objectDraft?.body ?? journal?.body ?? '';
+  const monthDays = (() => {
+    if (!date) return [] as string[];
+    const [year, month] = date.split('-').map(Number) as [number, number];
+    const count = new Date(year, month, 0).getDate();
+    return Array.from({ length: count }, (_, index) => `${year}-${String(month).padStart(2, '0')}-${String(index + 1).padStart(2, '0')}`);
+  })();
+  const taskPage = (offset: number) => `/calendar?${new URLSearchParams({ date, tasksOffset: String(offset), createdOffset: String(model.dayCreated?.offset ?? 0) })}`;
+  const createdPage = (offset: number) => `/calendar?${new URLSearchParams({ date, tasksOffset: String(model.dayTasks?.offset ?? 0), createdOffset: String(offset) })}`;
+  return <div class="day-workspace">
+    <section class="day-main">
+      <PageHeading eyebrow={`Server-local day · ${model.timeZone ?? 'local time'}`} title={date} description="Journal, scheduled or due tasks, and objects created on this day.">
+        <ButtonLink href={`/calendar?date=${addDays(date, -1)}`}>Previous day</ButtonLink><ButtonLink href="/calendar">Today</ButtonLink><ButtonLink href={`/calendar?date=${addDays(date, 1)}`}>Next day</ButtonLink>
+      </PageHeading>
+      <form class="filter-bar day-mobile-picker" method="get" action="/calendar"><label>Choose date<input type="date" name="date" value={date} required /></label><Button type="submit">Show day</Button></form>
+      <section class="panel day-journal"><div class="section-heading"><h2>Journal</h2>{journal?.trashed && <Badge tone="warning">In trash</Badge>}</div>
+        {journal?.trashed ? <p>This day's journal is in Trash. <a href={objectUrl(journal.id)}>Open the existing journal to restore it</a>.</p> : <form class="object-editor" method="post" action="/calendar/journal" data-enhance="" data-object-editor="" data-draft={model.objectDraft ? 'true' : undefined}>
+          <Token model={model} /><Hidden name="date" value={date} />{journal ? <Hidden name="revision" value={model.objectDraft?.revision || journal.revision} /> : <><Hidden name="revision" value="1" /><Hidden name="requestId" value={model.objectDraft?.requestId || crypto.randomUUID()} /></>}
+          <div class="writing" id="writing-area"><div class="writing-heading"><h3 id="writing-heading">Writing</h3><Button class="js-only" type="button" data-insert-object-link="">Insert object link</Button></div><div class="writing-toolbar" role="toolbar" aria-label="Writing formatting" data-writing-toolbar="" hidden><label class="sr-only" for="day-writing-block">Paragraph style</label><select id="day-writing-block" data-writing-block="" aria-label="Paragraph style"><option value="paragraph">Paragraph</option>{[1, 2, 3, 4, 5, 6].map(level => <option value={`heading-${level}`}>Heading {level}</option>)}</select>{([['bold', 'Bold'], ['italic', 'Italic'], ['strike', 'Strikethrough'], ['bullet', 'Bulleted list'], ['ordered', 'Numbered list'], ['quote', 'Block quote'], ['code', 'Inline code'], ['code-block', 'Code block'], ['link', 'Link'], ['undo', 'Undo'], ['redo', 'Redo']] as const).map(([command, label]) => <Button type="button" variant="ghost" data-writing-command={command} aria-label={label} title={label}>{label}</Button>)}</div><div data-writing-mount="" hidden></div><label class="sr-only" for="day-journal-body">Journal Markdown source</label><textarea id="day-journal-body" class="markdown-source" name="body" rows={12} aria-describedby="markdown-help" data-writing-source={JSON.stringify(body)}>{`\n${body}`}</textarea><p class="fine" id="markdown-help">Use # headings, **bold**, and [label](url). Changes need saving.</p><p class="fine" data-writing-status="" role="status" hidden></p><dialog class="writing-link-dialog" data-writing-link-dialog="" aria-labelledby="day-writing-link-heading"><h2 id="day-writing-link-heading">Edit link</h2><label>Link address<input data-writing-link-url="" type="text" inputmode="url" autocomplete="off" placeholder="https://example.com" /></label><p class="fine">Use https, http, mailto, or an object link. Leave empty to remove a link.</p><p data-writing-link-error="" role="alert"></p><Button type="button" data-writing-link-apply="">Apply link</Button> <Button type="button" variant="ghost" data-writing-link-cancel="">Cancel</Button></dialog></div>
+          <div class="save-bar"><Button type="submit" variant="primary">Save journal</Button><State message={model.error || (journal ? `Saved revision ${journal.revision}.` : 'Write something, then save to create this journal.')} error={Boolean(model.error)} /></div>
+        </form>}
+      </section>
+      <section class="panel"><div class="section-heading"><h2>Tasks</h2><Badge>{model.dayTasks?.items.length ?? 0}</Badge></div>{model.dayTasks?.items.length ? <ul class="day-list">{model.dayTasks.items.map(task => <li><div><a href={objectUrl(task.id)}>{titleOf(task)}</a><span class="fine">{taskMatchLabel(task)}{task.done ? ' · completed' : ''}</span></div><form method="post" action="/calendar/task"><Token model={model} /><Hidden name="date" value={date} /><Hidden name="objectId" value={task.id} /><Hidden name="revision" value={task.revision} /><Hidden name="done" value={task.done ? 'false' : 'true'} /><Button type="submit">{task.done ? 'Mark incomplete' : 'Mark done'}</Button></form></li>)}</ul> : <p class="muted">No scheduled or due tasks for this date.</p>}<nav class="pagination">{(model.dayTasks?.offset ?? 0) > 0 && <a href={taskPage(Math.max(0, (model.dayTasks?.offset ?? 0) - 50))}>Previous tasks</a>}{model.dayTasks?.hasMore && <a href={taskPage((model.dayTasks.offset ?? 0) + 50)}>Next tasks</a>}</nav></section>
+      <section class="panel"><div class="section-heading"><h2>Created on this day</h2><Badge>{model.dayCreated?.items.length ?? 0}</Badge></div>{model.dayCreated?.items.length ? <ul class="object-index">{model.dayCreated.items.map(record => <li><a href={objectUrl(record.id)}><strong>{titleOf(record)}</strong><span>{typeName(model, record.typeId)}</span></a><time datetime={record.createdAt}>{record.createdAt.slice(11, 16)}</time></li>)}</ul> : <p class="muted">No live objects were created on this day.</p>}<nav class="pagination">{(model.dayCreated?.offset ?? 0) > 0 && <a href={createdPage(Math.max(0, (model.dayCreated?.offset ?? 0) - 50))}>Previous created objects</a>}{model.dayCreated?.hasMore && <a href={createdPage((model.dayCreated.offset ?? 0) + 50)}>Next created objects</a>}</nav></section>
+    </section>
+    <aside class="day-rail" aria-label="Month date picker"><h2>{date.slice(0, 7)}</h2><div class="month-links">{monthDays.map(day => <a href={`/calendar?date=${day}`} aria-current={day === date ? 'date' : undefined} class={day === date ? 'selected' : undefined}>{day.slice(8)}</a>)}</div></aside>
+  </div>;
 }
 
 function JournalDiscovery({ model }: { model: ObjectPageModel }) {
@@ -381,7 +422,7 @@ function ObjectEditor({ model }: { model: ObjectPageModel }) {
   const backlinkLinks = model.backlinksPage?.links ?? [];
   const emptyBacklinks = model.backlinksPage?.offset ? 'No links on this page.' : 'No other objects link here yet.';
   return <><h1 class="sr-only">{record ? 'Edit object' : 'New object'}</h1><a class="back-link" data-object-back="" href={`/?type=${type.id}`}>← {type.name} objects</a>{record?.trashed && <Badge tone="warning">In trash</Badge>}
-    {record && <nav class="object-sections" aria-label="Object sections"><a href="#writing-area">Writing</a><a href="#object-backlinks">Linked from</a><a href={`/objects/${record.id}/history`}>History</a></nav>}
+    {record && <div class="object-actions-row"><nav class="object-sections" aria-label="Object sections"><a href="#writing-area">Writing</a><a href="#object-backlinks">Linked from</a><a href={`/objects/${record.id}/history`}>History</a></nav><form method="post" action={`/objects/${record.id}/favorite`}><Token model={model} /><Hidden name="favorite" value={model.favorite ? 'false' : 'true'} /><Hidden name="context" value="object" /><Hidden name="date" value="" /><Button type="submit" variant={model.favorite ? 'secondary' : 'ghost'}>{model.favorite ? 'Unfavorite' : 'Favorite'}</Button></form></div>}
     <div class={`object-editing${conflict ? ' has-conflict' : ''}`}>
     <form id="object-editor" class="object-editor" method="post" action={record ? `/objects/${record.id}/update` : '/objects/create'} data-enhance="" data-object-editor="" data-new-object={!record ? 'true' : undefined} data-local-date-default={!record && !draft && model.journalDateDefault ? 'true' : undefined} data-draft={draft ? 'true' : undefined}><Token model={model} />{record ? <Hidden name="revision" value={draft?.revision ?? record.revision} /> : <Hidden name="requestId" value={draft?.requestId ?? crypto.randomUUID()} />}{draft?.historyRevision && <Hidden name="historyRevision" value={draft.historyRevision} />}
       <label class="title-field"><span class="sr-only">Title</span><input name="title" value={draft?.title ?? record?.title ?? (type.id === JOURNAL_TYPE_ID ? journalDate ?? '' : '')} data-journal-title-default={!record && !draft && type.id === JOURNAL_TYPE_ID ? 'true' : undefined} required maxlength={500} autocomplete="off" placeholder="Untitled" /></label>
@@ -625,7 +666,7 @@ function View({ model }: { model: ObjectPageModel }) {
 
 export function renderObjectWorkspace(model: ObjectPageModel): string {
   let title = 'Objects';
-  if (model.section === 'calendar') title = 'Calendar';
+  if (model.screen === 'calendar') title = 'Calendar';
   else if (model.screen === 'journal') title = 'Journal';
   else if (model.trashed) title = model.selectedTypeId ? `${typeName(model, model.selectedTypeId)} · Trash` : 'Trash';
   else if (model.screen === 'object' || model.screen === 'object-history') title = model.object?.title || 'Object';
@@ -636,11 +677,11 @@ export function renderObjectWorkspace(model: ObjectPageModel): string {
   else if (model.screen === 'views') title = 'Views';
   else if (model.screen === 'objects') title = model.selectedTypeId ? typeName(model, model.selectedTypeId) : 'Search';
   const currentView = model.screen === 'view' ? model.evaluatedView?.view : undefined;
-  const suggestedPrompt = model.section === 'calendar' ? 'Create a calendar of my objects using their date properties.' : model.section === 'tasks' && model.selectedTypeId ? 'Create a view of my tasks using their existing properties.' : undefined;
-  const objectEditor = model.screen === 'new-object' || (model.screen === 'object' && Boolean(model.object));
+  const suggestedPrompt = model.screen === 'calendar' ? 'Create a calendar of my objects using their date properties.' : model.section === 'tasks' && model.selectedTypeId ? 'Create a view of my tasks using their existing properties.' : undefined;
+  const objectEditor = model.screen === 'new-object' || model.screen === 'calendar' || (model.screen === 'object' && Boolean(model.object));
   return '<!doctype html>' + (<html lang="en"><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><meta name="color-scheme" content="light" /><title>{title} · Taskdesk</title><link rel="stylesheet" href="/tokens.css" /><link rel="stylesheet" href="/objects.css" />{objectEditor && <link rel="stylesheet" href="/writing.css" />}</head><body class={`object-shell${model.aiOpen ? ' ai-open' : ''}`} data-ai-view-id={currentView?.id} data-ai-view-title={currentView?.spec.title} data-ai-context-title={model.aiContextTitle} data-ai-prompt={suggestedPrompt}>
     <a class="skip-link" href="#main">Skip to content</a><div class="workspace-layout"><WorkspaceNav model={model} />
     <div class="workspace-content"><header class="workspace-header"><div class="workspace-breadcrumb"><Button class="icon-button js-only nav-toggle" type="button" data-nav-toggle="" aria-label="Open navigation" aria-controls="workspace-nav" aria-expanded="false"><Icon name="menu" /></Button><a href="/">Workspace</a><span aria-hidden="true">/</span><span class="breadcrumb-title">{title}</span></div><ButtonLink class="ai-toggle" href="/views?ai=1" data-ai-toggle="" aria-controls="ai-panel" aria-expanded={model.aiOpen ? 'true' : 'false'}><Icon name="ai" /><span>View assistant</span></ButtonLink></header>
-    <main id="main" tabindex={-1}>{model.error && !objectEditor && <div class="notice error" role="alert">{model.error}</div>}{model.notice && !objectEditor && <div class="notice" role="status">{model.notice}</div>}{model.screen === 'journal' ? <Journal model={model} /> : model.screen === 'home' ? <ObjectHome model={model} /> : model.screen === 'objects' ? <Objects model={model} /> : model.screen === 'types' ? <Types model={model} /> : model.screen === 'type' ? <TypeEditor model={model} /> : model.screen === 'object-history' ? <ObjectHistory model={model} /> : model.screen === 'new-object' || model.screen === 'object' ? <ObjectEditor model={model} /> : model.screen === 'views' ? <Views model={model} /> : <View model={model} />}</main><footer class="workspace-footer">Objects are yours. Views are ways to see them.</footer></div>
+    <main id="main" tabindex={-1}>{model.error && !objectEditor && <div class="notice error" role="alert">{model.error}</div>}{model.notice && !objectEditor && <div class="notice" role="status">{model.notice}</div>}{model.screen === 'calendar' ? <DayWorkspace model={model} /> : model.screen === 'journal' ? <Journal model={model} /> : model.screen === 'home' ? <ObjectHome model={model} /> : model.screen === 'objects' ? <Objects model={model} /> : model.screen === 'types' ? <Types model={model} /> : model.screen === 'type' ? <TypeEditor model={model} /> : model.screen === 'object-history' ? <ObjectHistory model={model} /> : model.screen === 'new-object' || model.screen === 'object' ? <ObjectEditor model={model} /> : model.screen === 'views' ? <Views model={model} /> : <View model={model} />}</main><footer class="workspace-footer">Objects are yours. Views are ways to see them.</footer></div>
     <button class="panel-backdrop" data-panel-backdrop="" type="button" aria-label="Close open panel" hidden></button><AiPanel model={model} /></div><ObjectSearch /><script type="module" src="/objects-client.js"></script></body></html>).toString();
 }
