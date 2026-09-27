@@ -48,8 +48,6 @@ test('canonical pages and local assets retain strict browser protections', async
     ['/ui.css', 'text/css; charset=utf-8'],
     ['/objects.css', 'text/css; charset=utf-8'],
     ['/writing.css', 'text/css; charset=utf-8'],
-    ['/writing-prose.css', 'text/css; charset=utf-8'],
-    ['/writing-tables.css', 'text/css; charset=utf-8'],
     ['/objects-client.js', 'text/javascript; charset=utf-8'],
     ['/writing-client.js', 'text/javascript; charset=utf-8'],
   ] as const) {
@@ -86,6 +84,56 @@ test('Hearthwood assets are local, explicitly allowlisted, and keep the same sec
   assert.equal(specimen.headers.get('content-security-policy'), csp);
   assert.match(await specimen.text(), /Taskdesk UI/);
   assert.deepEqual(a.objects.catalog(), before);
+});
+
+test('draft preview uses the safe renderer without saving objects, revisions, or backlinks', async t => {
+  const a = await app(t);
+  const saved = a.objects.createObject({ typeId: PAGE_TYPE_ID, title: 'Unchanged', properties: {}, body: 'Saved source' });
+  const before = a.db.serialize();
+  const body = `# Unsaved draft\n\n**bold** [local](/objects/${saved.id}) [safe](https://example.com) [unsafe](javascript:alert)\n\n![inert](https://example.com/image.png)\n\n<script>alert(1)</script>`;
+  const response = await a.post('/objects/preview', { body });
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('cache-control'), 'no-store');
+  assert.match(response.headers.get('content-security-policy')!, /default-src 'none'/);
+  const { html } = await response.json() as { html: string };
+  assert.match(html, /<h1>Unsaved draft<\/h1>/);
+  assert.match(html, /<strong>bold<\/strong>/);
+  assert.ok(html.includes(`href="/objects/${saved.id}"`));
+  assert.match(html, /href="https:\/\/example.com"/);
+  assert.doesNotMatch(html, /<script|<img|href="javascript:/);
+  assert.match(html, /\[Image: inert\]/);
+  assert.deepEqual(a.db.serialize(), before);
+  assert.deepEqual(a.objects.getObject(saved.id), saved);
+  assert.deepEqual(a.objects.backlinks(saved.id).links, []);
+  const empty = await a.post('/objects/preview', { body: '' });
+  assert.deepEqual(await empty.json(), { html: '' });
+});
+
+test('draft preview enforces CSRF, origin, strict fields, and UTF-8 body bounds with explicit JSON errors', async t => {
+  const a = await app(t);
+  for (const [fields, headers, status] of [
+    [{ body: 'draft', csrf: 'wrong' }, {}, 403],
+    [{ body: 'draft' }, { Cookie: '' }, 403],
+    [{ body: 'draft' }, { Origin: 'https://evil.example' }, 403],
+    [{ body: 'draft' }, { 'Sec-Fetch-Site': 'cross-site' }, 403],
+    [{ body: 'draft', revision: '1' }, {}, 422],
+    [{}, {}, 422],
+    [{ body: 'é'.repeat(131_073) }, {}, 422],
+    [{ body: 'x'.repeat(1_048_576) }, {}, 413],
+  ] as const) {
+    const response = await a.post('/objects/preview', fields, headers);
+    assert.equal(response.status, status);
+    assert.equal(typeof (await response.json() as { error: string }).error, 'string');
+  }
+  const repeated = await fetch(a.base + '/objects/preview', {
+    method: 'POST', headers: { Cookie: a.cookie },
+    body: new URLSearchParams([['csrf', a.csrf], ['body', 'one'], ['body', 'two']]),
+  });
+  assert.equal(repeated.status, 422);
+  assert.equal(typeof (await repeated.json() as { error: string }).error, 'string');
+  assert.equal((await a.post('/objects/preview', { body: 'é'.repeat(131_072) })).status, 200);
+  assert.equal((await a.get('/objects/preview')).status, 404);
+  assert.deepEqual(a.objects.listObjects(), []);
 });
 
 test('canonical mutations reject missing ownership, CSRF, cross-origin and unexpected fields', async t => {
@@ -155,7 +203,7 @@ test('stored object titles and generated view titles cannot inject executable ma
 
 test('retired routes and assets are unavailable and fresh apps create no retired tables', async t => {
   const a = await app(t);
-  for (const path of ['/issues', '/issues/new', '/issues/ISS-101', '/workspaces', '/workspaces/00000000-0000-4000-8000-000000000000', '/vault', '/style.css', '/workspace.js', '/fonts/plex.woff2']) assert.equal((await a.get(path)).status, 404, path);
+  for (const path of ['/issues', '/issues/new', '/issues/ISS-101', '/workspaces', '/workspaces/00000000-0000-4000-8000-000000000000', '/vault', '/style.css', '/workspace.js', '/fonts/plex.woff2', '/writing-prose.css', '/writing-tables.css']) assert.equal((await a.get(path)).status, 404, path);
   for (const path of ['/workspaces', '/issues/ISS-101/close', '/vault/act', '/workspaces/00000000-0000-4000-8000-000000000000/messages']) assert.equal((await a.post(path, {})).status, 404, path);
   const tables = a.db.query<{ name: string }, []>("SELECT name FROM sqlite_master WHERE type = 'table'").all().map(row => row.name);
   assert.ok(tables.includes('browser_visitors'));

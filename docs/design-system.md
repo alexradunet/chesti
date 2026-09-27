@@ -62,7 +62,7 @@ import { Button, ButtonLink, Field, Input, Panel, Status } from '../ui/index.js'
 - `Status` renders a polite status or assertive error. `Notice` is a page-level message. Preserve existing `data-*` hooks so errors and unsaved drafts remain attached to the right form.
 - `Icon` uses the closed local PNG vocabulary or a typographic rune; images are decorative and pixelated. Use text for the action name. Unknown user content must never become an icon URL.
 
-Native element CSS also covers controls created by browser code (search results, Milkdown), so they do not require a second component framework. Dynamic assistant messages use the same `.parch` material. Domain-specific property binding and generated view decisions remain in the trusted renderers, not in the generic UI layer.
+Native element CSS also covers controls created by browser code (such as search results), so they do not require a second component framework. Writing uses the native textarea, selection-based Markdown commands, and an explicit safe draft preview. Dynamic assistant messages use the same `.parch` material. Domain-specific property binding and generated view decisions remain in the trusted renderers, not in the generic UI layer.
 
 ## Source and intentional adaptation
 

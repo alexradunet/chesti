@@ -16,7 +16,7 @@ For Orca-managed repository work, use the local `orca-development` skill. The le
 
 ## Project map
 
-Read `README.md` for setup and current boundaries. Read `docs/object-contract.md` when changing object, view, query, or persistence behavior. `docs/quickstart.md` documents usage and backups.
+Read `README.md` for setup and current boundaries. Read `docs/object-contract.md` when changing object, view, query, or persistence behavior. `docs/quickstart.md` documents usage and backups. When working with Hono features, reference the Hono LLM docs (`https://hono.dev/llms.txt`, `https://hono.dev/llms-small.txt`, and `https://hono.dev/llms-full.txt`) before implementation.
 
 - `src/server.ts`: Bun HTTP entrypoint, shared request security, assets, and route composition.
 - `src/visitors.ts`: persistent browser identity and CSRF state, separate from shared object data.
@@ -27,7 +27,7 @@ Read `README.md` for setup and current boundaries. Read `docs/object-contract.md
 - `src/objects/views.ts`: view validation, lifecycle, bounded SQL queries, and scoped commands.
 - `src/objects/conversations.ts`, `generator.ts`: view conversations and isolated Pi generation.
 - `src/objects/markdown.ts`, `values.ts`: bounded Markdown writing and scalar/temporal validation.
-- `src/objects/writing.ts`, `writing-format.ts`, `writing-links.ts`, `public/writing.css`: optional Milkdown editing, import fidelity, shared safe links, and editor styling; the server serves its same-origin bundle and base prose/table CSS.
+- `src/objects/writing.ts`, `writing-commands.ts`, `writing-links.ts`, `public/writing.css`: native textarea tools, selection-based Markdown commands, safe links, and draft preview styling; the server serves an optional same-origin bundle.
 - `src/objects/upgrade-markdown.ts`: one-time transactional upgrade of the current object writing format.
 - `src/objects/http.ts`, `render.tsx`, `client.ts`, `public/objects.css`: HTTP parsing, trusted rendering, browser enhancement, and domain layout.
 - `src/ui/`, `public/tokens.css`, `public/ui.css`: shared native UI components and Hearthwood materials. See `docs/design-system.md` and `/design-system` before extending them.
@@ -38,7 +38,7 @@ Read `README.md` for setup and current boundaries. Read `docs/object-contract.md
 
 - Keep the current one-process Bun + SQLite architecture, strict TypeScript, Hono JSX rendering, and native browser APIs unless a concrete requirement justifies changing them.
 - Prefer Bun's built-in server, SQLite, bundler, Markdown, HTMLRewriter, file, cookie, hashing, and test APIs where they reduce code or dependencies. Do not replace a maintained library with a custom adapter merely to use more Bun APIs.
-- Writing is Markdown-authoritative: SQLite stores the submitted Markdown string, never editor JSON. The enhanced editor uses maintained Milkdown/ProseMirror with transient browser state and a native textarea fallback. Preserve original source on initialization and non-writing edits; actual formatted-writing edits may normalize Markdown syntax. Unsupported or lossy imports must retain source and explain the fallback. Use the shared safe Markdown renderer; raw HTML and images stay inert in both editing and reading.
+- Writing is Markdown-authoritative: SQLite stores the submitted Markdown string, never editor JSON. Keep the native textarea and optional selection-based formatting tools; never parse/serialize the whole document to apply edits. Preserve source on initialization and non-writing edits, native undo history, and drafts on failures. Draft preview is explicit and nonmutating, uses the shared safe Markdown renderer, and must not display stale responses. Raw HTML and images stay inert in previews and saved reading.
 - Keep HTTP input parsing at the boundary, domain rules in the existing runtime/services, and rendering separate from mutations. Native forms, browser enhancements, and view actions must use the same domain commands.
 - Use `src/objects/model.ts` as the active schema/type authority. Reuse existing validation rather than inventing another representation or duplicating business rules in the browser.
 - Keep submitted drafts separate from saved records: rejected writes must retain user input without bypassing revision checks. Explicit request context takes precedence over stored browser state; derive display values instead of maintaining competing copies.
@@ -62,6 +62,8 @@ Read `README.md` for setup and current boundaries. Read `docs/object-contract.md
 - Native server-rendered forms remain functional without JavaScript. Enhancements must preserve unsaved edits, explicit AI conversation targeting, keyboard access, and focus behavior.
 
 ## Verification and safe working
+
+- Always use the GitHub CLI (`gh`) for GitHub operations and authentication. For pushes, configure Git authentication with `gh auth setup-git`, then use `git push` (there is no `gh push` command). If authentication fails, report the blocker rather than switching credential methods.
 
 Use Bun 1.4.2+ and the checked-in lockfile. Existing commands:
 

@@ -1,7 +1,7 @@
 import { Value } from 'typebox/value';
 import { AppError } from '../core.js';
 import type { Visitor } from '../visitors.js';
-import { validateMarkdown } from './markdown.js';
+import { renderMarkdown, validateMarkdown } from './markdown.js';
 import { serverTimeZone, validDate, valueError } from './values.js';
 import { IdSchema, JOURNAL_DATE_PROPERTY_ID, JOURNAL_TYPE_ID, PAGE_TYPE_ID, TASK_TYPE_ID } from './model.js';
 import type { EvaluatedView, ObjectLookupResult, ObjectPageModel, ObjectRecord, ObjectSummary, ObjectWrite, PropertyDefinition, PropertyKind, PropertyValue, SavedView, ViewConversation, ViewGenerator } from './model.js';
@@ -86,6 +86,10 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
   const generating = new Set<string>();
   return async (req: Request, url: URL, visitor: Visitor, fields?: URLSearchParams): Promise<Response | undefined> => {
     if (!(url.pathname === '/' || /^\/calendar(?:\/|$)/.test(url.pathname) || url.pathname === '/tasks' || /^\/(?:journal|types|objects|properties|views)(?:\/|$)/.test(url.pathname))) return;
+    if (req.method === 'POST' && url.pathname === '/objects/preview') {
+      requireFields(fields!, ['csrf', 'body']);
+      return Response.json({ html: renderMarkdown(validateMarkdown(fields!.get('body'))) });
+    }
     const conversationRoute = url.pathname.startsWith('/views/conversations/');
     const lookupRoute = url.pathname === '/objects/lookup';
     const json = lookupRoute || conversationRoute || (url.pathname === '/views/generate' && req.headers.get('accept')?.includes('application/json'));

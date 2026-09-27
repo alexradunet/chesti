@@ -34,10 +34,10 @@ export function seedDemo(objects: ObjectRuntime): void {
   const writing = objects.createObject({
     typeId: PAGE_TYPE_ID,
     title: 'Writing · Markdown, links, and backlinks',
-    properties: { [summary]: 'Edit formatted writing and connect objects without copying them; Markdown stays the source of record.' },
+    properties: { [summary]: 'Edit Markdown, preview drafts, and connect objects without copying them.' },
     body: `# Writing is a primitive
 
-This page is ordinary **Markdown**, not a generated interface. With JavaScript, edit its formatted writing directly. Saving writing edits may normalize Markdown syntax; changing only properties leaves the source unchanged. Without JavaScript, or if formatted editing is unavailable, use the source field and **Read saved writing**.
+This page is ordinary **Markdown**, not a generated interface. Edit the source directly; with JavaScript, formatting buttons change selected text and **Preview** shows your current draft without saving it. Choose **Edit** to resume writing. Without JavaScript, use the source field and **Read saved writing**. Changing only properties leaves the source unchanged in enhanced saves.
 
 ## Try it
 
@@ -254,7 +254,7 @@ This is an ordinary **Page**, not a special onboarding screen. Everything here i
 
 ## Go deeper
 
-- ${link(writing)} — formatted writing, Markdown, search, object links, and backlinks.
+- ${link(writing)} — Markdown writing, draft preview, search, object links, and backlinks.
 - ${link(perspectives)} — every trusted view component, scoped inputs, AI drafts, and shared property identities.
 - ${link(safety)} — recover a trashed example, try revision conflicts, and delete a view without deleting data.
 
