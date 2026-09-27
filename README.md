@@ -11,6 +11,14 @@ bun install --frozen-lockfile
 bun start
 ```
 
+To inspect the SQLite engine embedded in the exact Bun executable you are using, run:
+
+```sh
+bun run sqlite:runtime
+```
+
+This opens only an in-memory database and reports Bun's SQLite version, source ID, compile options, and direct feature probes. See [the SQLite runtime evaluation](docs/sqlite-runtime.md) for the current patch-level decision; the supported minimum remains Bun 1.4.2 until a newer stable Bun runtime is verified.
+
 Open **http://127.0.0.1:3000/**. First initialization creates a descriptive demo using only the protected **Page, Task, Event, Reminder, and Journal** types, ordinary properties, linked Markdown, and trusted views. Start with **Page → Start here · your workspace is made of primitives**, or **Views → 01 · Start here**. The demo includes all nine property kinds, three published views, and a restorable example in Trash. It needs no model; creating types, editing objects, and opening saved views also work offline.
 
 View generation uses your local Pi authentication and a real model. There is no deterministic fallback. If necessary, authenticate with Pi and select an available model:
@@ -92,6 +100,7 @@ Bun supplies the HTTP server, SQLite driver, browser bundler, saved-Markdown ren
 ```sh
 bun run check
 bun test
+bun run sqlite:runtime
 ```
 
 ## Design system

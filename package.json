@@ -10,6 +10,7 @@
   "scripts": {
     "dev": "bun --watch src/server.ts",
     "start": "bun src/server.ts",
+    "sqlite:runtime": "bun scripts/sqlite-runtime.ts",
     "check": "tsc --noEmit",
     "test": "bun test"
   },
