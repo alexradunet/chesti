@@ -228,7 +228,7 @@ Today I explored ${link(project)} through pages, tasks, and dates. The interesti
 - A reference connects work without duplicating it.
 - A view can be replaced without losing the objects underneath it.
 
-**Try Journal in the sidebar:** choose ${day(0)} and open the day. It reopens this entry rather than creating a duplicate. Renaming the title does not change Journal date. A journal in Trash still owns its day until explicitly restored.
+**Try Calendar in the sidebar:** choose ${day(0)} in the day workspace. It shows this entry rather than creating a duplicate. Renaming the title does not change Journal date. A journal in Trash still owns its day until explicitly restored.
 
 These are sample reflections. Replace them with your own writing and save; initialization will never overwrite them.`,
   });
@@ -248,7 +248,7 @@ This is an ordinary **Page**, not a special onboarding screen. Everything here i
 1. Read ${link(project)}. Its project brief is just a Page; its **Linked from** section gathers related work.
 2. Open ${link(invitation)} and find **Properties** between its title and writing. Try a title, a property, or a sentence; save explicitly.
 3. Open **Views → 01 · Start here**. The same tasks appear as a Done board and a table. Change Done on the board, then open the task to see the result.
-4. Open **Calendar → 02 · Calendar**. Find the undated task under Unscheduled, and inspect ${link(opening)} for an exclusive-end date range.
+4. Open **Views → 02 · Calendar**. Find the undated task under Unscheduled, and inspect ${link(opening)} for an exclusive-end date range.
 5. Open **Views → 03 · Page focus**, choose the reading-room Page, and explore its reference-scoped work. No input means no records.
 6. Visit ${link(journal)} or choose **Journal** for today's page. A day has one canonical entry, even if it is in Trash.
 

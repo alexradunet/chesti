@@ -10,10 +10,16 @@ export function validDate(value: unknown): value is string {
   const days = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
   return year >= 1 && month >= 1 && month <= 12 && day >= 1 && day <= days[month - 1]!;
 }
+function localMidnight(year: number, month: number, day: number): Date {
+  const value = new Date(0);
+  value.setFullYear(year, month - 1, day);
+  value.setHours(0, 0, 0, 0);
+  return value;
+}
 export function localDateBounds(date: string): { start: string; end: string } {
   if (!validDate(date)) throw new Error('Choose a real calendar date in YYYY-MM-DD format.');
   const [year, month, day] = date.split('-').map(Number) as [number, number, number];
-  return { start: new Date(year, month - 1, day).toISOString(), end: new Date(year, month - 1, day + 1).toISOString() };
+  return { start: localMidnight(year, month, day).toISOString(), end: localMidnight(year, month, day + 1).toISOString() };
 }
 export function serverTimeZone(): string {
   return Intl.DateTimeFormat().resolvedOptions().timeZone;

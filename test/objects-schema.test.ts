@@ -175,6 +175,15 @@ test('version-3 application schema upgrades to version 5 without changing object
   });
   assert.deepEqual(runtime.getType(TASK_TYPE_ID).propertyIds, [TASK_DONE_PROPERTY_ID, TASK_DUE_PROPERTY_ID, textProperty, TASK_SCHEDULED_PROPERTY_ID]);
   assert.equal(runtime.getType(TASK_TYPE_ID).revision, 6);
+  const expectedRows = structuredClone(before.rows) as Record<string, any[]>;
+  expectedRows.object_metadata = [{ key: 'schema_version', value: '5' }];
+  expectedRows.object_favorites = [];
+  expectedRows.object_properties = [...expectedRows.object_properties!, { id: TASK_SCHEDULED_PROPERTY_ID, label: 'Scheduled date', kind: 'date', options_json: null, target_type_id: null, multiple: 0, revision: 1 }]
+    .sort((left, right) => String(left.id).localeCompare(String(right.id)));
+  expectedRows.object_types = expectedRows.object_types!.map(row => row.id === TASK_TYPE_ID
+    ? { ...row, property_ids_json: JSON.stringify([TASK_DONE_PROPERTY_ID, TASK_DUE_PROPERTY_ID, textProperty, TASK_SCHEDULED_PROPERTY_ID]), revision: 6 }
+    : row);
+  assert.deepEqual(captureRows(db), expectedRows);
   assert.deepEqual(db.query<Record<string, string>, []>('PRAGMA integrity_check').all(), [{ integrity_check: 'ok' }]);
   assert.deepEqual(db.query('PRAGMA foreign_key_check').all(), []);
   assertVersion4StructuralGuards(db);

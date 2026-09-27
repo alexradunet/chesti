@@ -296,10 +296,27 @@ function TypeEditor({ model }: { model: ObjectPageModel }) {
     <section class="panel reuse-property"><span class="eyebrow">Keep things connected</span><h2>Use an existing property</h2><p class="muted">Already tracking this elsewhere? Reuse the same property so views can bring your objects together.</p>{available.length ? <form method="post" action={`/types/${type.id}/properties`} data-enhance=""><Token model={model} /><Hidden name="revision" value={type.revision} /><label>Shared property<select name="propertyId" required><option value="" selected>Choose a property</option>{available.map(property => <option value={property.id}>{property.label} · {kindLabel(property)}</option>)}</select></label><p class="fine">Labels and choices are shared. Each object keeps its own value.</p><Button type="submit">Use property</Button><State /></form> : <p class="fine">No other properties to reuse yet. New properties you add will be available to other types.</p>}</section></div></>;
 }
 
+function localDateValue(year: number, month: number, day: number): Date {
+  const value = new Date(0);
+  value.setFullYear(year, month - 1, day);
+  value.setHours(0, 0, 0, 0);
+  return value;
+}
+function dateString(value: Date): string {
+  return `${String(value.getFullYear()).padStart(4, '0')}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`;
+}
 function addDays(date: string, days: number): string {
   const [year, month, day] = date.split('-').map(Number) as [number, number, number];
-  const next = new Date(year, month - 1, day + days);
-  return `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}-${String(next.getDate()).padStart(2, '0')}`;
+  return dateString(localDateValue(year, month, day + days));
+}
+function addMonths(month: string, count: number): string | undefined {
+  const [year, monthNumber] = month.split('-').map(Number) as [number, number];
+  const value = localDateValue(year, monthNumber + count, 1);
+  const next = `${String(value.getFullYear()).padStart(4, '0')}-${String(value.getMonth() + 1).padStart(2, '0')}`;
+  return next >= '0001-01' && next <= '9999-12' ? next : undefined;
+}
+function localTime(value: string): string {
+  return new Date(value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 function taskMatchLabel(task: DayTaskSummary): string {
   if (task.matchesScheduled && task.matchesDue) return 'Scheduled and due';
@@ -309,12 +326,22 @@ function DayWorkspace({ model }: { model: ObjectPageModel }) {
   const date = model.journalDate ?? '';
   const journal = model.journal;
   const body = model.objectDraft?.body ?? journal?.body ?? '';
-  const monthDays = (() => {
-    if (!date) return [] as string[];
-    const [year, month] = date.split('-').map(Number) as [number, number];
-    const count = new Date(year, month, 0).getDate();
-    return Array.from({ length: count }, (_, index) => `${year}-${String(month).padStart(2, '0')}-${String(index + 1).padStart(2, '0')}`);
+  const displayMonth = model.calendarMonth ?? date.slice(0, 7);
+  const monthWeeks = (() => {
+    if (!displayMonth) return [] as (string | undefined)[][];
+    const [year, month] = displayMonth.split('-').map(Number) as [number, number];
+    const first = localDateValue(year, month, 1);
+    const count = localDateValue(year, month + 1, 0).getDate();
+    const cells: (string | undefined)[] = Array(first.getDay()).fill(undefined);
+    for (let day = 1; day <= count; day++) cells.push(dateString(localDateValue(year, month, day)));
+    while (cells.length % 7) cells.push(undefined);
+    const weeks: (string | undefined)[][] = [];
+    for (let index = 0; index < cells.length; index += 7) weeks.push(cells.slice(index, index + 7));
+    return weeks;
   })();
+  const previousMonth = addMonths(displayMonth, -1);
+  const nextMonth = addMonths(displayMonth, 1);
+  const today = dateString(new Date());
   const taskPage = (offset: number) => `/calendar?${new URLSearchParams({ date, tasksOffset: String(offset), createdOffset: String(model.dayCreated?.offset ?? 0) })}`;
   const createdPage = (offset: number) => `/calendar?${new URLSearchParams({ date, tasksOffset: String(model.dayTasks?.offset ?? 0), createdOffset: String(offset) })}`;
   return <div class="day-workspace">
@@ -325,15 +352,16 @@ function DayWorkspace({ model }: { model: ObjectPageModel }) {
       <form class="filter-bar day-mobile-picker" method="get" action="/calendar"><label>Choose date<input type="date" name="date" value={date} required /></label><Button type="submit">Show day</Button></form>
       <section class="panel day-journal"><div class="section-heading"><h2>Journal</h2>{journal?.trashed && <Badge tone="warning">In trash</Badge>}</div>
         {journal?.trashed ? <p>This day's journal is in Trash. <a href={objectUrl(journal.id)}>Open the existing journal to restore it</a>.</p> : <form class="object-editor" method="post" action="/calendar/journal" data-enhance="" data-object-editor="" data-draft={model.objectDraft ? 'true' : undefined}>
-          <Token model={model} /><Hidden name="date" value={date} />{journal ? <Hidden name="revision" value={model.objectDraft?.revision || journal.revision} /> : <><Hidden name="revision" value="1" /><Hidden name="requestId" value={model.objectDraft?.requestId || crypto.randomUUID()} /></>}
+          <Token model={model} /><Hidden name="date" value={date} />{journal ? <><Hidden name="objectId" value={journal.id} /><Hidden name="revision" value={model.objectDraft?.revision ?? journal.revision} /></> : <Hidden name="requestId" value={model.objectDraft?.requestId ?? crypto.randomUUID()} />}
           <div class="writing" id="writing-area"><div class="writing-heading"><h3 id="writing-heading">Writing</h3><Button class="js-only" type="button" data-insert-object-link="">Insert object link</Button></div><div class="writing-toolbar" role="toolbar" aria-label="Writing formatting" data-writing-toolbar="" hidden><label class="sr-only" for="day-writing-block">Paragraph style</label><select id="day-writing-block" data-writing-block="" aria-label="Paragraph style"><option value="paragraph">Paragraph</option>{[1, 2, 3, 4, 5, 6].map(level => <option value={`heading-${level}`}>Heading {level}</option>)}</select>{([['bold', 'Bold'], ['italic', 'Italic'], ['strike', 'Strikethrough'], ['bullet', 'Bulleted list'], ['ordered', 'Numbered list'], ['quote', 'Block quote'], ['code', 'Inline code'], ['code-block', 'Code block'], ['link', 'Link'], ['undo', 'Undo'], ['redo', 'Redo']] as const).map(([command, label]) => <Button type="button" variant="ghost" data-writing-command={command} aria-label={label} title={label}>{label}</Button>)}</div><div data-writing-mount="" hidden></div><label class="sr-only" for="day-journal-body">Journal Markdown source</label><textarea id="day-journal-body" class="markdown-source" name="body" rows={12} aria-describedby="markdown-help" data-writing-source={JSON.stringify(body)}>{`\n${body}`}</textarea><p class="fine" id="markdown-help">Use # headings, **bold**, and [label](url). Changes need saving.</p><p class="fine" data-writing-status="" role="status" hidden></p><dialog class="writing-link-dialog" data-writing-link-dialog="" aria-labelledby="day-writing-link-heading"><h2 id="day-writing-link-heading">Edit link</h2><label>Link address<input data-writing-link-url="" type="text" inputmode="url" autocomplete="off" placeholder="https://example.com" /></label><p class="fine">Use https, http, mailto, or an object link. Leave empty to remove a link.</p><p data-writing-link-error="" role="alert"></p><Button type="button" data-writing-link-apply="">Apply link</Button> <Button type="button" variant="ghost" data-writing-link-cancel="">Cancel</Button></dialog></div>
-          <div class="save-bar"><Button type="submit" variant="primary">Save journal</Button><State message={model.error || (journal ? `Saved revision ${journal.revision}.` : 'Write something, then save to create this journal.')} error={Boolean(model.error)} /></div>
+          <div class="save-bar"><span>{model.dayJournalConflict && journal ? <Button type="submit" variant="primary" name="reviewedRevision" value={journal.revision}>Save reconciled journal</Button> : <Button type="submit" variant="primary">Save journal</Button>}</span><State message={model.error || (journal ? `Saved revision ${journal.revision}.` : 'Write something, then save to create this journal.')} error={Boolean(model.error)} /></div>
+          {model.dayJournalConflict && journal && <aside class="saved-conflict" tabindex={-1}><h3>Latest saved journal · revision {journal.revision}</h3><div class="markdown-content">{raw(renderMarkdown(journal.body))}</div><details><summary>Latest Markdown source</summary><pre class="saved-source">{`\n${journal.body}`}</pre></details><p>Reconcile your draft above, then choose Save reconciled journal. Another intervening save will still reject.</p></aside>}
         </form>}
       </section>
       <section class="panel"><div class="section-heading"><h2>Tasks</h2><Badge>{model.dayTasks?.items.length ?? 0}</Badge></div>{model.dayTasks?.items.length ? <ul class="day-list">{model.dayTasks.items.map(task => <li><div><a href={objectUrl(task.id)}>{titleOf(task)}</a><span class="fine">{taskMatchLabel(task)}{task.done ? ' · completed' : ''}</span></div><form method="post" action="/calendar/task"><Token model={model} /><Hidden name="date" value={date} /><Hidden name="objectId" value={task.id} /><Hidden name="revision" value={task.revision} /><Hidden name="done" value={task.done ? 'false' : 'true'} /><Button type="submit">{task.done ? 'Mark incomplete' : 'Mark done'}</Button></form></li>)}</ul> : <p class="muted">No scheduled or due tasks for this date.</p>}<nav class="pagination">{(model.dayTasks?.offset ?? 0) > 0 && <a href={taskPage(Math.max(0, (model.dayTasks?.offset ?? 0) - 50))}>Previous tasks</a>}{model.dayTasks?.hasMore && <a href={taskPage((model.dayTasks.offset ?? 0) + 50)}>Next tasks</a>}</nav></section>
-      <section class="panel"><div class="section-heading"><h2>Created on this day</h2><Badge>{model.dayCreated?.items.length ?? 0}</Badge></div>{model.dayCreated?.items.length ? <ul class="object-index">{model.dayCreated.items.map(record => <li><a href={objectUrl(record.id)}><strong>{titleOf(record)}</strong><span>{typeName(model, record.typeId)}</span></a><time datetime={record.createdAt}>{record.createdAt.slice(11, 16)}</time></li>)}</ul> : <p class="muted">No live objects were created on this day.</p>}<nav class="pagination">{(model.dayCreated?.offset ?? 0) > 0 && <a href={createdPage(Math.max(0, (model.dayCreated?.offset ?? 0) - 50))}>Previous created objects</a>}{model.dayCreated?.hasMore && <a href={createdPage((model.dayCreated.offset ?? 0) + 50)}>Next created objects</a>}</nav></section>
+      <section class="panel"><div class="section-heading"><h2>Created on this day</h2><Badge>{model.dayCreated?.items.length ?? 0}</Badge></div>{model.dayCreated?.items.length ? <ul class="object-index">{model.dayCreated.items.map(record => <li><a href={objectUrl(record.id)}><strong>{titleOf(record)}</strong><span>{typeName(model, record.typeId)}</span></a><time datetime={record.createdAt}>{localTime(record.createdAt)}</time></li>)}</ul> : <p class="muted">No live objects were created on this day.</p>}<nav class="pagination">{(model.dayCreated?.offset ?? 0) > 0 && <a href={createdPage(Math.max(0, (model.dayCreated?.offset ?? 0) - 50))}>Previous created objects</a>}{model.dayCreated?.hasMore && <a href={createdPage((model.dayCreated.offset ?? 0) + 50)}>Next created objects</a>}</nav></section>
     </section>
-    <aside class="day-rail" aria-label="Month date picker"><h2>{date.slice(0, 7)}</h2><div class="month-links">{monthDays.map(day => <a href={`/calendar?date=${day}`} aria-current={day === date ? 'date' : undefined} class={day === date ? 'selected' : undefined}>{day.slice(8)}</a>)}</div></aside>
+    <aside class="day-rail" aria-label="Month date picker"><div class="month-heading"><h2>{displayMonth}</h2><nav aria-label="Month navigation">{previousMonth && <a href={`/calendar?date=${date}&month=${previousMonth}`} aria-label={`Show ${previousMonth}`}>‹</a>}{nextMonth && <a href={`/calendar?date=${date}&month=${nextMonth}`} aria-label={`Show ${nextMonth}`}>›</a>}</nav></div><table class="month-table"><caption class="sr-only">Choose a date in {displayMonth}</caption><thead><tr>{['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => <th scope="col">{day}</th>)}</tr></thead><tbody>{monthWeeks.map(week => <tr>{week.map(day => <td>{day && <a href={`/calendar?date=${day}&month=${displayMonth}`} aria-label={`Open ${day}`} aria-current={day === date ? 'date' : day === today ? 'true' : undefined} class={`${day === date ? 'selected ' : ''}${day === today ? 'today' : ''}`}>{String(Number(day.slice(8)))}</a>}</td>)}</tr>)}</tbody></table></aside>
   </div>;
 }
 

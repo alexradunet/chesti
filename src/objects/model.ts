@@ -185,6 +185,8 @@ export interface ObjectPageModel {
   favorites?: BoundedPage<ObjectSummary>;
   favorite?: boolean;
   timeZone?: string;
+  dayJournalConflict?: boolean;
+  calendarMonth?: string;
   basedOnTypeId?: string;
   typeDraft?: { name: string; basedOnTypeId?: string };
   newPropertyDraft?: NewPropertyDraft;

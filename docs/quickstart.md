@@ -24,7 +24,7 @@ The fictional neighborhood reading-room project demonstrates the application wit
 
 1. Open **Page → Start here · your workspace is made of primitives**. Its writing is directly formatted and editable with JavaScript; native fallback provides **Read saved writing** below the source. Follow the guide links to the project brief, writing guide, view guide, and safe-experiment guide. Page's List and Gallery layouts browse the same content.
 2. Open **Views → 01 · Start here**. Read the guide-page list, change a task's Done value on the board, and see that same task in the table. Its source is labeled `built-in/demo`, not an AI provider.
-3. Open **Calendar → 02 · Calendar**. Task due dates and Journal dates share an agenda. Events and Reminders have separate all-day/timed blocks; undated tasks remain Unscheduled. Use an inline date action to reschedule the original object.
+3. Open **Views → 02 · Calendar**. Task due dates and Journal dates share an agenda. Events and Reminders have separate all-day/timed blocks; undated tasks remain Unscheduled. Use an inline date action to reschedule the original object.
 4. Open **Views → 03 · Page focus** and select **Reading room · a small neighborhood project**. Its shared Context reference scopes unfinished tasks and related events, reminders, and journals. Select the Writing page to see a different task; no input means no results.
 5. Open **Trash → Task → Restore me · a discarded checklist** to try restoration. Edit or trash any example normally. Deleting a demo view never deletes its objects.
 
@@ -37,7 +37,7 @@ The bundled views are already published so you can try their actions offline. Cr
 ## Create shared data
 
 1. Open **Manage types** in the left sidebar. Task already has **Done**, **Due date**, and **Scheduled date**. Built-in types and their core fields are protected, but you can rename display labels and add fields.
-2. Under **Create a type**, enter `Work item`, choose Task under **Based on**, and choose **Create type & add properties**. This reuses the current Done and Due date property identities. The new type is independent: later field additions and built-in lifecycle rules do not propagate.
+2. Under **Create a type**, enter `Work item`, choose Task under **Based on**, and choose **Create type & add properties**. This reuses the current Done, Due date, and Scheduled date property identities. The new type is independent: later field additions and built-in lifecycle rules do not propagate.
 3. Add an `Effort` property with the **Number** format to Work item. Use **Use an existing property** when the same concept is already represented elsewhere. Property cards show formats and choices; **Rename property** identifies other types that share its label.
 4. Open **New note** for a generic Page, or open **Objects** and choose a type-specific new object. For a Task, add Scheduled date and/or Due date in **Properties**, above the optional writing. Choose **Create object** to save. Create another task without a date and a Work item with a date. Switching types keeps title, writing, and field drafts; without JavaScript, choose **Use type** to load the selected fields without saving. Only the selected type’s properties are saved on creation; existing objects also retain their existing fields.
 5. Choose **Insert object link** above writing, search, and choose an object. Markdown source also accepts a normal link such as `[Project](/objects/UUID)`. Open the linked object to see its backlink.

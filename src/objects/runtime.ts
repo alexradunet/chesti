@@ -204,6 +204,23 @@ export class ObjectRuntime {
       return existing ?? this.createObject({ typeId: JOURNAL_TYPE_ID, title: date, properties: { [JOURNAL_DATE_PROPERTY_ID]: date }, body: '' });
     }).immediate();
   }
+  saveDayJournal(input: { date: string; body: string; requestId: string } | { date: string; body: string; objectId: string; revision: number }): ObjectRecord {
+    if (!validDate(input.date)) throw new AppError(422, 'Choose a real calendar date in YYYY-MM-DD format.');
+    if ('objectId' in input) {
+      if (typeof input.objectId !== 'string' || !ID.test(input.objectId)) throw new AppError(422, 'Invalid journal object.');
+      return this.db.transaction(() => {
+        const previous = this.getObject(input.objectId);
+        revisionIs(previous.revision, input.revision);
+        if (previous.trashed) throw new AppError(409, 'This journal is in Trash. Open the existing object to restore it.');
+        if (previous.typeId !== JOURNAL_TYPE_ID || previous.properties[JOURNAL_DATE_PROPERTY_ID] !== input.date) {
+          throw new AppError(409, 'This journal no longer belongs to the selected day. Reload before saving.');
+        }
+        return this.updateObjectFromPrevious(previous, input.revision, { typeId: JOURNAL_TYPE_ID, title: previous.title, properties: { ...previous.properties }, body: input.body });
+      }).immediate();
+    }
+    if (!input.body.trim()) throw new AppError(422, 'Write something before saving a new journal.');
+    return this.createObject({ typeId: JOURNAL_TYPE_ID, title: input.date, properties: { [JOURNAL_DATE_PROPERTY_ID]: input.date }, body: input.body }, input.requestId);
+  }
   listObjects(options: ObjectListOptions = {}): ObjectRecord[] {
     const { limit, offset } = browseBounds(options);
     const shape = browseShape(options);

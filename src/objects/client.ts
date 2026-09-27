@@ -631,6 +631,29 @@ for (const form of forms) {
   });
 }
 
+function warnAboutDirtyWriting(): void {
+  const status = writingForm?.querySelector<HTMLElement>('[data-form-state]');
+  if (status) {
+    status.setAttribute('role', 'alert');
+    status.setAttribute('aria-live', 'assertive');
+    status.classList.add('error');
+    status.textContent = 'Save or discard your journal changes before using another calendar action.';
+  }
+}
+if (writingForm && location.pathname === '/calendar') {
+  document.addEventListener('click', event => {
+    if (!dirtyForms.has(writingForm)) return;
+    const link = event.target instanceof Element ? event.target.closest<HTMLAnchorElement>('a[href]') : null;
+    if (!link || link.closest('[data-writing-toolbar], [data-writing-link-dialog]')) return;
+    event.preventDefault();
+    warnAboutDirtyWriting();
+  }, true);
+  document.addEventListener('submit', event => {
+    if (!dirtyForms.has(writingForm) || event.target === writingForm) return;
+    event.preventDefault();
+    warnAboutDirtyWriting();
+  }, true);
+}
 window.addEventListener('beforeunload', event => {
   if (!dirtyForms.size && !aiBusy && (draftStored || !aiState.draft) && ![...forms].some(form => form.dataset.busy === 'true')) return;
   event.preventDefault();

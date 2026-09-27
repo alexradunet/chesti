@@ -6,6 +6,7 @@ import { openDatabase } from '../src/database.js';
 import { PAGE_TYPE_ID, TASK_DONE_PROPERTY_ID, TASK_DUE_PROPERTY_ID, TASK_SCHEDULED_PROPERTY_ID, TASK_TYPE_ID } from '../src/objects/model.js';
 import type { ObjectWrite, PropertyValue } from '../src/objects/model.js';
 import { ObjectRuntime } from '../src/objects/runtime.js';
+import { localDateBounds } from '../src/objects/values.js';
 
 function fixture(t: TestContext) {
   const db = openDatabase();
@@ -61,6 +62,27 @@ test('created-on query uses local calendar bounds and bounded deterministic page
   } finally {
     if (previousTZ === undefined) delete process.env.TZ; else process.env.TZ = previousTZ;
   }
+});
+
+test('day projections page deterministically beyond fifty rows and preserve tiny years', t => {
+  const { db, runtime } = fixture(t);
+  const date = '2026-09-27';
+  for (let index = 0; index < 55; index++) runtime.createObject(input(TASK_TYPE_ID, `Task ${String(index).padStart(2, '0')}`, { [TASK_DUE_PROPERTY_ID]: date }));
+  const first = runtime.listDayTasks(date);
+  const second = runtime.listDayTasks(date, 50);
+  assert.equal(first.items.length, 50);
+  assert.equal(first.hasMore, true);
+  assert.equal(second.items.length, 5);
+  assert.equal(second.hasMore, false);
+  assert.equal(new Set([...first.items, ...second.items].map(item => item.id)).size, 55);
+  for (let index = 0; index < 55; index++) {
+    const made = runtime.createObject(input(PAGE_TYPE_ID, `Created ${String(index).padStart(2, '0')}`));
+    db.query('UPDATE objects SET created_at = ? WHERE id = ?').run(`2026-09-27T12:${String(index).padStart(2, '0')}:00.000Z`, made.id);
+  }
+  assert.equal(runtime.listObjectsCreatedOn(date).items.length, 50);
+  assert.equal(runtime.listObjectsCreatedOn(date, 50).items.length >= 5, true);
+  assert.doesNotMatch(localDateBounds('0001-01-01').start, /^1901-/);
+  assert.doesNotMatch(localDateBounds('0099-12-31').start, /^1999-/);
 });
 
 test('favorites are idempotent shared metadata and hide trashed members', t => {

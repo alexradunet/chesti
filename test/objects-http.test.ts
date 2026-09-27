@@ -1635,3 +1635,51 @@ test('calendar and navigation reject duplicate date inputs and remove type-heavy
   assert.doesNotMatch(home, /Object types<\/h2>/);
   assert.match(home, /Manage types/);
 });
+
+test('calendar journal save preserves identity, request idempotency, and rejects stale moved drafts', async t => {
+  const { objects, get, post } = await setup(t, async () => { throw new Error('no model'); });
+  const date = '2026-10-01';
+  const requestId = randomUUID();
+  let response = await post('/calendar/journal', { date, body: 'first body', requestId });
+  assert.equal(response.status, 303);
+  assert.equal(response.headers.get('location'), `/calendar?date=${date}&saved=1`);
+  assert.equal((await get(response.headers.get('location')!)).status, 200);
+  const journal = objects.getJournal(date)!;
+  assert.equal(journal.revision, 1);
+  response = await post('/calendar/journal', { date, body: 'first body', requestId });
+  assert.equal(response.status, 303);
+  assert.equal(objects.getObject(journal.id).revision, 1);
+  response = await post('/calendar/journal', { date, body: 'different body', requestId });
+  assert.equal(response.status, 409);
+  const moved = objects.updateObject(journal.id, journal.revision, { ...journal, properties: { [JOURNAL_DATE_PROPERTY_ID]: '2026-10-02' } });
+  objects.createObject({ typeId: JOURNAL_TYPE_ID, title: date, properties: { [JOURNAL_DATE_PROPERTY_ID]: date }, body: 'replacement' });
+  response = await post('/calendar/journal', { date, body: 'stale overwrite attempt', objectId: moved.id, revision: String(journal.revision) });
+  assert.equal(response.status, 409);
+  assert.equal(objects.getJournal(date)!.body, 'replacement');
+});
+
+test('favorite request validates return context before mutating', async t => {
+  const { objects, post } = await setup(t, async () => { throw new Error('no model'); });
+  const object = objects.createObject({ typeId: PAGE_TYPE_ID, title: 'Candidate', properties: {}, body: '' });
+  let response = await post(`/objects/${object.id}/favorite`, { favorite: 'true', context: 'bogus', date: '' });
+  assert.equal(response.status, 422);
+  assert.equal(objects.isFavorite(object.id), false);
+  response = await post(`/objects/${object.id}/favorite`, { favorite: 'yes', context: 'object', date: '' });
+  assert.equal(response.status, 422);
+  assert.equal(objects.isFavorite(object.id), false);
+});
+
+test('calendar validates month inputs and renders semantic month navigation', async t => {
+  const { get } = await setup(t, async () => { throw new Error('no model'); });
+  let response = await get('/calendar?date=2026-02-28&month=2026-02');
+  const html = await response.text();
+  assert.equal(response.status, 200);
+  assert.match(html, /<table class="month-table">/);
+  assert.match(html, /Show 2026-01/);
+  assert.match(html, /Show 2026-03/);
+  assert.match(html, /Open 2026-02-28/);
+  response = await get('/calendar?date=2026-02-28&month=2026-13');
+  assert.equal(response.status, 422);
+  response = await get('/calendar?date=2026-02-28&tasksOffset=1&tasksOffset=2');
+  assert.equal(response.status, 422);
+});

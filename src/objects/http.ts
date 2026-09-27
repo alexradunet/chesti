@@ -56,7 +56,10 @@ function formValue(property: PropertyDefinition, fields: URLSearchParams, prefix
 
 function localDate(): string {
   const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(4, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+}
+function validMonth(value: unknown): value is string {
+  return typeof value === 'string' && /^\d{4}-\d{2}$/.test(value) && validDate(`${value}-01`);
 }
 
 function draftFields(fields: URLSearchParams): Record<string, string[]> {
@@ -99,6 +102,18 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
       return new Response(renderObjectWorkspace(model), { status, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
     };
     const go = (path: string) => new Response(null, { status: 303, headers: { Location: path } });
+    const loadCalendar = (date: string, tasksOffset = 0, createdOffset = 0, month?: string) => {
+      if (!validDate(date)) throw new AppError(422, 'Choose a real calendar date in YYYY-MM-DD format.');
+      if (!Number.isInteger(tasksOffset) || tasksOffset < 0 || tasksOffset > 1_000_000 || !Number.isInteger(createdOffset) || createdOffset < 0 || createdOffset > 1_000_000) throw new AppError(422, 'Invalid calendar page.');
+      if (month !== undefined && !validMonth(month)) throw new AppError(422, 'Choose a real calendar month.');
+      model.screen = 'calendar';
+      model.journalDate = date;
+      model.calendarMonth = month ?? date.slice(0, 7);
+      model.journal = objects.getJournal(date);
+      model.dayTasks = objects.listDayTasks(date, tasksOffset);
+      model.dayCreated = objects.listObjectsCreatedOn(date, createdOffset);
+      model.timeZone = serverTimeZone();
+    };
     const calendarPath = (date: string, extra: Record<string, string> = {}) => `/calendar?${new URLSearchParams({ date, ...extra })}`;
     const returnAfterFavorite = (data: URLSearchParams, objectId: string): string => {
       const context = data.get('context') ?? 'object';
@@ -300,19 +315,14 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
             if (layout === 'gallery') model.objectExcerpts = objects.objectExcerpts(model.objects.map(record => record.id));
           }
         } else if (url.pathname === '/calendar') {
-          requireFields(url.searchParams, ['date', 'tasksOffset', 'createdOffset', 'month']);
-          if (url.searchParams.getAll('date').length > 1 || url.searchParams.getAll('tasksOffset').length > 1 || url.searchParams.getAll('createdOffset').length > 1) throw new AppError(422, 'Invalid calendar request.');
-          model.screen = 'calendar';
+          requireFields(url.searchParams, ['date', 'tasksOffset', 'createdOffset', 'month', 'saved']);
+          if (url.searchParams.getAll('date').length > 1 || url.searchParams.getAll('tasksOffset').length > 1 || url.searchParams.getAll('createdOffset').length > 1 || url.searchParams.getAll('month').length > 1) throw new AppError(422, 'Invalid calendar request.');
           model.journalDateDefault = !url.searchParams.has('date');
-          model.journalDate = url.searchParams.get('date') ?? localDate();
-          if (!validDate(model.journalDate)) throw new AppError(422, 'Choose a real calendar date in YYYY-MM-DD format.');
+          const date = url.searchParams.get('date') ?? localDate();
           const tasksOffset = url.searchParams.get('tasksOffset') ?? '0';
           const createdOffset = url.searchParams.get('createdOffset') ?? '0';
-          if (!/^\d{1,7}$/.test(tasksOffset) || Number(tasksOffset) > 1_000_000 || !/^\d{1,7}$/.test(createdOffset) || Number(createdOffset) > 1_000_000) throw new AppError(422, 'Invalid calendar page.');
-          model.journal = objects.getJournal(model.journalDate);
-          model.dayTasks = objects.listDayTasks(model.journalDate, Number(tasksOffset));
-          model.dayCreated = objects.listObjectsCreatedOn(model.journalDate, Number(createdOffset));
-          model.timeZone = serverTimeZone();
+          if (!/^\d{1,7}$/.test(tasksOffset) || !/^\d{1,7}$/.test(createdOffset)) throw new AppError(422, 'Invalid calendar page.');
+          loadCalendar(date, Number(tasksOffset), Number(createdOffset), url.searchParams.get('month') ?? undefined);
         } else if (url.pathname === '/journal') {
           model.screen = 'journal';
           model.journalDateDefault = !url.searchParams.has('date');
@@ -381,23 +391,20 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
       }
       if (!fields) throw new AppError(400, 'Submit a form.');
       if (url.pathname === '/calendar/journal') {
-        model.screen = 'calendar';
         model.journalDate = fields.get('date') ?? '';
-        model.timeZone = serverTimeZone();
-        model.objectDraft = { title: model.journalDate, body: fields.get('body') ?? '', revision: fields.get('revision') ?? '', requestId: fields.get('requestId') ?? '' };
-        requireFields(fields, ['csrf', 'date', 'body', 'revision', 'requestId']);
+        model.objectDraft = { title: model.journalDate, body: fields.get('body') ?? '', revision: fields.get('reviewedRevision') ?? fields.get('revision') ?? '', requestId: fields.get('requestId') ?? '' };
+        requireFields(fields, ['csrf', 'date', 'body', 'revision', 'reviewedRevision', 'requestId', 'objectId']);
         if (!validDate(model.journalDate)) throw new AppError(422, 'Choose a real calendar date in YYYY-MM-DD format.');
-        const existing = objects.getJournal(model.journalDate);
-        if (existing?.trashed) throw new AppError(409, 'This journal is in Trash. Open the existing object to restore it.');
-        if (existing) {
-          model.journal = existing;
-          objects.updateObject(existing.id, revision(fields), { typeId: JOURNAL_TYPE_ID, title: existing.title, properties: { ...existing.properties }, body: fields.get('body') ?? '' });
+        let saved: ObjectRecord;
+        if (fields.has('objectId')) {
+          const expectedRevision = fields.has('reviewedRevision') ? revision(fields, 'reviewedRevision') : revision(fields);
+          saved = objects.saveDayJournal({ date: model.journalDate, body: fields.get('body') ?? '', objectId: fields.get('objectId') ?? '', revision: expectedRevision });
         } else {
-          const body = fields.get('body') ?? '';
-          if (!body.trim()) throw new AppError(422, 'Write something before saving a new journal.');
-          objects.createObject({ typeId: JOURNAL_TYPE_ID, title: model.journalDate, properties: { [JOURNAL_DATE_PROPERTY_ID]: model.journalDate }, body }, fields.get('requestId') || undefined);
+          const requestId = fields.get('requestId') ?? '';
+          if (!Value.Check(IdSchema, requestId)) throw new AppError(422, 'Creation request ID must be a UUID.');
+          saved = objects.saveDayJournal({ date: model.journalDate, body: fields.get('body') ?? '', requestId });
         }
-        return go(`${calendarPath(model.journalDate)}&saved=1`);
+        return go(`${calendarPath(saved.properties[JOURNAL_DATE_PROPERTY_ID] as string)}&saved=1`);
       }
       if (url.pathname === '/calendar/task') {
         requireFields(fields, ['csrf', 'date', 'objectId', 'revision', 'done']);
@@ -412,8 +419,9 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
         requireFields(fields, ['csrf', 'favorite', 'context', 'date']);
         const desired = fields.get('favorite');
         if (desired !== 'true' && desired !== 'false') throw new AppError(422, 'Invalid favorite state.');
+        const location = returnAfterFavorite(fields, favoriteMatch[1]!);
         objects.setFavorite(favoriteMatch[1]!, desired === 'true');
-        return go(returnAfterFavorite(fields, favoriteMatch[1]!));
+        return go(location);
       }
       if (url.pathname === '/journal/open') {
         model.screen = 'journal';
@@ -580,6 +588,20 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
       if (!(error instanceof AppError)) throw error;
       if (json) return Response.json({ error: error.message }, { status: error.status, headers: { 'Cache-Control': 'no-store' } });
       model.error = error.message;
+      if (model.screen === 'calendar' || url.pathname === '/calendar/journal') {
+        try {
+          const date = model.journalDate ?? fields?.get('date') ?? localDate();
+          if (validDate(date)) loadCalendar(date);
+        } catch (calendarError) {
+          if (!(calendarError instanceof AppError)) throw calendarError;
+          model.screen = 'calendar';
+          model.timeZone = serverTimeZone();
+        }
+      }
+      const favoriteErrorMatch = /^\/objects\/([a-f0-9-]{36})\/favorite$/.exec(url.pathname);
+      if (favoriteErrorMatch) {
+        try { model.favorite = objects.isFavorite(favoriteErrorMatch[1]!); } catch {}
+      }
       if (model.objectDraft?.typeId === JOURNAL_TYPE_ID) {
         const date = model.objectDraft.fields?.[`p:${JOURNAL_DATE_PROPERTY_ID}`]?.[0];
         if (date) {
@@ -590,6 +612,10 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
             if (!(lookupError instanceof AppError)) throw lookupError;
           }
         }
+      }
+      if (error.status === 409 && url.pathname === '/calendar/journal' && model.journal && !model.journal.trashed) {
+        model.dayJournalConflict = true;
+        model.error = 'This journal changed. Compare the latest saved writing with your draft before saving.';
       }
       if (error.status === 409 && model.object && model.objectDraft?.revision && Number(model.objectDraft.revision) !== model.object.revision) {
         model.error = 'This object changed. Compare the latest saved version with your draft before saving.';
