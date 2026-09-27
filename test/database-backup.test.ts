@@ -61,7 +61,7 @@ test('VACUUM INTO snapshot restores committed object, view, visitor, conversatio
     const expectedHistory = source.query('SELECT object_id, revision, snapshot_json FROM object_revisions ORDER BY object_id, revision').all();
     const expectedViewHistory = source.query('SELECT id, revision, status, deleted FROM object_view_revisions ORDER BY id, revision').all();
     assert.ok(existsSync(`${sourceFile}-wal`));
-    assert.ok(statSync(`${sourceFile}-wal`).size > 0, 'setup should leave committed changes in the WAL');
+    assert.ok(statSync(`${sourceFile}-wal`).size > 32, 'setup should leave committed changes beyond the WAL header');
 
     writeFileSync(existingFile, 'do not overwrite');
     assert.throws(() => source!.query('VACUUM INTO ?').run(existingFile));
@@ -80,7 +80,10 @@ test('VACUUM INTO snapshot restores committed object, view, visitor, conversatio
     readOnly.exec('PRAGMA foreign_keys = ON');
     integrity(readOnly);
     assert.deepEqual(readOnly.query('SELECT id FROM objects ORDER BY id').all(), source.query('SELECT id FROM objects WHERE id != ? ORDER BY id').all(afterSnapshot.id));
-    assert.throws(() => readOnly!.query('INSERT INTO object_metadata(key, value) VALUES (?, ?)').run('readonly', 'true'), /readonly|READONLY/i);
+    assert.throws(
+      () => readOnly!.query('INSERT INTO object_metadata(key, value) VALUES (?, ?)').run('readonly', 'true'),
+      error => error instanceof Error && 'code' in error && error.code === 'SQLITE_READONLY',
+    );
     readOnly.close();
     readOnly = undefined;
 
@@ -88,6 +91,7 @@ test('VACUUM INTO snapshot restores committed object, view, visitor, conversatio
     const restoredRuntime = new ObjectRuntime(restored);
     const restoredViews = new ViewService(restoredRuntime);
     const restoredConversations = new ViewConversationService(restored, restoredViews);
+    const restoredVisitors = new VisitorStore(restored);
     integrity(restored);
     assert.deepEqual(ids(restoredRuntime.listObjects().concat(restoredRuntime.listObjects({ trashed: true }))), expectedObjects);
     assert.equal(restoredRuntime.getObject(edited.id).title, 'Edited title');
@@ -101,6 +105,7 @@ test('VACUUM INTO snapshot restores committed object, view, visitor, conversatio
     assert.deepEqual(restored.query('SELECT id, revision, status, deleted FROM object_view_revisions ORDER BY id, revision').all(), expectedViewHistory);
     assert.deepEqual(restoredViews.get(published.id), published);
     assert.deepEqual(restoredViews.evaluate(published.id).blocks[0]!.rows.map(row => row.object.id), [edited.id]);
+    assert.deepEqual(restoredVisitors.get(visitor.id), visitor);
     assert.deepEqual(restoredConversations.get(visitor.id, saved.conversation.id), saved.conversation);
     assert.deepEqual(restoredRuntime.createObject({ typeId: project.id, title: 'Original title', properties: { [referenceProperty]: target.id }, body: originalBody }, requestId), edited);
     assert.throws(() => restoredRuntime.createObject({ typeId: project.id, title: 'Different receipt use', properties: { [referenceProperty]: target.id }, body: originalBody }, requestId), /different content/);

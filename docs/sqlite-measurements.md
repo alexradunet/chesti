@@ -30,5 +30,5 @@ Interpretation caveats:
 - `dbstat` reports allocated SQLite pages by table or index. It is not the logical size of titles, Markdown, JSON, or revisions.
 - `page_count * page_size` is the current allocated database image. Free pages, SQLite metadata, and WAL state can make exact table/index totals differ in other runs.
 - The main database, `-wal`, and `-shm` files are distinct physical files. Do not add them together as if they were independent logical payload categories.
-- The fixture uses deterministic non-personal writing, typed properties, references, and revision history. It is useful for comparing schema/storage changes, not for estimating every real workspace.
+- The fixture uses deterministic non-personal writing, typed properties, references, and revision history. `bodyBytes` is the base UTF-8 byte length for the initial Markdown body; later revisions intentionally vary the body by small deterministic increments so history stores changed content rather than identical copies. It is useful for comparing schema/storage changes, not for estimating every real workspace.
 - The diagnostic fails if the SQLite build does not provide the `dbstat` virtual table.

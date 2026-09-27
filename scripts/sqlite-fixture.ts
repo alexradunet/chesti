@@ -34,13 +34,28 @@ const LIMITS = {
   referenceEvery: 1_000,
 };
 
+const utf8 = new TextEncoder();
+
+function appendWithinUtf8Limit(body: string, text: string, bytes: number): string {
+  let next = body;
+  for (const char of text) {
+    const candidate = next + char;
+    if (utf8.encode(candidate).byteLength > bytes) break;
+    next = candidate;
+  }
+  return next;
+}
+
 export function syntheticWriting(index: number, bytes: number, revision = 0): string {
   const prefix = `# Synthetic note ${index}\n\nRevision ${revision}. Café sample text with CRLF marker.\n\n`;
-  if (bytes <= prefix.length) return prefix.slice(0, bytes);
   const seed = `This is deterministic non-personal writing for storage measurement ${index}.\n`;
-  let body = prefix;
-  while (body.length < bytes) body += seed;
-  return body.slice(0, bytes);
+  let body = appendWithinUtf8Limit('', prefix, bytes);
+  while (utf8.encode(body).byteLength < bytes) {
+    const next = appendWithinUtf8Limit(body, seed, bytes);
+    if (next === body) body += 'x'.repeat(bytes - utf8.encode(body).byteLength);
+    else body = next;
+  }
+  return body;
 }
 
 function boundedInteger(value: unknown, name: keyof typeof LIMITS, minimum: number): number {

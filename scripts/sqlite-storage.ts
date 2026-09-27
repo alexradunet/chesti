@@ -20,8 +20,14 @@ export function parseArgs(args: string[]): { fixture: Required<SyntheticFixtureO
       checkpoint = true;
       continue;
     }
-    const [flag, value] = arg.split('=', 2);
-    if (value === undefined) throw new Error(`Unknown or incomplete flag: ${arg}`);
+    const match = /^(--[a-z-]+)=(\d+)$/.exec(arg);
+    if (!match) {
+      const flag = arg.includes('=') ? arg.slice(0, arg.indexOf('=')) : arg;
+      if (flag === '--database' || flag === '--db' || flag === '--path' || flag === '--database-path') throw new Error('This diagnostic only creates and measures a temporary synthetic database; existing database paths are not accepted.');
+      throw new Error(`Unknown or incomplete flag: ${arg}`);
+    }
+    const flag = match[1]!;
+    const value = match[2]!;
     if (flag === '--objects') fixture.objects = parsePositiveInteger(value, flag);
     else if (flag === '--body-bytes') fixture.bodyBytes = parsePositiveInteger(value, flag);
     else if (flag === '--revisions') fixture.revisions = parsePositiveInteger(value, flag);
