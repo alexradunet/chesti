@@ -62,6 +62,8 @@ Read `README.md` for setup and current boundaries. Read `docs/object-contract.md
 
 ## Verification and safe working
 
+- Always use the GitHub CLI (`gh`) for GitHub operations and authentication. For pushes, configure Git authentication with `gh auth setup-git`, then use `git push` (there is no `gh push` command). If authentication fails, report the blocker rather than switching credential methods.
+
 Use Bun 1.4.2+ and the checked-in lockfile. Existing commands:
 
 ```sh
