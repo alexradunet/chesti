@@ -412,3 +412,54 @@ test('backlinks are paginated deterministically without dropping edges or loadin
   assert.equal(db.query<{ count: number }, []>('SELECT COUNT(*) AS count FROM object_revisions').get()!.count, beforeHistory);
   assert.equal(db.query<{ count: number }, []>('SELECT COUNT(*) AS count FROM object_references').get()!.count, beforeEdges);
 });
+
+test('reference validation uses target summaries and unchanged writing derivations are preserved on property edits', t => {
+  const { db, runtime } = fixture(t);
+  const targetType = runtime.createType('Reference targets');
+  const target = runtime.createObject(input(targetType.id, 'Large target', {}, 'x'.repeat(64 * 1024)));
+  const other = runtime.createObject(input(targetType.id, 'Other large target', {}, 'y'.repeat(64 * 1024)));
+  let page = runtime.getType(PAGE_TYPE_ID);
+  page = runtime.addProperty(page.id, page.revision, { label: 'Targets', kind: 'reference', targetTypeId: targetType.id, multiple: true });
+  page = runtime.addProperty(page.id, page.revision, { label: 'Note', kind: 'text' });
+  const references = page.propertyIds[0]!;
+  const note = page.propertyIds[1]!;
+  const body = `[Large](/objects/${target.id})\n\n${'body '.repeat(200)}`;
+  const source = runtime.createObject(input(page.id, 'Source', { [references]: [target.id] }, body));
+  const sourceBodyText = db.query<{ body_text: string }, [string]>('SELECT body_text FROM objects WHERE id = ?').get(source.id)!.body_text;
+  const sourceWritingEdges = db.query('SELECT target_id FROM object_references WHERE source_id = ? AND property_id = \'\' ORDER BY target_id').all(source.id);
+
+  class SummaryOnlyRuntime extends ObjectRuntime {
+    override getObject(id: string) {
+      if (id.toLowerCase() === target.id.toLowerCase() || id.toLowerCase() === other.id.toLowerCase()) throw new Error('full target read');
+      return super.getObject(id);
+    }
+  }
+  const checked = new SummaryOnlyRuntime(db);
+  db.exec(`CREATE TEMP TRIGGER unchanged_body_text BEFORE UPDATE OF body_text ON objects WHEN OLD.id = '${source.id}' BEGIN SELECT RAISE(ABORT, 'body_text changed'); END`);
+  db.exec(`CREATE TEMP TRIGGER unchanged_writing_edges BEFORE DELETE ON object_references WHEN OLD.source_id = '${source.id}' AND OLD.property_id = '' BEGIN SELECT RAISE(ABORT, 'writing edge rewritten'); END`);
+
+  const edited = checked.patchProperties(source.id, source.revision, { [note]: 'property only', [references]: [target.id, other.id] });
+  assert.equal(edited.body, source.body);
+  assert.equal(db.query<{ body_text: string }, [string]>('SELECT body_text FROM objects WHERE id = ?').get(source.id)!.body_text, sourceBodyText);
+  assert.deepEqual(db.query('SELECT target_id FROM object_references WHERE source_id = ? AND property_id = \'\' ORDER BY target_id').all(source.id), sourceWritingEdges);
+  assert.deepEqual(checked.backlinks(other.id).links.map(link => ({ id: link.object.id, propertyId: link.propertyId })), [{ id: source.id, propertyId: references }]);
+
+  assert.throws(() => checked.patchProperties(edited.id, edited.revision, { [references]: [crypto.randomUUID()] }), status(404));
+  assert.deepEqual(checked.getObject(source.id), edited);
+});
+
+test('writing edits refresh search text and writing backlinks while failures roll back', t => {
+  const { db, runtime } = fixture(t);
+  const first = runtime.createObject(input(PAGE_TYPE_ID, 'First target'));
+  const second = runtime.createObject(input(PAGE_TYPE_ID, 'Second target'));
+  const source = runtime.createObject(input(PAGE_TYPE_ID, 'Source', {}, `[First](/objects/${first.id})`));
+  const edited = runtime.updateObject(source.id, source.revision, { ...source, body: `[Second](/objects/${second.id})\n\nneedle-text` });
+  assert.equal(runtime.backlinks(first.id).links.length, 0);
+  assert.deepEqual(runtime.backlinks(second.id).links.map(link => link.object.id), [source.id]);
+  assert.equal(db.query<{ body_text: string }, [string]>('SELECT body_text FROM objects WHERE id = ?').get(source.id)!.body_text.includes('needle-text'), true);
+
+  db.exec(`CREATE TEMP TRIGGER fail_changed_writing_edge BEFORE INSERT ON object_references WHEN NEW.source_id = '${source.id}' AND NEW.property_id = '' BEGIN SELECT RAISE(ABORT, 'edge failure'); END`);
+  assert.throws(() => runtime.updateObject(edited.id, edited.revision, { ...edited, body: `[First](/objects/${first.id})` }), /edge failure/);
+  assert.deepEqual(runtime.getObject(source.id), edited);
+  assert.deepEqual(runtime.backlinks(second.id).links.map(link => link.object.id), [source.id]);
+});

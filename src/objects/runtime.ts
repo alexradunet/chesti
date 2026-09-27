@@ -16,6 +16,7 @@ interface ObjectSummaryRow { id: string; type_id: string; title: string; revisio
 interface ObjectRow extends ObjectSummaryRow { properties_json: string; body: string }
 interface RevisionRow { revision: number; snapshot_json: string; recorded_at: string }
 interface RevisionSummaryRow { revision: number; recorded_at: string; title: string; type_id: string; trashed: number }
+interface WritingDerivations { links: Set<string>; text?: string }
 
 function objectSummary(row: ObjectSummaryRow): ObjectSummary {
   return { id: row.id, typeId: row.type_id, title: row.title, revision: row.revision, createdAt: row.created_at, updatedAt: row.updated_at, trashed: row.trashed === 1 };
@@ -245,13 +246,14 @@ export class ObjectRuntime {
           return this.getObject(receipt.object_id);
         }
       }
-      this.validateValues(write);
+      const writing = this.writingDerivations(write.body, true);
+      this.validateValues(write, undefined, writing.links);
       const now = new Date().toISOString();
       const id = crypto.randomUUID();
       this.db.query(`INSERT INTO objects(id, type_id, title, properties_json, body, revision, created_at, updated_at, trashed, body_text)
-        VALUES (?, ?, CAST(? AS TEXT), ?, CAST(? AS TEXT), 1, ?, ?, 0, CAST(? AS TEXT))`).run(id, write.typeId, Buffer.from(write.title), JSON.stringify(write.properties), Buffer.from(write.body), now, now, Buffer.from(markdownText(write.body)));
+        VALUES (?, ?, CAST(? AS TEXT), ?, CAST(? AS TEXT), 1, ?, ?, 0, CAST(? AS TEXT))`).run(id, write.typeId, Buffer.from(write.title), JSON.stringify(write.properties), Buffer.from(write.body), now, now, Buffer.from(writing.text!));
       const object = this.getObject(id);
-      this.indexReferences(object);
+      this.indexReferences(object, writing.links);
       if (requestId !== undefined) this.db.query('INSERT INTO object_create_requests(request_id, fingerprint, object_id) VALUES (?, ?, ?)').run(requestId.toLowerCase(), digest!, id);
       return object;
     }).immediate();
@@ -259,23 +261,7 @@ export class ObjectRuntime {
   updateObject(id: string, revision: number, input: ObjectWrite): ObjectRecord {
     return this.db.transaction(() => {
       const previous = this.getObject(id);
-      revisionIs(previous.revision, revision);
-      const write = this.validateShape(input);
-      this.validateValues(write, previous);
-      if (write.typeId !== previous.typeId) {
-        const incoming = this.db.query<{ property_id: string }, [string]>('SELECT DISTINCT property_id FROM object_references WHERE target_id = ? AND property_id != \'\'').all(id);
-        for (const edge of incoming) {
-          if (this.getProperty(edge.property_id).targetTypeId !== write.typeId) {
-            const external = this.db.query<{ source_id: string }, [string, string, string]>('SELECT source_id FROM object_references WHERE target_id = ? AND property_id = ? AND source_id != ? LIMIT 1').get(id, edge.property_id, id);
-            if (external) throw new AppError(409, 'This type change would invalidate an existing reference. Remove or change that reference first.');
-          }
-        }
-      }
-      this.remember(previous);
-      this.db.query(`UPDATE objects SET type_id = ?, title = CAST(? AS TEXT), properties_json = ?, body = CAST(? AS TEXT), body_text = CAST(? AS TEXT), revision = revision + 1, updated_at = ? WHERE id = ? AND revision = ?`).run(write.typeId, Buffer.from(write.title), JSON.stringify(write.properties), Buffer.from(write.body), Buffer.from(markdownText(write.body)), new Date().toISOString(), id, revision);
-      const object = this.getObject(id);
-      this.indexReferences(object);
-      return object;
+      return this.updateObjectFromPrevious(previous, revision, input);
     }).immediate();
   }
   patchProperties(id: string, revision: number, patch: Record<string, PropertyValue | null>): ObjectRecord {
@@ -288,8 +274,33 @@ export class ObjectRuntime {
         this.getProperty(propertyId);
         if (value === null) delete properties[propertyId]; else properties[propertyId] = value;
       }
-      return this.updateObject(id, revision, { typeId: previous.typeId, title: previous.title, properties, body: previous.body });
+      return this.updateObjectFromPrevious(previous, revision, { typeId: previous.typeId, title: previous.title, properties, body: previous.body });
     }).immediate();
+  }
+  private updateObjectFromPrevious(previous: ObjectRecord, revision: number, input: ObjectWrite): ObjectRecord {
+    revisionIs(previous.revision, revision);
+    const write = this.validateShape(input);
+    const bodyChanged = write.body !== previous.body;
+    const writing = this.writingDerivations(write.body, bodyChanged);
+    this.validateValues(write, previous, writing.links);
+    if (write.typeId !== previous.typeId) {
+      const incoming = this.db.query<{ property_id: string }, [string]>('SELECT DISTINCT property_id FROM object_references WHERE target_id = ? AND property_id != \'\'').all(previous.id);
+      for (const edge of incoming) {
+        if (this.getProperty(edge.property_id).targetTypeId !== write.typeId) {
+          const external = this.db.query<{ source_id: string }, [string, string, string]>('SELECT source_id FROM object_references WHERE target_id = ? AND property_id = ? AND source_id != ? LIMIT 1').get(previous.id, edge.property_id, previous.id);
+          if (external) throw new AppError(409, 'This type change would invalidate an existing reference. Remove or change that reference first.');
+        }
+      }
+    }
+    this.remember(previous);
+    if (bodyChanged) {
+      this.db.query(`UPDATE objects SET type_id = ?, title = CAST(? AS TEXT), properties_json = ?, body = CAST(? AS TEXT), body_text = CAST(? AS TEXT), revision = revision + 1, updated_at = ? WHERE id = ? AND revision = ?`).run(write.typeId, Buffer.from(write.title), JSON.stringify(write.properties), Buffer.from(write.body), Buffer.from(writing.text!), new Date().toISOString(), previous.id, revision);
+    } else {
+      this.db.query(`UPDATE objects SET type_id = ?, title = CAST(? AS TEXT), properties_json = ?, body = CAST(? AS TEXT), revision = revision + 1, updated_at = ? WHERE id = ? AND revision = ?`).run(write.typeId, Buffer.from(write.title), JSON.stringify(write.properties), Buffer.from(write.body), new Date().toISOString(), previous.id, revision);
+    }
+    const object = this.getObject(previous.id);
+    this.indexReferences(object, writing.links, !bodyChanged);
+    return object;
   }
   setTrashed(id: string, revision: number, trashed: boolean): ObjectRecord {
     if (typeof trashed !== 'boolean') throw new AppError(422, 'Invalid trash state.');
@@ -298,7 +309,7 @@ export class ObjectRuntime {
       revisionIs(previous.revision, revision);
       if (previous.trashed === trashed) return previous;
       const write = this.validateShape(previous);
-      this.validateValues(write, previous);
+      this.validateValues(write, previous, this.writingDerivations(write.body).links);
       this.remember(previous);
       this.db.query('UPDATE objects SET properties_json = ?, trashed = ?, revision = revision + 1, updated_at = ? WHERE id = ? AND revision = ?').run(JSON.stringify(write.properties), trashed ? 1 : 0, new Date().toISOString(), id, revision);
       return this.getObject(id);
@@ -328,7 +339,7 @@ export class ObjectRuntime {
     try { body = validateMarkdown(input.body); } catch (error) { throw new AppError(422, error instanceof Error ? error.message : 'Invalid Markdown.'); }
     return { typeId: input.typeId, title: input.title, properties: structuredClone(input.properties) as Record<string, PropertyValue>, body };
   }
-  private validateValues(write: ObjectWrite, previous?: ObjectRecord): void {
+  private validateValues(write: ObjectWrite, previous?: ObjectRecord, writingLinks = this.writingDerivations(write.body).links): void {
     this.getType(write.typeId);
     for (const [propertyId, value] of Object.entries(write.properties)) {
       const property = this.getProperty(propertyId);
@@ -340,7 +351,7 @@ export class ObjectRuntime {
         const oldValue = previous?.properties[propertyId];
         const retained = new Set((Array.isArray(oldValue) ? oldValue : typeof oldValue === 'string' ? [oldValue] : []).map(id => id.toLowerCase()));
         for (const targetId of ids as string[]) {
-          const target = this.getObject(targetId);
+          const target = this.getObjectSummary(targetId);
           const targetType = previous && target.id.toLowerCase() === previous.id.toLowerCase() ? write.typeId : target.typeId;
           if (targetType !== property.targetTypeId) throw new AppError(422, `${property.label}: target has the wrong object type.`);
           if (target.trashed && !retained.has(target.id.toLowerCase())) throw new AppError(422, `${property.label}: cannot add a reference to a trashed object.`);
@@ -350,9 +361,9 @@ export class ObjectRuntime {
         if (error) throw new AppError(422, `${property.label}: ${error}`);
       }
     }
-    const retained = new Set(previous ? markdownReferences(previous.body) : []);
-    for (const targetId of markdownReferences(write.body)) {
-      const target = this.getObject(targetId);
+    const retained = previous?.body === write.body ? writingLinks : new Set(previous ? markdownReferences(previous.body) : []);
+    for (const targetId of writingLinks) {
+      const target = this.getObjectSummary(targetId);
       if (target.trashed && !retained.has(target.id.toLowerCase())) throw new AppError(422, 'Cannot add a link to a trashed object.');
     }
     this.validateBuiltinValues(write, previous);
@@ -379,13 +390,16 @@ export class ObjectRuntime {
   private remember(object: ObjectRecord): void {
     this.db.query('INSERT INTO object_revisions(object_id, revision, snapshot_json, recorded_at) VALUES (?, ?, ?, ?)').run(object.id, object.revision, JSON.stringify(object), new Date().toISOString());
   }
-  private indexReferences(object: ObjectRecord): void {
-    this.db.query('DELETE FROM object_references WHERE source_id = ?').run(object.id);
+  private writingDerivations(body: string, includeText = false): WritingDerivations {
+    return { links: new Set(markdownReferences(body)), ...(includeText ? { text: markdownText(body) } : {}) };
+  }
+  private indexReferences(object: ObjectRecord, writingLinks: Set<string>, preserveWriting = false): void {
+    this.db.query(`DELETE FROM object_references WHERE source_id = ?${preserveWriting ? " AND property_id != ''" : ''}`).run(object.id);
     const insert = this.db.query('INSERT OR IGNORE INTO object_references(source_id, target_id, property_id) VALUES (?, ?, ?)');
     for (const [propertyId, value] of Object.entries(object.properties)) {
       if (this.getProperty(propertyId).kind !== 'reference') continue;
       for (const targetId of Array.isArray(value) ? value : [value]) insert.run(object.id, String(targetId), propertyId);
     }
-    for (const targetId of markdownReferences(object.body)) insert.run(object.id, targetId, '');
+    if (!preserveWriting) for (const targetId of writingLinks) insert.run(object.id, targetId, '');
   }
 }
