@@ -1,5 +1,24 @@
 # Implementation plans
 
+## Current assignment — architecture hot paths, 2026-09-27
+
+The owner requested **“implement them”** after the architecture audit's recommendation to implement its first four improvements. Scope is lazy request data, body-free reference validation, target-first reference membership, and reuse of unchanged writing derivations. Baseline is `eb324c4`: Bun 1.4.2 / SQLite 3.53.2, strict TypeScript and 128 passing tests. No source/data edits occurred during research. Existing untracked owner plans 012/013 remain untouched.
+
+**Latest owner direction: “yes and push”, explicitly approving merge into `master`.** [Publication procedure](021-024-publication.md) authorizes a separate Pi executor to fast-forward main to accepted `c737ec8`, rerun checks, commit only this work's nine allowlisted planning/review records, and normally push to `origin/master`. The owner was told that updating main may restart the live watch server; no direct live-data/server access is permitted. This paragraph is a pre-publication authorization record, not a claim of success: the executor report and independently verified remote ref establish completion.
+
+| Plan | Outcome | Effort / risk | Dependencies | Status |
+| --- | --- | --- | --- | --- |
+| [021](021-lazy-request-data.md) | Skip saved-view presentation reads for JSON and successful redirects; reuse type metadata | S–M / LOW–MED | — | DONE — accepted isolated `c737ec8` |
+| [022](022-lightweight-reference-validation.md) | Use target summaries without reading target Markdown | S / LOW | — | DONE — accepted isolated `c737ec8` |
+| [023](023-target-first-reference-queries.md) | Use existing target edge index for multiple-reference membership; preserve shared command scope | M / MED | — | DONE — accepted isolated `c737ec8` |
+| [024](024-reuse-unchanged-writing.md) | Reuse transaction-local Markdown results and retain unchanged writing derivatives | M / MED | — (recommended after 022) | DONE — accepted isolated `c737ec8` |
+
+**Accepted:** one Pi executor implemented the four plans in isolated top-level worktree `/home/alex/orca/workspaces/GenUIExperiment/architecture-hot-paths`, branch `alexradunet/architecture-hot-paths`, final `c737ec82e357c09a019e21174c257cf0d432e9f2`. [Final independent review](021-024-accepted-review.md): strict TypeScript, 134 tests, diff hygiene, default benchmarks and direct read/parse-count probes pass. One bounded verification repair; no demonstrated source defect. [Execution record](021-024-execution.md): Run `run_6421011b6463`, implementation Task `task_be259898f62f` and review Task `task_1adcf0f2bd77` are completed; all Deliveries acknowledged. Native release metadata remains `release_unknown/tab_not_found` after prescribed retry, but exact inspection confirms the worker terminal exited; output, worktree and commits are preserved. Isolation is required because the main checkout runs the owner's `bun --watch` server against the live database; editing there would restart it. Orca's configured `npm install` hook is skipped in favor of `bun install --frozen-lockfile`. The advisor edits plans only and never commits, merges or pushes the owner's branch. The initial implementation authorization excluded integration/publication; the later explicit owner permission above now authorizes only the reviewed fast-forward, allowlisted record commit and normal push. No schema migrations, new indexes, static-asset caching, FTS, JSONB, workspace redesign, provider calls, or `.data` access. Normal gates: focused tests, `bun run check`, `bun test`, `git diff --check`, and owned synthetic benchmark evidence; unchanged UI contracts need no speculative UI edits.
+
+Research considered and deferred: asset caching is a separate follow-up; expression indexes require a demonstrated hot property; history normalization/deduplication is a larger preservation-sensitive migration; controlled WITHOUT ROWID reference-table experiment saved only ~14%; FTS helped rare terms but substantially slowed common bounded queries. No global caches, EAV rewrite, extra services, or weakened durability.
+
+---
+
 ## Current assignment — six SQLite priorities, 2026-09-27
 
 The owner requested plans for all six research priorities and implementation through subagents. The initial authority covered **isolated Pi implementation, review and a combined review branch**, not merge/push or `.data/` access. Baseline `133f8a6`: Bun 1.4.2, strict TypeScript and **91 tests / 0 failures**, diff hygiene passed again for this assignment.
