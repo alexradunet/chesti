@@ -1,9 +1,9 @@
 import type { Database } from 'bun:sqlite';
 import { fingerprint } from './objects/fingerprint.js';
-import { BUILTIN_PROPERTIES, BUILTIN_TYPES, JOURNAL_DATE_PROPERTY_ID, JOURNAL_TYPE_ID } from './objects/model.js';
+import { BUILTIN_PROPERTIES, BUILTIN_TYPES, JOURNAL_DATE_PROPERTY_ID, JOURNAL_TYPE_ID, TASK_SCHEDULED_PROPERTY_ID, TASK_TYPE_ID } from './objects/model.js';
 import { upgradeObjectMarkdown } from './objects/upgrade-markdown.js';
 
-interface TypeRow { id: string; property_ids_json: string }
+interface TypeRow { id: string; property_ids_json: string; revision: number }
 interface PropertyRow { id: string; kind: string; options_json: string | null; target_type_id: string | null; multiple: number }
 
 const ID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
@@ -62,6 +62,10 @@ function installCoreTables(db: Database): void {
     ) STRICT;
     CREATE TABLE IF NOT EXISTS object_create_requests (
       request_id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, object_id TEXT NOT NULL COLLATE NOCASE REFERENCES objects(id)
+    ) STRICT;
+    CREATE TABLE IF NOT EXISTS object_favorites (
+      object_id TEXT PRIMARY KEY COLLATE NOCASE REFERENCES objects(id) ON DELETE CASCADE,
+      created_at TEXT NOT NULL
     ) STRICT;
   `);
 }
@@ -176,6 +180,34 @@ function addVersion4Constraints(db: Database, existing: Set<string>): void {
   }
 }
 
+function attachTaskScheduledProperty(db: Database): void {
+  const scheduled = BUILTIN_PROPERTIES.find(property => property.id === TASK_SCHEDULED_PROPERTY_ID)!;
+  const existingProperty = db.query<PropertyRow, [string]>('SELECT * FROM object_properties WHERE id = ?').get(TASK_SCHEDULED_PROPERTY_ID);
+  if (existingProperty) {
+    if (existingProperty.kind !== scheduled.kind || existingProperty.options_json !== null || existingProperty.target_type_id !== null || existingProperty.multiple !== 0) {
+      throw new Error(`Reserved built-in property ${TASK_SCHEDULED_PROPERTY_ID} has an incompatible structure.`);
+    }
+  } else {
+    db.query('INSERT INTO object_properties(id, label, kind, options_json, target_type_id, multiple, revision) VALUES (?, ?, ?, NULL, NULL, 0, 1)')
+      .run(scheduled.id, scheduled.label, scheduled.kind);
+  }
+  const task = db.query<TypeRow, [string]>('SELECT * FROM object_types WHERE id = ?').get(TASK_TYPE_ID);
+  if (!task) return;
+  const ids: unknown = JSON.parse(task.property_ids_json);
+  if (!Array.isArray(ids) || ids.some(id => typeof id !== 'string' || !ID.test(id)) || new Set(ids).size !== ids.length) {
+    throw new Error(`Reserved built-in type ${TASK_TYPE_ID} has an incompatible structure.`);
+  }
+  if (!ids.includes(TASK_SCHEDULED_PROPERTY_ID)) {
+    db.query('UPDATE object_types SET property_ids_json = ?, revision = revision + 1 WHERE id = ?')
+      .run(JSON.stringify([...ids, TASK_SCHEDULED_PROPERTY_ID]), TASK_TYPE_ID);
+  }
+}
+
+function refreshTaskBuiltInTriggers(db: Database): void {
+  for (const suffix of ['insert', 'update', 'delete']) db.exec(`DROP TRIGGER IF EXISTS object_builtin_type_1_${suffix}`);
+  db.exec('DROP TRIGGER IF EXISTS object_builtin_property_7_insert; DROP TRIGGER IF EXISTS object_builtin_property_7_update; DROP TRIGGER IF EXISTS object_builtin_property_7_delete;');
+}
+
 function installBuiltins(db: Database): void {
   for (const [index, type] of BUILTIN_TYPES.entries()) {
     const existing = db.query<TypeRow, [string]>('SELECT * FROM object_types WHERE id = ?').get(type.id);
@@ -189,6 +221,7 @@ function installBuiltins(db: Database): void {
       db.query('INSERT INTO object_types(id, name, property_ids_json, revision) VALUES (?, ?, ?, 1)')
         .run(type.id, type.name, JSON.stringify(type.propertyIds));
     }
+    if (type.id === TASK_TYPE_ID) refreshTaskBuiltInTriggers(db);
     const invalid = [
       "json_type(NEW.property_ids_json) IS NOT 'array'",
       ...type.propertyIds.map(id => `(SELECT COUNT(*) FROM json_each(NEW.property_ids_json) WHERE type = 'text' AND value = '${id}') != 1`),
@@ -254,18 +287,19 @@ export function initializeApplicationSchema(db: Database): void {
   db.transaction(() => {
     db.exec('CREATE TABLE IF NOT EXISTS object_metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT');
     let version = db.query<{ value: string }, []>("SELECT value FROM object_metadata WHERE key = 'schema_version'").get()?.value;
-    if (version !== undefined && !['1', '2', '3', '4'].includes(version)) throw new Error('Unsupported object database schema.');
+    if (version !== undefined && !['1', '2', '3', '4', '5'].includes(version)) throw new Error('Unsupported object database schema.');
     const existing = new Set(['object_types', 'object_properties', 'objects', 'object_revisions', 'object_views', 'object_view_revisions'].filter(name => tableExists(db, name)));
     if (version === '1') {
       upgradeObjectMarkdown(db, fingerprint);
       version = '2';
     }
     installCoreTables(db);
+    if (version !== undefined && version !== '5') attachTaskScheduledProperty(db);
     installBuiltins(db);
     installViewTables(db);
     installConversationTables(db);
     installVisitorTables(db);
-    if (version !== '4') addVersion4Constraints(db, existing);
-    db.query("INSERT INTO object_metadata(key, value) VALUES ('schema_version', '4') ON CONFLICT(key) DO UPDATE SET value = excluded.value").run();
+    if (version !== '4' && version !== '5') addVersion4Constraints(db, existing);
+    db.query("INSERT INTO object_metadata(key, value) VALUES ('schema_version', '5') ON CONFLICT(key) DO UPDATE SET value = excluded.value").run();
   }).immediate();
 }

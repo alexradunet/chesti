@@ -2,10 +2,10 @@ import type { Database } from 'bun:sqlite';
 import { AppError } from '../core.js';
 import { initializeApplicationSchema } from '../schema.js';
 import { fingerprint } from './fingerprint.js';
-import { validDate, valueError } from './values.js';
+import { localDateBounds, validDate, valueError } from './values.js';
 import { markdownReferences, markdownText, validateMarkdown } from './markdown.js';
-import { EVENT_DATES_PROPERTY_ID, EVENT_TIME_PROPERTY_ID, EVENT_TYPE_ID, JOURNAL_DATE_PROPERTY_ID, JOURNAL_TYPE_ID, REMINDER_DATE_PROPERTY_ID, REMINDER_TIME_PROPERTY_ID, REMINDER_TYPE_ID, TASK_DONE_PROPERTY_ID, TASK_TYPE_ID } from './model.js';
-import type { BacklinkPage, Catalog, ObjectListOptions, ObjectRecord, ObjectRevisionSummary, ObjectSummary, ObjectType, ObjectWrite, PropertyDefinition, PropertyKind, PropertyValue } from './model.js';
+import { EVENT_DATES_PROPERTY_ID, EVENT_TIME_PROPERTY_ID, EVENT_TYPE_ID, JOURNAL_DATE_PROPERTY_ID, JOURNAL_TYPE_ID, REMINDER_DATE_PROPERTY_ID, REMINDER_TIME_PROPERTY_ID, REMINDER_TYPE_ID, TASK_DONE_PROPERTY_ID, TASK_DUE_PROPERTY_ID, TASK_SCHEDULED_PROPERTY_ID, TASK_TYPE_ID } from './model.js';
+import type { BacklinkPage, BoundedPage, Catalog, DayTaskSummary, ObjectListOptions, ObjectRecord, ObjectRevisionSummary, ObjectSummary, ObjectType, ObjectWrite, PropertyDefinition, PropertyKind, PropertyValue } from './model.js';
 
 const ID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 const KINDS: Record<PropertyKind, true> = { text: true, number: true, boolean: true, date: true, datetime: true, select: true, reference: true, 'date-range': true, 'time-range': true };
@@ -14,6 +14,7 @@ interface TypeRow { id: string; name: string; property_ids_json: string; revisio
 interface PropertyRow { id: string; label: string; kind: PropertyKind; options_json: string | null; target_type_id: string | null; multiple: number; revision: number }
 interface ObjectSummaryRow { id: string; type_id: string; title: string; revision: number; created_at: string; updated_at: string; trashed: number }
 interface ObjectRow extends ObjectSummaryRow { properties_json: string; body: string }
+interface DayTaskRow extends ObjectSummaryRow { done: unknown; due_date: unknown; scheduled_date: unknown; matches_due: number; matches_scheduled: number }
 interface RevisionRow { revision: number; snapshot_json: string; recorded_at: string }
 interface RevisionSummaryRow { revision: number; recorded_at: string; title: string; type_id: string; trashed: number }
 interface WritingDerivations { links: Set<string>; text?: string }
@@ -216,6 +217,64 @@ export class ObjectRuntime {
     if (options.typeId !== undefined) this.getType(options.typeId);
     return this.db.query<ObjectSummaryRow, (string | number)[]>(`SELECT id, type_id, title, revision, created_at, updated_at, trashed FROM objects WHERE ${shape.where} ORDER BY updated_at DESC, id LIMIT ? OFFSET ?`)
       .all(...shape.values, limit, offset).map(objectSummary);
+  }
+  listDayTasks(date: string, offset = 0): BoundedPage<DayTaskSummary> {
+    if (!validDate(date)) throw new AppError(422, 'Choose a real calendar date in YYYY-MM-DD format.');
+    if (!Number.isInteger(offset) || offset < 0 || offset > 1_000_000) throw new AppError(422, 'Invalid task page.');
+    const duePath = `$."${TASK_DUE_PROPERTY_ID}"`;
+    const scheduledPath = `$."${TASK_SCHEDULED_PROPERTY_ID}"`;
+    const rows = this.db.query<DayTaskRow, [string, string, string, string, string, number, number]>(`SELECT id, type_id, title, revision, created_at, updated_at, trashed,
+        json_extract(properties_json, '$."${TASK_DONE_PROPERTY_ID}"') AS done,
+        json_extract(properties_json, '${duePath}') AS due_date,
+        json_extract(properties_json, '${scheduledPath}') AS scheduled_date,
+        CASE WHEN json_extract(properties_json, '${duePath}') = ? THEN 1 ELSE 0 END AS matches_due,
+        CASE WHEN json_extract(properties_json, '${scheduledPath}') = ? THEN 1 ELSE 0 END AS matches_scheduled
+      FROM objects
+      WHERE trashed = 0 AND type_id = ? AND (json_extract(properties_json, '${duePath}') = ? OR json_extract(properties_json, '${scheduledPath}') = ?)
+      ORDER BY title COLLATE NOCASE, id LIMIT ? OFFSET ?`).all(date, date, TASK_TYPE_ID, date, date, 51, offset);
+    return {
+      items: rows.slice(0, 50).map(row => ({
+        ...objectSummary(row),
+        done: row.done === 1,
+        ...(typeof row.due_date === 'string' ? { dueDate: row.due_date } : {}),
+        ...(typeof row.scheduled_date === 'string' ? { scheduledDate: row.scheduled_date } : {}),
+        matchesDue: row.matches_due === 1,
+        matchesScheduled: row.matches_scheduled === 1,
+      })),
+      offset,
+      hasMore: rows.length > 50,
+    };
+  }
+  listObjectsCreatedOn(date: string, offset = 0): BoundedPage<ObjectSummary> {
+    let bounds: { start: string; end: string };
+    try { bounds = localDateBounds(date); } catch { throw new AppError(422, 'Choose a real calendar date in YYYY-MM-DD format.'); }
+    if (!Number.isInteger(offset) || offset < 0 || offset > 1_000_000) throw new AppError(422, 'Invalid created-object page.');
+    const rows = this.db.query<ObjectSummaryRow, [string, string, number, number]>(`SELECT id, type_id, title, revision, created_at, updated_at, trashed
+      FROM objects WHERE trashed = 0 AND created_at >= ? AND created_at < ? ORDER BY created_at, id LIMIT ? OFFSET ?`).all(bounds.start, bounds.end, 51, offset);
+    return { items: rows.slice(0, 50).map(objectSummary), offset, hasMore: rows.length > 50 };
+  }
+  listFavoriteObjects(offset = 0): BoundedPage<ObjectSummary> {
+    if (!Number.isInteger(offset) || offset < 0 || offset > 1_000_000) throw new AppError(422, 'Invalid favorites page.');
+    const rows = this.db.query<ObjectSummaryRow, [number, number]>(`SELECT o.id, o.type_id, o.title, o.revision, o.created_at, o.updated_at, o.trashed
+      FROM object_favorites f JOIN objects o ON o.id = f.object_id WHERE o.trashed = 0 ORDER BY f.created_at, o.id LIMIT ? OFFSET ?`).all(51, offset);
+    return { items: rows.slice(0, 50).map(objectSummary), offset, hasMore: rows.length > 50 };
+  }
+  setFavorite(id: string, favorite: boolean): void {
+    if (typeof id !== 'string' || !ID.test(id)) throw new AppError(422, 'Invalid object ID.');
+    if (typeof favorite !== 'boolean') throw new AppError(422, 'Invalid favorite state.');
+    this.db.transaction(() => {
+      const object = this.getObjectSummary(id);
+      if (favorite) {
+        if (object.trashed) throw new AppError(409, 'Restore this object before favoriting it.');
+        this.db.query('INSERT OR IGNORE INTO object_favorites(object_id, created_at) VALUES (?, ?)').run(object.id.toLowerCase(), new Date().toISOString());
+      } else {
+        this.db.query('DELETE FROM object_favorites WHERE object_id = ?').run(object.id.toLowerCase());
+      }
+    }).immediate();
+  }
+  isFavorite(id: string): boolean {
+    if (typeof id !== 'string' || !ID.test(id)) throw new AppError(422, 'Invalid object ID.');
+    return Boolean(this.db.query<{ value: number }, [string]>('SELECT 1 AS value FROM object_favorites WHERE object_id = ?').get(id.toLowerCase()));
   }
   countObjectsByType(trashed = false): Record<string, number> {
     const rows = this.db.query<{ type_id: string; count: number }, [number]>(

@@ -10,6 +10,7 @@ export const REMINDER_TYPE_ID = '00000000-0000-4000-8000-000000000004';
 export const JOURNAL_TYPE_ID = '00000000-0000-4000-8000-000000000005';
 export const TASK_DONE_PROPERTY_ID = '00000000-0000-4000-8000-000000000101';
 export const TASK_DUE_PROPERTY_ID = '00000000-0000-4000-8000-000000000102';
+export const TASK_SCHEDULED_PROPERTY_ID = '00000000-0000-4000-8000-000000000103';
 export const EVENT_DATES_PROPERTY_ID = '00000000-0000-4000-8000-000000000201';
 export const EVENT_TIME_PROPERTY_ID = '00000000-0000-4000-8000-000000000202';
 export const REMINDER_DATE_PROPERTY_ID = '00000000-0000-4000-8000-000000000301';
@@ -37,10 +38,11 @@ export const BUILTIN_PROPERTIES: readonly Omit<PropertyDefinition, 'revision'>[]
   { id: REMINDER_DATE_PROPERTY_ID, label: 'Reminder date', kind: 'date' },
   { id: REMINDER_TIME_PROPERTY_ID, label: 'Reminder time', kind: 'datetime' },
   { id: JOURNAL_DATE_PROPERTY_ID, label: 'Journal date', kind: 'date' },
+  { id: TASK_SCHEDULED_PROPERTY_ID, label: 'Scheduled date', kind: 'date' },
 ];
 export const BUILTIN_TYPES: readonly { id: string; name: string; description: string; propertyIds: readonly string[] }[] = [
   { id: PAGE_TYPE_ID, name: 'Page', description: 'Freeform writing without required fields.', propertyIds: [] },
-  { id: TASK_TYPE_ID, name: 'Task', description: 'Work with a completion state and an optional due date.', propertyIds: [TASK_DONE_PROPERTY_ID, TASK_DUE_PROPERTY_ID] },
+  { id: TASK_TYPE_ID, name: 'Task', description: 'Work with a completion state, optional scheduled date, and optional due date.', propertyIds: [TASK_DONE_PROPERTY_ID, TASK_DUE_PROPERTY_ID, TASK_SCHEDULED_PROPERTY_ID] },
   { id: EVENT_TYPE_ID, name: 'Event', description: 'Exactly one all-day date range or timed range, with an exclusive end.', propertyIds: [EVENT_DATES_PROPERTY_ID, EVENT_TIME_PROPERTY_ID] },
   { id: REMINDER_TYPE_ID, name: 'Reminder', description: 'A calendar item with exactly one date or time. No notifications or recurrence.', propertyIds: [REMINDER_DATE_PROPERTY_ID, REMINDER_TIME_PROPERTY_ID] },
   { id: JOURNAL_TYPE_ID, name: 'Journal', description: 'One canonical entry per calendar date, including entries in Trash.', propertyIds: [JOURNAL_DATE_PROPERTY_ID] },
@@ -61,6 +63,14 @@ export interface ObjectSummary {
   updatedAt: string;
   trashed: boolean;
 }
+export interface DayTaskSummary extends ObjectSummary {
+  done: boolean;
+  dueDate?: string;
+  scheduledDate?: string;
+  matchesDue: boolean;
+  matchesScheduled: boolean;
+}
+export interface BoundedPage<T> { items: T[]; offset: number; hasMore: boolean }
 export interface ViewObjectRecord extends ObjectSummary {
   properties: Record<string, PropertyValue>;
 }

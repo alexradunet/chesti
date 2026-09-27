@@ -10,6 +10,14 @@ export function validDate(value: unknown): value is string {
   const days = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
   return year >= 1 && month >= 1 && month <= 12 && day >= 1 && day <= days[month - 1]!;
 }
+export function localDateBounds(date: string): { start: string; end: string } {
+  if (!validDate(date)) throw new Error('Choose a real calendar date in YYYY-MM-DD format.');
+  const [year, month, day] = date.split('-').map(Number) as [number, number, number];
+  return { start: new Date(year, month - 1, day).toISOString(), end: new Date(year, month - 1, day + 1).toISOString() };
+}
+export function serverTimeZone(): string {
+  return Intl.DateTimeFormat().resolvedOptions().timeZone;
+}
 export function validDateTime(value: unknown): value is string {
   if (typeof value !== 'string' || value.endsWith('-00:00')) return false;
   const match = /^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,3})?(Z|([+-])(\d{2}):(\d{2}))$/.exec(value);

@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openDatabase } from '../src/database.js';
-import { BUILTIN_PROPERTIES, BUILTIN_TYPES, PAGE_TYPE_ID, TASK_DONE_PROPERTY_ID, TASK_DUE_PROPERTY_ID, TASK_TYPE_ID } from '../src/objects/model.js';
+import { BUILTIN_PROPERTIES, BUILTIN_TYPES, EVENT_DATES_PROPERTY_ID, EVENT_TIME_PROPERTY_ID, EVENT_TYPE_ID, JOURNAL_DATE_PROPERTY_ID, JOURNAL_TYPE_ID, PAGE_TYPE_ID, REMINDER_DATE_PROPERTY_ID, REMINDER_TIME_PROPERTY_ID, REMINDER_TYPE_ID, TASK_DONE_PROPERTY_ID, TASK_DUE_PROPERTY_ID, TASK_SCHEDULED_PROPERTY_ID, TASK_TYPE_ID } from '../src/objects/model.js';
 import { ObjectRuntime } from '../src/objects/runtime.js';
 import { ViewService } from '../src/objects/views.js';
 
@@ -19,6 +19,10 @@ const viewId = '77777777-7777-4777-8777-777777777777';
 const deletedViewId = '88888888-8888-4888-8888-888888888888';
 const conversationId = '99999999-9999-4999-8999-999999999999';
 const timestamp = '2026-09-27T12:34:56.000Z';
+const LEGACY_BUILTIN_PROPERTIES = BUILTIN_PROPERTIES.filter(property => property.id !== TASK_SCHEDULED_PROPERTY_ID);
+const LEGACY_BUILTIN_TYPES = BUILTIN_TYPES.map(type => type.id === TASK_TYPE_ID
+  ? { ...type, description: 'Work with a completion state and an optional due date.', propertyIds: [TASK_DONE_PROPERTY_ID, TASK_DUE_PROPERTY_ID] }
+  : type);
 
 function temporaryWorkspace(t: TestContext): string {
   const directory = mkdtempSync(join(tmpdir(), 'taskdesk-schema-'));
@@ -67,10 +71,10 @@ function installV3Fixture(file: string): { schema: unknown[]; rows: Record<strin
     CREATE TABLE browser_visitors (id TEXT PRIMARY KEY, csrf TEXT NOT NULL);
     CREATE TABLE unrelated (value TEXT) STRICT;
   `);
-  for (const property of BUILTIN_PROPERTIES) {
+  for (const property of LEGACY_BUILTIN_PROPERTIES) {
     db.query('INSERT INTO object_properties VALUES (?, ?, ?, NULL, NULL, 0, 1)').run(property.id, property.label, property.kind);
   }
-  for (const type of BUILTIN_TYPES) {
+  for (const type of LEGACY_BUILTIN_TYPES) {
     const name = type.id === PAGE_TYPE_ID ? 'Renamed Page' : type.id === TASK_TYPE_ID ? 'Renamed Task' : type.name;
     const ids = type.id === PAGE_TYPE_ID ? [textProperty, selectProperty] : type.id === TASK_TYPE_ID ? [...type.propertyIds, textProperty] : type.propertyIds;
     db.query('INSERT INTO object_types VALUES (?, ?, ?, ?)').run(type.id, name, JSON.stringify(ids), type.id === PAGE_TYPE_ID ? 7 : type.id === TASK_TYPE_ID ? 5 : 1);
@@ -100,7 +104,7 @@ function installV3Fixture(file: string): { schema: unknown[]; rows: Record<strin
 }
 
 function captureRows(db: ReturnType<typeof openDatabase>): Record<string, unknown[]> {
-  const tables = ['object_metadata', 'object_types', 'object_properties', 'objects', 'object_references', 'object_revisions', 'object_create_requests', 'object_views', 'object_view_revisions', 'object_view_conversations', 'object_view_conversation_turns', 'browser_visitors', 'unrelated'];
+  const tables = ['object_metadata', 'object_types', 'object_properties', 'objects', 'object_references', 'object_revisions', 'object_create_requests', 'object_favorites', 'object_views', 'object_view_revisions', 'object_view_conversations', 'object_view_conversation_turns', 'browser_visitors', 'unrelated'];
   return Object.fromEntries(tables.filter(table => db.query<{ present: number }, [string]>("SELECT 1 AS present FROM sqlite_schema WHERE type = 'table' AND name = ?").get(table))
     .map(table => [table, db.query(`SELECT * FROM ${table} ORDER BY 1`).all()]));
 }
@@ -151,14 +155,26 @@ function assertVersion4StructuralGuards(db: ReturnType<typeof openDatabase>): vo
   assert.throws(() => db.query('INSERT INTO object_view_revisions VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, 2)').run(id('bad-history-deleted'), 'draft', validSpec, 'prompt', 'model', validSchema, timestamp, timestamp), /object_view_revisions_deleted_closed/);
 }
 
-test('version-3 application schema upgrades to version 4 without changing logical data', t => {
+test('version-3 application schema upgrades to version 5 without changing object data', t => {
   const file = temporaryWorkspace(t);
   const before = installV3Fixture(file);
   let db = openDatabase(file);
   const runtime = new ObjectRuntime(db);
-  assert.equal(db.query<{ value: string }, []>("SELECT value FROM object_metadata WHERE key = 'schema_version'").get()!.value, '4');
+  assert.equal(db.query<{ value: string }, []>("SELECT value FROM object_metadata WHERE key = 'schema_version'").get()!.value, '5');
   assert.equal(runtime.getObject(page).body, 'Exact **Markdown**\n\nEmoji 🚀');
-  assert.deepEqual(captureRows(db), { ...before.rows, object_metadata: [{ key: 'schema_version', value: '4' }] });
+  assert.deepEqual(runtime.getObject(page), {
+    id: page,
+    typeId: PAGE_TYPE_ID,
+    title: 'Unicode 🚀',
+    properties: { [textProperty]: 'snowman ☃' },
+    body: 'Exact **Markdown**\n\nEmoji 🚀',
+    revision: 2,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+    trashed: false,
+  });
+  assert.deepEqual(runtime.getType(TASK_TYPE_ID).propertyIds, [TASK_DONE_PROPERTY_ID, TASK_DUE_PROPERTY_ID, textProperty, TASK_SCHEDULED_PROPERTY_ID]);
+  assert.equal(runtime.getType(TASK_TYPE_ID).revision, 6);
   assert.deepEqual(db.query<Record<string, string>, []>('PRAGMA integrity_check').all(), [{ integrity_check: 'ok' }]);
   assert.deepEqual(db.query('PRAGMA foreign_key_check').all(), []);
   assertVersion4StructuralGuards(db);
@@ -172,7 +188,7 @@ test('version-3 application schema upgrades to version 4 without changing logica
 });
 
 test('explicit unsupported schema versions are rejected without changing existing data', t => {
-  for (const version of ['', ' ', '5']) {
+  for (const version of ['', ' ', '6']) {
     const file = temporaryWorkspace(t);
     let db = openDatabase(file);
     db.exec('CREATE TABLE object_metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT; CREATE TABLE sentinel (value TEXT) STRICT;');
