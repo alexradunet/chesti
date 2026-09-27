@@ -1,479 +1,347 @@
 import type { Database } from 'bun:sqlite';
-import { existsSync, statSync } from 'node:fs';
-import { buildSyntheticFixture, normalizeSyntheticFixtureOptions } from './sqlite-fixture.js';
+import { buildSyntheticFixture, normalizeSyntheticFixtureOptions, syntheticWriting } from './sqlite-fixture.js';
 import type { SyntheticFixture, SyntheticFixtureOptions } from './sqlite-fixture.js';
 import { PAGE_TYPE_ID } from '../src/objects/model.js';
-import type { PropertyValue, ViewSpec } from '../src/objects/model.js';
+import type { ObjectWrite, ViewSpec } from '../src/objects/model.js';
 import { ViewService } from '../src/objects/views.js';
 
-type SqlBinding = string | number | null;
-interface Timed<T> { value: T; milliseconds: number }
-interface Measurement { medianMs: number; p95Ms: number; rangeMs: [number, number]; samples: number }
-interface QueryRun { ids: string[]; plan: string[]; read: Measurement; notes?: string[] }
-interface ScenarioResult {
-  name: string;
-  equivalent: boolean;
-  metadata: Record<string, unknown>;
-  baseline: QueryRun;
-  candidate: QueryRun;
-  storage: Record<string, number>;
-  write: Record<string, number>;
-}
-
+type Binding = string | number | null;
+export interface Measurement { medianMs: number; p95Ms: number; rangeMs: [number, number]; samples: number }
 export interface BenchmarkOptions {
-  objects: number;
-  largeObjects: number;
-  bodyBytes: number;
-  revisions: number;
-  referenceEvery: number;
-  repetitions: number;
-  warmups: number;
+  objects: number; largeObjects: number; bodyBytes: number; revisions: number;
+  referenceEvery: number; repetitions: number; warmups: number;
 }
-
 const LIMITS = { objects: 10_000, largeObjects: 10_000, bodyBytes: 16_384, revisions: 10, referenceEvery: 1_000, repetitions: 50, warmups: 20 };
-
-function parseInteger(text: string, flag: keyof typeof LIMITS, minimum: number): number {
-  if (!/^\d+$/.test(text)) throw new Error(`${flag} expects a nonnegative integer.`);
-  const value = Number(text);
-  if (!Number.isInteger(value) || value < minimum || value > LIMITS[flag]) throw new Error(`${flag} must be an integer from ${minimum} to ${LIMITS[flag]}.`);
-  return value;
-}
-
 export function parseArgs(args: string[]): BenchmarkOptions {
-  const options: BenchmarkOptions = { objects: 1_000, largeObjects: 10_000, bodyBytes: 384, revisions: 1, referenceEvery: 7, repetitions: 9, warmups: 2 };
+  const options: BenchmarkOptions = { objects: 1000, largeObjects: 10_000, bodyBytes: 384, revisions: 1, referenceEvery: 7, repetitions: 9, warmups: 2 };
+  const flags: Record<string, keyof BenchmarkOptions> = { objects: 'objects', 'large-objects': 'largeObjects', 'body-bytes': 'bodyBytes', revisions: 'revisions', 'reference-every': 'referenceEvery', repetitions: 'repetitions', warmups: 'warmups' };
   for (const arg of args) {
-    if (arg === '--help' || arg === '-h') throw new Error('Usage: bun run sqlite:bench -- [--objects=N] [--large-objects=N] [--body-bytes=N] [--revisions=N] [--reference-every=N] [--repetitions=N] [--warmups=N]');
-    const match = /^(--[a-z-]+)=(\d+)$/.exec(arg);
-    if (!match) {
-      const flag = arg.includes('=') ? arg.slice(0, arg.indexOf('=')) : arg;
-      if (['--database', '--db', '--path', '--database-path'].includes(flag)) throw new Error('sqlite:bench creates owned temporary synthetic databases only; existing database paths are not accepted.');
-      throw new Error(`Unknown or incomplete flag: ${arg}`);
-    }
-    const flag = match[1]!;
-    const value = match[2]!;
-    if (flag === '--objects') options.objects = parseInteger(value, 'objects', 1);
-    else if (flag === '--large-objects') options.largeObjects = parseInteger(value, 'largeObjects', 1);
-    else if (flag === '--body-bytes') options.bodyBytes = parseInteger(value, 'bodyBytes', 0);
-    else if (flag === '--revisions') options.revisions = parseInteger(value, 'revisions', 0);
-    else if (flag === '--reference-every') options.referenceEvery = parseInteger(value, 'referenceEvery', 1);
-    else if (flag === '--repetitions') options.repetitions = parseInteger(value, 'repetitions', 1);
-    else if (flag === '--warmups') options.warmups = parseInteger(value, 'warmups', 0);
-    else if (['--database', '--db', '--path', '--database-path'].includes(flag)) throw new Error('sqlite:bench creates owned temporary synthetic databases only; existing database paths are not accepted.');
-    else throw new Error(`Unknown flag: ${flag}`);
+    if (/^--(?:database|db|path|database-path)(?:=|$)/.test(arg)) throw new Error('sqlite:bench creates owned temporary synthetic databases only; existing database paths are not accepted.');
+    const match = /^--([a-z-]+)=(\d+)$/.exec(arg);
+    const key = match && flags[match[1]!];
+    if (!match || !key) throw new Error(`Unknown or incomplete flag: ${arg}`);
+    const value = Number(match[2]);
+    const minimum = ['bodyBytes', 'revisions', 'warmups'].includes(key) ? 0 : 1;
+    if (!Number.isInteger(value) || value < minimum || value > LIMITS[key]) throw new Error(`${key} must be an integer from ${minimum} to ${LIMITS[key]}.`);
+    options[key] = value;
   }
   return options;
 }
-
-function time<T>(fn: () => T): Timed<T> {
+function timed<T>(fn: () => T) {
   const start = performance.now();
   const value = fn();
   return { value, milliseconds: performance.now() - start };
 }
-
-function measure<T>(warmups: number, repetitions: number, fn: () => T): { value: T; measurement: Measurement } {
-  let value = fn();
-  for (let index = 0; index < warmups; index++) value = fn();
-  const samples: number[] = [];
-  for (let index = 0; index < repetitions; index++) {
-    const result = time(fn);
-    value = result.value;
-    samples.push(result.milliseconds);
-  }
+function statistics(samples: number[]): Measurement {
   const sorted = [...samples].sort((a, b) => a - b);
-  const median = sorted[Math.floor(sorted.length / 2)] ?? 0;
-  const p95 = sorted[Math.min(sorted.length - 1, Math.ceil(sorted.length * 0.95) - 1)] ?? median;
-  return { value, measurement: { medianMs: median, p95Ms: p95, rangeMs: [sorted[0] ?? 0, sorted.at(-1) ?? 0], samples: sorted.length } };
+  return { medianMs: sorted[Math.floor(sorted.length / 2)]!, p95Ms: sorted[Math.ceil(sorted.length * 0.95) - 1]!, rangeMs: [sorted[0]!, sorted.at(-1)!], samples: sorted.length };
 }
-
-function explain(db: Database, sql: string, values: SqlBinding[] = []): string[] {
-  return db.query<{ detail: string }, SqlBinding[]>(`EXPLAIN QUERY PLAN ${sql}`).all(...values).map(row => row.detail);
+function measure(warmups: number, repetitions: number, fn: () => unknown): Measurement {
+  for (let i = 0; i < warmups; i++) fn();
+  return statistics(Array.from({ length: repetitions }, () => timed(fn).milliseconds));
 }
-
-function dbBytes(db: Database, file: string): Record<string, number> {
+// Alternate the measured execution order, not just the labels, on every sample.
+function pairedReads(warmups: number, repetitions: number, baseline: () => unknown, candidate: () => unknown) {
+  const samples: number[][] = [[], []];
+  for (let i = -warmups; i < repetitions; i++) {
+    for (const side of i % 2 === 0 ? [0, 1] : [1, 0]) {
+      const result = timed(side === 0 ? baseline : candidate);
+      if (i >= 0) samples[side]!.push(result.milliseconds);
+    }
+  }
+  return { baseline: statistics(samples[0]!), candidate: statistics(samples[1]!) };
+}
+function explain(db: Database, sql: string, values: Binding[]) {
+  // Bun's cached EXPLAIN statements can retain a schema lock even after all().
+  // Plans are untimed diagnostics; finalize them before toggling candidate DDL.
+  const statement = db.prepare<{ detail: string }, Binding[]>(`EXPLAIN QUERY PLAN ${sql}`);
+  try {
+    return statement.all(...values).map(row => row.detail);
+  } finally {
+    statement.finalize();
+  }
+}
+function ids(db: Database, sql: string, values: Binding[]) {
+  return db.query<{ id: string }, Binding[]>(sql).all(...values).map(row => row.id);
+}
+function bytes(db: Database, names: string[]): number {
   const rows = db.query<{ name: string; bytes: number }, []>('SELECT name, SUM(pgsize) AS bytes FROM dbstat GROUP BY name').all();
-  const result = Object.fromEntries(rows.map(row => [row.name, row.bytes]));
-  result.databaseFile = existsSync(file) ? statSync(file).size : 0;
-  return result;
+  return rows.filter(row => names.includes(row.name)).reduce((sum, row) => sum + row.bytes, 0);
 }
-
-function idsFromView(fixture: SyntheticFixture, spec: ViewSpec): { displayed: string[]; truncated: boolean } {
-  const service = new ViewService(fixture.runtime);
-  const view = service.create({ spec, model: 'synthetic/benchmark' }, 'synthetic benchmark view');
-  const block = service.evaluate(view.id).blocks[0]!;
+export function assertSameIds(label: string, left: string[], right: string[]) {
+  if (left.length !== right.length || left.some((id, index) => id !== right[index])) throw new Error(`${label} semantic mismatch: ${left.length} versus ${right.length} rows`);
+}
+function viewIds(f: SyntheticFixture, spec: ViewSpec) {
+  const service = new ViewService(f.runtime);
+  const saved = service.create({ spec, model: 'synthetic/benchmark' }, 'Synthetic benchmark');
+  const block = service.evaluate(saved.id).blocks[0]!;
+  if (block.error) throw new Error(block.error);
   return { displayed: block.rows.map(row => row.object.id), truncated: block.truncated };
 }
+function verifyView(label: string, view: ReturnType<typeof viewIds>, sqlIds: string[]) {
+  assertSameIds(label, view.displayed, sqlIds.slice(0, 100));
+  if (view.truncated !== (sqlIds.length > 100)) throw new Error(`${label} truncation mismatch`);
+}
+const projection = 'o.id, o.type_id, o.title, o.properties_json, o.revision, o.created_at, o.updated_at, o.trashed';
+const ordering = ' ORDER BY source_index ASC, sort_missing ASC, sort_ascending ASC, sort_descending DESC, title COLLATE NOCASE ASC, id ASC LIMIT 101';
+const path = (id: string) => `$.${JSON.stringify(id)}`;
+const expression = (id: string) => `json_extract(o.properties_json, '${path(id)}')`;
+export function propertyIndexSql(f: SyntheticFixture) {
+  return `CREATE INDEX bench_property_scheduled ON objects(type_id, trashed, json_extract(properties_json, '${path(f.scheduledPropertyId)}'))`;
+}
+const referenceIndexSql = 'CREATE INDEX bench_refs_property_target_source ON object_references(property_id, target_id COLLATE NOCASE, source_id)';
 
-function sameIds(left: string[], right: string[]): boolean {
-  return left.length === right.length && left.every((id, index) => id === right[index]);
+// All phases use ONE owning database and the exact same input/history. Per-sample
+// savepoints restore state OUTSIDE the timer. Probe setup is committed before either
+// phase; candidate DDL is also committed before sampling to avoid schema reprepare
+// costs caused by rolling back samples under an uncommitted schema change.
+function writeSamples(f: SyntheticFixture, warmups: number, repetitions: number, write: () => string, inspect: (id: string) => unknown) {
+  const samples: number[] = [];
+  let observed: unknown;
+  for (let i = -warmups; i < repetitions; i++) {
+    f.db.exec('SAVEPOINT bench_sample');
+    try {
+      const result = timed(write);
+      observed = inspect(result.value);
+      if (i >= 0) samples.push(result.milliseconds);
+    } finally {
+      f.db.exec('ROLLBACK TO bench_sample; RELEASE bench_sample');
+    }
+  }
+  return { timing: statistics(samples), observed };
+}
+export function writeComparison(f: SyntheticFixture, kind: 'property' | 'reference' | 'search', warmups: number, repetitions: number) {
+  const db = f.db;
+  let built = false;
+  try {
+    // A live private target avoids newly adding a reference to a trashed read target.
+    const target = f.runtime.createObject({ typeId: PAGE_TYPE_ID, title: 'Write-only target', properties: {}, body: '' });
+    const initial: ObjectWrite = { typeId: PAGE_TYPE_ID, title: 'Measured initial', properties: { [f.scheduledPropertyId]: '2026-11-14' }, body: syntheticWriting(0, f.options.bodyBytes) };
+    let probe = f.runtime.createObject(initial);
+    for (let revision = 0; revision < f.options.revisions; revision++) probe = f.runtime.updateObject(probe.id, probe.revision, { ...initial, title: `Measured history ${revision}` });
+    const input: ObjectWrite = { typeId: PAGE_TYPE_ID, title: 'Measured changed title', properties: { [f.scheduledPropertyId]: '2026-11-28', [f.multiReferencePropertyId]: [target.id] }, body: syntheticWriting(1, f.options.bodyBytes) };
+    const inspect = (id: string) => {
+      const value = db.query<{ value: string }, [string]>(`SELECT json_extract(properties_json, '${path(f.scheduledPropertyId)}') AS value FROM objects WHERE id = ?`).get(id)!.value;
+      if (value !== '2026-11-28') throw new Error('Measured property update did not change expression value');
+      return value;
+    };
+    const phase = (candidate: boolean) => ({
+      insert: writeSamples(f, warmups, repetitions, () => {
+        const object = f.runtime.createObject(input);
+        if (candidate && kind === 'search') insertSearchObject(db, object.id);
+        return object.id;
+      }, inspect),
+      update: writeSamples(f, warmups, repetitions, () => {
+        const object = f.runtime.updateObject(probe.id, probe.revision, input);
+        if (candidate && kind === 'search') syncSearchObject(db, object.id);
+        return object.id;
+      }, inspect),
+    });
+    const baseline = phase(false);
+    let ddl: string;
+    if (kind === 'property') {
+      ddl = propertyIndexSql(f);
+      db.exec(ddl);
+    } else if (kind === 'reference') {
+      ddl = referenceIndexSql;
+      db.exec(ddl);
+    } else {
+      ddl = 'bench_search_key INTEGER PRIMARY KEY + FTS5 trigram';
+      createSearchTables(db);
+    }
+    built = true;
+    const candidate = phase(true);
+    return { setupRecords: 2, scope: 'Canonical insert/update and candidate maintenance only; excludes probe setup, outer commit/rollback/fsync and inspection. Fixed baseline phase then candidate phase, identical restored state per sample. Candidate DDL commits before samples.', initialRevision: probe.revision, initialHistoryRows: f.options.revisions, input: { title: input.title, properties: input.properties, bodyBytes: Buffer.byteLength(input.body) }, ddl, baseline, candidate };
+  } finally {
+    if (built) {
+      if (kind === 'property') db.exec('DROP INDEX bench_property_scheduled');
+      else if (kind === 'reference') db.exec('DROP INDEX bench_refs_property_target_source');
+      else db.exec('DROP TABLE bench_object_search; DROP TABLE bench_search_key');
+    }
+  }
 }
 
-export function assertSameIds(label: string, left: string[], right: string[]): void {
-  if (sameIds(left, right)) return;
-  const firstMismatch = left.findIndex((id, index) => id !== right[index]);
-  throw new Error(`${label} semantic mismatch: left=${left.length} rows right=${right.length} rows firstMismatch=${firstMismatch}`);
+export function propertyIndexScenario(f: SyntheticFixture, warmups = 1, repetitions = 3) {
+  const db = f.db;
+  const field = expression(f.scheduledPropertyId);
+  const definitions = [
+    { label: 'common-type-common-date', typeId: PAGE_TYPE_ID, threshold: '2026-11-14' },
+    { label: 'common-type-rare-date', typeId: PAGE_TYPE_ID, threshold: '2026-11-27' },
+    { label: 'rare-type-date', typeId: f.rareTypeId, threshold: '2026-11-20' },
+  ];
+  const cases = definitions.map(definition => {
+    const { label, typeId, threshold } = definition;
+    const spec: ViewSpec = { title: label, blocks: [{ title: label, component: 'table', columns: [{ role: 'date', label: 'Date' }], sources: [{ typeId, bindings: { date: f.scheduledPropertyId }, where: [{ propertyId: f.scheduledPropertyId, operator: 'after', value: threshold }], orderBy: { propertyId: f.scheduledPropertyId, direction: 'ascending' } }] }] };
+    const sql = `SELECT ${projection}, 0 AS source_index, CASE WHEN (${field} IS NULL OR ${field} = '') THEN 1 ELSE 0 END AS sort_missing, ${field} AS sort_ascending, NULL AS sort_descending FROM objects AS o WHERE ((o.trashed = 0) AND (o.type_id = ?) AND (${field} > ?))${ordering}`;
+    const values: Binding[] = [typeId, threshold];
+    const view = viewIds(f, spec);
+    const baselineIds = ids(db, sql, values);
+    verifyView(label, view, baselineIds);
+    return { ...definition, sql, values, view, ids: baselineIds, matchCount: db.query<{ n: number }, Binding[]>(`SELECT COUNT(*) AS n FROM objects o WHERE o.trashed = 0 AND o.type_id = ? AND ${field} > ?`).get(...values)!.n, beforeStatistics: explain(db, sql, values) };
+  });
+  db.exec('ANALYZE');
+  const baseline = cases.map(c => ({ plan: explain(db, c.sql, c.values), read: measure(warmups, repetitions, () => ids(db, c.sql, c.values)) }));
+  const ddl = propertyIndexSql(f);
+  db.exec('SAVEPOINT bench_property');
+  try {
+    const buildMs = timed(() => db.exec(ddl)).milliseconds;
+    const beforeStatistics = cases.map(c => explain(db, c.sql, c.values));
+    db.exec('ANALYZE');
+    const results = cases.map((c, index) => {
+      const candidateIds = ids(db, c.sql, c.values);
+      assertSameIds(c.label, c.ids, candidateIds);
+      return { ...c, baseline: baseline[index]!, candidate: { ids: candidateIds, beforeStatistics: beforeStatistics[index]!, plan: explain(db, c.sql, c.values), read: measure(warmups, repetitions, () => ids(db, c.sql, c.values)) } };
+    });
+    return { name: 'property-expression-index', equivalent: true, phaseOrder: 'Fixed analyzed baseline, build, candidate before-statistics plan, ANALYZE, candidate reads; same SQL/state.', ddl, buildMs, storageBytes: bytes(db, ['bench_property_scheduled']), cases: results };
+  } finally {
+    db.exec('ROLLBACK TO bench_property; RELEASE bench_property');
+  }
 }
 
-function assertScenarioEquivalent(name: string, checks: Array<[string, string[], string[]]>): void {
-  for (const [label, left, right] of checks) assertSameIds(`${name} ${label}`, left, right);
+export function referenceScenario(f: SyntheticFixture, warmups = 1, repetitions = 3, selectedTargets?: string[]) {
+  const db = f.db;
+  const targets = db.query<{ target_id: string; n: number }, [string, string]>(`SELECT r.target_id, COUNT(*) AS n FROM object_references r JOIN objects o ON o.id = r.source_id WHERE r.property_id = ? AND o.type_id = ? AND o.trashed = 0 GROUP BY r.target_id ORDER BY n DESC, r.target_id`).all(f.multiReferencePropertyId, PAGE_TYPE_ID);
+  if (!targets.length && !selectedTargets) throw new Error('Fixture has no live multiple-reference matches; increase --objects or lower --reference-every.');
+  const chosen = selectedTargets ?? [...new Set([targets[0]!.target_id, targets.at(-1)!.target_id])];
+  const cases = chosen.map((target, index) => {
+    const select = `SELECT ${projection}, 0 AS source_index, 0 AS sort_missing, NULL AS sort_ascending, NULL AS sort_descending FROM objects AS o WHERE o.trashed = 0 AND o.type_id = ? AND `;
+    const jsonSql = `${select}EXISTS (SELECT 1 FROM json_each(${expression(f.multiReferencePropertyId)}) member WHERE member.value COLLATE NOCASE = ?)${ordering}`;
+    const edgeSql = `${select}EXISTS (SELECT 1 FROM object_references r WHERE r.source_id = o.id AND r.property_id = ? AND r.target_id COLLATE NOCASE = ?)${ordering}`;
+    const jsonValues: Binding[] = [PAGE_TYPE_ID, target.toUpperCase()];
+    const edgeValues: Binding[] = [PAGE_TYPE_ID, f.multiReferencePropertyId, target.toUpperCase()];
+    const spec: ViewSpec = { title: 'Reference', blocks: [{ title: 'Reference', component: 'list', sources: [{ typeId: PAGE_TYPE_ID, bindings: {}, where: [{ propertyId: f.multiReferencePropertyId, operator: 'contains', value: target }] }] }] };
+    const view = viewIds(f, spec);
+    const baselineIds = ids(db, jsonSql, jsonValues);
+    verifyView('reference', view, baselineIds);
+    assertSameIds('reference existing-edge', baselineIds, ids(db, edgeSql, edgeValues));
+    const matchCount = db.query<{ n: number }, Binding[]>(`SELECT COUNT(*) AS n FROM objects o WHERE o.trashed = 0 AND o.type_id = ? AND EXISTS (SELECT 1 FROM json_each(${expression(f.multiReferencePropertyId)}) member WHERE member.value COLLATE NOCASE = ?)`).get(...jsonValues)!.n;
+    const edgeCount = targets.find(row => row.target_id.toLowerCase() === target.toLowerCase())?.n ?? 0;
+    if (matchCount !== edgeCount) throw new Error('reference full-count semantic mismatch');
+    return { label: index === 0 ? 'common-target' : 'rare-target', target, matchCount, view, ids: baselineIds, jsonSql, edgeSql, jsonValues, edgeValues, beforeStatistics: { json: explain(db, jsonSql, jsonValues), existing: explain(db, edgeSql, edgeValues) } };
+  });
+  db.exec('ANALYZE');
+  const existing = cases.map(c => ({ plan: explain(db, c.edgeSql, c.edgeValues), baselinePlan: explain(db, c.jsonSql, c.jsonValues), reads: pairedReads(warmups, repetitions, () => ids(db, c.jsonSql, c.jsonValues), () => ids(db, c.edgeSql, c.edgeValues)), addedStorageBytes: 0, buildMs: 0, buildScope: 'No additional schema to build; canonical reference maintenance already occurs in both sides.' }));
+  db.exec('SAVEPOINT bench_reference');
+  try {
+    const buildMs = timed(() => db.exec(referenceIndexSql)).milliseconds;
+    const beforeStatistics = cases.map(c => explain(db, c.edgeSql, c.edgeValues));
+    db.exec('ANALYZE');
+    const results = cases.map((c, index) => {
+      const candidateIds = ids(db, c.edgeSql, c.edgeValues);
+      assertSameIds('reference composite', c.ids, candidateIds);
+      return { ...c, existing: existing[index]!, composite: { ids: candidateIds, beforeStatistics: beforeStatistics[index]!, plan: explain(db, c.edgeSql, c.edgeValues), reads: pairedReads(warmups, repetitions, () => ids(db, c.jsonSql, c.jsonValues), () => ids(db, c.edgeSql, c.edgeValues)) } };
+    });
+    return { name: 'reference-membership', equivalent: true, buildMs, storageBytes: bytes(db, ['bench_refs_property_target_source']), cases: results };
+  } finally {
+    db.exec('ROLLBACK TO bench_reference; RELEASE bench_reference');
+  }
 }
 
-function measureWriteSamples(warmups: number, repetitions: number, fn: (index: number) => void): Measurement {
-  let sample = 0;
-  return measure(warmups, repetitions, () => {
-    fn(sample++);
-    return true;
-  }).measurement;
+function likePattern(query: string) { return `%${query.replace(/[\\%_]/g, '\\$&')}%`; }
+function phrase(query: string): string | undefined {
+  if (query.length < 3 || query.length > 80 || !/^[A-Za-z0-9 -]+$/.test(query) || /\b(?:AND|OR|NOT)\b/i.test(query)) return undefined;
+  return `"${query}"`;
 }
-
-function jsonPropertyPath(propertyId: string): string {
-  return `$.${JSON.stringify(propertyId)}`;
+const searchBaselineSql = "SELECT id FROM objects WHERE trashed = 0 AND (title LIKE ? ESCAPE '\\' OR body_text LIKE ? ESCAPE '\\') ORDER BY updated_at DESC, id LIMIT 50";
+const searchEmptySql = 'SELECT id FROM objects WHERE trashed = 0 ORDER BY updated_at DESC, id LIMIT 50';
+const searchCandidateSql = `SELECT o.id FROM bench_object_search s JOIN bench_search_key k ON k.search_key = s.rowid JOIN objects o ON o.id = k.object_id WHERE s.bench_object_search MATCH ? AND o.trashed = 0 AND (o.title LIKE ? ESCAPE '\\' OR o.body_text LIKE ? ESCAPE '\\') ORDER BY o.updated_at DESC, o.id LIMIT 50`;
+export function candidateSearchIds(db: Database, query: string) {
+  const safe = phrase(query);
+  const pattern = likePattern(query);
+  if (safe) return { ids: ids(db, searchCandidateSql, [safe, pattern, pattern]), fallback: false };
+  return { ids: ids(db, query ? searchBaselineSql : searchEmptySql, query ? [pattern, pattern] : []), fallback: true };
 }
-
-function propertyExpression(propertyId: string): string {
-  return `json_extract(o.properties_json, '${jsonPropertyPath(propertyId)}')`;
+export function createSearchTables(db: Database) {
+  db.exec('CREATE TABLE bench_search_key(search_key INTEGER PRIMARY KEY, object_id TEXT NOT NULL UNIQUE)');
+  db.exec("CREATE VIRTUAL TABLE bench_object_search USING fts5(object_id UNINDEXED, title, body_text, tokenize='trigram')");
+  db.exec('INSERT INTO bench_search_key(object_id) SELECT id FROM objects ORDER BY id');
+  db.exec('INSERT INTO bench_object_search(rowid,object_id,title,body_text) SELECT k.search_key,o.id,o.title,o.body_text FROM bench_search_key k JOIN objects o ON o.id=k.object_id');
 }
-
-function propertyIndexDdl(db: Database, indexName: string): string {
-  const row = db.query<{ sql: string }, [string]>("SELECT sql FROM sqlite_schema WHERE type = 'index' AND name = ?").get(indexName);
-  if (!row) throw new Error(`Missing index ${indexName}`);
-  return row.sql;
+export function insertSearchObject(db: Database, id: string) {
+  const result = db.query('INSERT INTO bench_search_key(object_id) VALUES (?)').run(id);
+  db.query('INSERT INTO bench_object_search(rowid,object_id,title,body_text) SELECT ?,id,title,body_text FROM objects WHERE id=?').run(result.lastInsertRowid, id);
 }
-
-function flattenMeasurement(prefix: string, measurement: Measurement): Record<string, number> {
-  return {
-    [`${prefix}MedianMs`]: measurement.medianMs,
-    [`${prefix}P95Ms`]: measurement.p95Ms,
-    [`${prefix}MinMs`]: measurement.rangeMs[0],
-    [`${prefix}MaxMs`]: measurement.rangeMs[1],
-    [`${prefix}Samples`]: measurement.samples,
-  };
+export function syncSearchObject(db: Database, id: string) {
+  const key = db.query<{ search_key: number }, [string]>('SELECT search_key FROM bench_search_key WHERE object_id=?').get(id);
+  if (!key) throw new Error('Missing explicit search key');
+  db.query('UPDATE bench_object_search SET title=(SELECT title FROM objects WHERE id=?), body_text=(SELECT body_text FROM objects WHERE id=?) WHERE rowid=?').run(id, id, key.search_key);
 }
-
-function createBenchmarkObject(fixture: SyntheticFixture, title: string, scheduled = '2026-11-01', references: string[] = []): void {
-  fixture.runtime.createObject({
-    typeId: PAGE_TYPE_ID,
-    title,
-    properties: {
-      [fixture.scheduledPropertyId]: scheduled,
-      [fixture.statusPropertyId]: 'bench',
-      [fixture.scorePropertyId]: 0,
-      [fixture.flagPropertyId]: false,
-      ...(references.length ? { [fixture.multiReferencePropertyId]: references } : {}),
-    },
-    body: '',
+export function searchCases(f: SyntheticFixture) {
+  return ['', 'a', 'ab', 'abc', 'Synthetic', 'synthetic', 'Synthetic object', 'two words', '100%', 'under_score_', 'back\\slash', '"quoted"', 'OR ', 'Café', '😀a', 'title-only-needle', 'body-only-needle'].map(query => {
+    const candidate = candidateSearchIds(f.db, query);
+    const expected = f.runtime.listObjectSummaries({ search: query, limit: 50 }).map(row => row.id);
+    assertSameIds(`search ${JSON.stringify(query)}`, expected, candidate.ids);
+    return { query, ...candidate, equivalent: true };
   });
 }
-
-export function propertyIndexScenario(fixture: SyntheticFixture, warmups = 1, repetitions = 3): ScenarioResult {
-  const db = fixture.db;
-  const path = jsonPropertyPath(fixture.scheduledPropertyId);
-  const expression = propertyExpression(fixture.scheduledPropertyId);
-  const spec: ViewSpec = { title: 'Scheduled pages', blocks: [{ title: 'Scheduled pages', component: 'table', columns: [{ role: 'date', label: 'Date' }], sources: [{ typeId: PAGE_TYPE_ID, bindings: { date: fixture.scheduledPropertyId }, where: [{ propertyId: fixture.scheduledPropertyId, operator: 'after', value: '2026-11-14' }], orderBy: { propertyId: fixture.scheduledPropertyId, direction: 'ascending' } }] }] };
-  const sql = `SELECT o.id, o.type_id, o.title, o.properties_json, o.revision, o.created_at, o.updated_at, o.trashed, 0 AS source_index, CASE WHEN (${expression} IS NULL OR ${expression} = '') THEN 1 ELSE 0 END AS sort_missing, ${expression} AS sort_ascending, NULL AS sort_descending FROM objects AS o WHERE ((o.trashed = 0) AND (o.type_id = ?) AND (${expression} > ?)) ORDER BY source_index ASC, sort_missing ASC, sort_ascending ASC, sort_descending DESC, title COLLATE NOCASE ASC, id ASC LIMIT 101`;
-  const values: SqlBinding[] = [PAGE_TYPE_ID, '2026-11-14'];
-  db.query('ANALYZE').run();
-  const view = idsFromView(fixture, spec);
-  const baselinePlan = explain(db, sql, values);
-  const baseline = measure(warmups, repetitions, () => db.query<{ id: string }, SqlBinding[]>(sql).all(...values).map(row => row.id));
-  const beforeBytes = dbBytes(db, fixture.file);
-  db.query(`CREATE INDEX bench_property_scheduled ON objects(type_id, trashed, json_extract(properties_json, '${path}'))`).run();
-  const readIndexDdl = propertyIndexDdl(db, 'bench_property_scheduled');
-  db.query('ANALYZE').run();
-  const candidatePlan = explain(db, sql, values);
-  const candidate = measure(warmups, repetitions, () => db.query<{ id: string }, SqlBinding[]>(sql).all(...values).map(row => row.id));
-  assertScenarioEquivalent('property-path-expression-index', [['view/baseline', view.displayed, baseline.value.slice(0, 100)], ['baseline/candidate', baseline.value, candidate.value]]);
-
-  const writeOptions = { objects: fixture.options.objects, bodyBytes: fixture.options.bodyBytes, revisions: 0, referenceEvery: fixture.options.referenceEvery, benchmarkProperties: true };
-  const baselineWrites = buildSyntheticFixture(writeOptions);
-  const candidateWrites = buildSyntheticFixture(writeOptions);
+export function searchScenario(f: SyntheticFixture, warmups = 1, repetitions = 3) {
+  const db = f.db;
+  db.exec('SAVEPOINT bench_search');
   try {
-    const candidateWritePath = jsonPropertyPath(candidateWrites.scheduledPropertyId);
-    candidateWrites.db.query(`CREATE INDEX bench_property_scheduled ON objects(type_id, trashed, json_extract(properties_json, '${candidateWritePath}'))`).run();
-    const writeIndexDdl = propertyIndexDdl(candidateWrites.db, 'bench_property_scheduled');
-    const insertBaseline = measureWriteSamples(warmups, repetitions, index => createBenchmarkObject(baselineWrites, `Bench property insert baseline ${index}`));
-    const insertCandidate = measureWriteSamples(warmups, repetitions, index => createBenchmarkObject(candidateWrites, `Bench property insert candidate ${index}`));
-    const pageBaseline = baselineWrites.ids.find(id => baselineWrites.runtime.getObject(id).typeId === PAGE_TYPE_ID)!;
-    const pageCandidate = candidateWrites.ids.find(id => candidateWrites.runtime.getObject(id).typeId === PAGE_TYPE_ID)!;
-    const updateBaseline = measureWriteSamples(warmups, repetitions, index => {
-      const object = baselineWrites.runtime.getObject(pageBaseline);
-      const day = index % 2 === 0 ? '2026-11-15' : '2026-11-28';
-      baselineWrites.runtime.updateObject(object.id, object.revision, { typeId: object.typeId, title: 'Bench property update target', properties: { ...object.properties, [baselineWrites.scheduledPropertyId]: day }, body: object.body });
+    const title = f.runtime.createObject({ typeId: PAGE_TYPE_ID, title: 'title-only-needle abc two words 100% under_score_ back\\slash "quoted" OR ', properties: {}, body: '' });
+    const body = f.runtime.createObject({ typeId: PAGE_TYPE_ID, title: 'body holder', properties: {}, body: 'body-only-needle Café 😀a' });
+    const buildMs = timed(() => createSearchTables(db)).milliseconds;
+    const tableNames = db.query<{ name: string }, []>("SELECT name FROM sqlite_schema WHERE name LIKE 'bench_object_search%' OR tbl_name='bench_search_key'").all().map(row => row.name);
+    const storageBytes = bytes(db, tableNames);
+    const cases = searchCases(f);
+    assertSameIds('title positive', candidateSearchIds(db, 'title-only-needle').ids, [title.id]);
+    assertSameIds('body positive', candidateSearchIds(db, 'body-only-needle').ids, [body.id]);
+    const reads = ['Synthetic', 'title-only-needle', 'body-only-needle'].map(query => {
+      const values = [likePattern(query), likePattern(query)];
+      const candidateValues = [phrase(query)!, ...values];
+      const beforeStatistics = { baseline: explain(db, searchBaselineSql, values), candidate: explain(db, searchCandidateSql, candidateValues) };
+      const matchCount = db.query<{ n: number }, string[]>("SELECT COUNT(*) AS n FROM objects WHERE trashed = 0 AND (title LIKE ? ESCAPE '\\' OR body_text LIKE ? ESCAPE '\\')").get(values[0]!, values[1]!)!.n;
+      return { query, values, candidateValues, matchCount, beforeStatistics };
     });
-    const updateCandidate = measureWriteSamples(warmups, repetitions, index => {
-      const object = candidateWrites.runtime.getObject(pageCandidate);
-      const day = index % 2 === 0 ? '2026-11-15' : '2026-11-28';
-      candidateWrites.runtime.updateObject(object.id, object.revision, { typeId: object.typeId, title: 'Bench property update target', properties: { ...object.properties, [candidateWrites.scheduledPropertyId]: day }, body: object.body });
-    });
-    const afterBytes = dbBytes(db, fixture.file);
-    return {
-      name: 'property-path-expression-index',
-      equivalent: true,
-      metadata: { propertyId: fixture.scheduledPropertyId, predicate: 'date after 2026-11-14', viewRows: view.displayed.length, viewTruncated: view.truncated, sqlLimitRows: baseline.value.length, indexUsed: candidatePlan.some(step => step.includes('bench_property_scheduled')), readIndexDdl, writeIndexDdl, readIndexPath: path, writeIndexPath: candidateWritePath, writeFixturePropertyId: candidateWrites.scheduledPropertyId, projection: 'matches ViewService object projection plus sort columns', edgeSemantics: 'ISO date text boundaries; missing/empty excluded by predicate' },
-      baseline: { ids: baseline.value, plan: baselinePlan, read: baseline.measurement, notes: ['Baseline analyzed and read before any write probes.'] },
-      candidate: { ids: candidate.value, plan: candidatePlan, read: candidate.measurement, notes: ['Same fixture state, same SQL and bindings after adding only the expression index.'] },
-      storage: { indexBytes: afterBytes.bench_property_scheduled ?? 0, statsBytes: afterBytes.sqlite_stat1 ?? 0, databaseBytesBefore: beforeBytes.databaseFile ?? 0, databaseBytesAfter: afterBytes.databaseFile ?? 0 },
-      write: { ...flattenMeasurement('insertBaseline', insertBaseline), ...flattenMeasurement('insertCandidate', insertCandidate), ...flattenMeasurement('updateBaseline', updateBaseline), ...flattenMeasurement('updateCandidate', updateCandidate) },
-    };
+    db.exec('ANALYZE');
+    return { name: 'fts-candidate-plus-literal-like', equivalent: true, buildMs, storageBytes, storageObjects: tableNames, semanticRecords: 2, cases, reads: reads.map(c => ({ ...c, baselinePlan: explain(db, searchBaselineSql, c.values), candidatePlan: explain(db, searchCandidateSql, c.candidateValues), reads: pairedReads(warmups, repetitions, () => ids(db, searchBaselineSql, c.values), () => ids(db, searchCandidateSql, c.candidateValues)) })) };
   } finally {
-    baselineWrites.cleanup();
-    candidateWrites.cleanup();
+    db.exec('ROLLBACK TO bench_search; RELEASE bench_search');
   }
 }
-
-export function referenceScenario(fixture: SyntheticFixture, warmups = 1, repetitions = 3): ScenarioResult {
-  const db = fixture.db;
-  const popular = db.query<{ target_id: string; count: number }, [string]>('SELECT target_id, COUNT(*) AS count FROM object_references WHERE property_id = ? GROUP BY target_id ORDER BY count DESC, target_id LIMIT 1').get(fixture.multiReferencePropertyId);
-  if (!popular) throw new Error('Fixture did not create a multiple-reference edge. Lower --reference-every or increase --objects.');
-  const target = popular.target_id;
-  const path = jsonPropertyPath(fixture.multiReferencePropertyId);
-  const spec: ViewSpec = { title: 'Reference pages', blocks: [{ title: 'Reference pages', component: 'table', columns: [{ role: 'related', label: 'Related' }], sources: [{ typeId: PAGE_TYPE_ID, bindings: { related: fixture.multiReferencePropertyId }, where: [{ propertyId: fixture.multiReferencePropertyId, operator: 'contains', value: target }] }] }] };
-  const baselineSql = `SELECT o.id, o.type_id, o.title, o.properties_json, o.revision, o.created_at, o.updated_at, o.trashed, 0 AS source_index, 0 AS sort_missing, NULL AS sort_ascending, NULL AS sort_descending FROM objects AS o WHERE ((o.trashed = 0) AND (o.type_id = ?) AND (EXISTS (SELECT 1 FROM json_each(json_extract(o.properties_json, '${path}')) AS member WHERE member.value COLLATE NOCASE = ?))) ORDER BY source_index ASC, sort_missing ASC, sort_ascending ASC, sort_descending DESC, title COLLATE NOCASE ASC, id ASC LIMIT 101`;
-  const baselineValues: SqlBinding[] = [PAGE_TYPE_ID, target.toUpperCase()];
-  const edgeSql = `SELECT o.id, o.type_id, o.title, o.properties_json, o.revision, o.created_at, o.updated_at, o.trashed, 0 AS source_index, 0 AS sort_missing, NULL AS sort_ascending, NULL AS sort_descending FROM objects AS o WHERE o.trashed = 0 AND o.type_id = ? AND EXISTS (SELECT 1 FROM object_references AS r WHERE r.source_id = o.id AND r.property_id = ? AND r.target_id COLLATE NOCASE = ?) ORDER BY source_index ASC, sort_missing ASC, sort_ascending ASC, sort_descending DESC, title COLLATE NOCASE ASC, id ASC LIMIT 101`;
-  const edgeValues: SqlBinding[] = [PAGE_TYPE_ID, fixture.multiReferencePropertyId, target.toUpperCase()];
-  db.query('ANALYZE').run();
-  const view = idsFromView(fixture, spec);
-  const baseline = measure(warmups, repetitions, () => db.query<{ id: string }, SqlBinding[]>(baselineSql).all(...baselineValues).map(row => row.id));
-  const edgeExisting = measure(warmups, repetitions, () => db.query<{ id: string }, SqlBinding[]>(edgeSql).all(...edgeValues).map(row => row.id));
-  const existingPlan = explain(db, edgeSql, edgeValues);
-  assertScenarioEquivalent('reference-existing-index', [['view/baseline', view.displayed, baseline.value.slice(0, 100)], ['baseline/existing-edge', baseline.value, edgeExisting.value]]);
-  const beforeBytes = dbBytes(db, fixture.file);
-  db.query('CREATE INDEX bench_refs_property_target_source ON object_references(property_id, target_id COLLATE NOCASE, source_id)').run();
-  db.query('ANALYZE').run();
-  const candidate = measure(warmups, repetitions, () => db.query<{ id: string }, SqlBinding[]>(edgeSql).all(...edgeValues).map(row => row.id));
-  assertSameIds('reference composite semantic mismatch', edgeExisting.value, candidate.value);
-
-  const baselineWrites = buildSyntheticFixture({ objects: fixture.options.objects, bodyBytes: fixture.options.bodyBytes, revisions: 0, referenceEvery: fixture.options.referenceEvery, benchmarkProperties: true });
-  const candidateWrites = buildSyntheticFixture({ objects: fixture.options.objects, bodyBytes: fixture.options.bodyBytes, revisions: 0, referenceEvery: fixture.options.referenceEvery, benchmarkProperties: true });
-  try {
-    const writeTarget = candidateWrites.db.query<{ target_id: string }, [string]>('SELECT target_id FROM object_references WHERE property_id = ? LIMIT 1').get(candidateWrites.multiReferencePropertyId)!.target_id;
-    candidateWrites.db.query('CREATE INDEX bench_refs_property_target_source ON object_references(property_id, target_id COLLATE NOCASE, source_id)').run();
-    const baselineTarget = baselineWrites.db.query<{ target_id: string }, [string]>('SELECT target_id FROM object_references WHERE property_id = ? LIMIT 1').get(baselineWrites.multiReferencePropertyId)!.target_id;
-    const insertBaseline = measureWriteSamples(warmups, repetitions, index => createBenchmarkObject(baselineWrites, `Bench reference insert baseline ${index}`, '2026-11-02', [baselineTarget]));
-    const insertCandidate = measureWriteSamples(warmups, repetitions, index => createBenchmarkObject(candidateWrites, `Bench reference insert candidate ${index}`, '2026-11-02', [writeTarget]));
-    const pageBaseline = baselineWrites.ids.find(id => baselineWrites.runtime.getObject(id).typeId === PAGE_TYPE_ID && id !== baselineTarget)!;
-    const pageCandidate = candidateWrites.ids.find(id => candidateWrites.runtime.getObject(id).typeId === PAGE_TYPE_ID && id !== writeTarget)!;
-    const updateBaseline = measureWriteSamples(warmups, repetitions, () => {
-      const object = baselineWrites.runtime.getObject(pageBaseline);
-      baselineWrites.runtime.updateObject(object.id, object.revision, { typeId: object.typeId, title: object.title, properties: { ...object.properties, [baselineWrites.multiReferencePropertyId]: [baselineTarget] as PropertyValue }, body: object.body });
-    });
-    const updateCandidate = measureWriteSamples(warmups, repetitions, () => {
-      const object = candidateWrites.runtime.getObject(pageCandidate);
-      candidateWrites.runtime.updateObject(object.id, object.revision, { typeId: object.typeId, title: object.title, properties: { ...object.properties, [candidateWrites.multiReferencePropertyId]: [writeTarget] as PropertyValue }, body: object.body });
-    });
-    const afterBytes = dbBytes(db, fixture.file);
-    return {
-      name: 'reference-edge-membership',
-      equivalent: true,
-      metadata: { propertyId: fixture.multiReferencePropertyId, targetId: target, targetInboundMatches: popular.count, sqlLimitRows: baseline.value.length, viewRows: view.displayed.length, viewTruncated: view.truncated, existingIndexPlan: existingPlan, existingIndexRead: edgeExisting.measurement, existingIndexRequiresExtraSchema: false, candidateIndexUsed: explain(db, edgeSql, edgeValues).some(step => step.includes('bench_refs_property_target_source')), writingEdgesExcludedByPropertyId: true },
-      baseline: { ids: baseline.value, plan: explain(db, baselineSql, baselineValues), read: baseline.measurement, notes: ['Current json_each membership with analyzed statistics.'] },
-      candidate: { ids: candidate.value, plan: explain(db, edgeSql, edgeValues), read: candidate.measurement, notes: ['Optional composite index; existing object_references target index is reported separately in metadata.'] },
-      storage: { candidateIndexBytes: afterBytes.bench_refs_property_target_source ?? 0, databaseBytesBefore: beforeBytes.databaseFile ?? 0, databaseBytesAfter: afterBytes.databaseFile ?? 0 },
-      write: { ...flattenMeasurement('insertBaseline', insertBaseline), ...flattenMeasurement('insertCandidate', insertCandidate), ...flattenMeasurement('updateBaseline', updateBaseline), ...flattenMeasurement('updateCandidate', updateCandidate) },
-    };
-  } finally {
-    baselineWrites.cleanup();
-    candidateWrites.cleanup();
-  }
-}
-
-function likePattern(query: string): string {
-  return `%${query.replace(/[\\%_]/g, '\\$&')}%`;
-}
-
-function safeFtsPhrase(query: string): string | undefined {
-  if (query.length < 3 || query.length > 80) return undefined;
-  if (!/^[A-Za-z0-9 -]+$/.test(query)) return undefined;
-  if (/\b(?:AND|OR|NOT)\b/i.test(query)) return undefined;
-  return `"${query.replace(/"/g, '""')}"`;
-}
-
-function createSearchTables(db: Database): number {
-  const start = performance.now();
-  db.query('CREATE TABLE bench_search_key(search_key INTEGER PRIMARY KEY, object_id TEXT NOT NULL UNIQUE)').run();
-  db.query("CREATE VIRTUAL TABLE bench_object_search USING fts5(object_id UNINDEXED, title, body_text, tokenize='trigram')").run();
-  db.query('INSERT INTO bench_search_key(object_id) SELECT id FROM objects ORDER BY id').run();
-  db.query(`INSERT INTO bench_object_search(rowid, object_id, title, body_text)
-    SELECT k.search_key, o.id, o.title, o.body_text FROM bench_search_key AS k JOIN objects AS o ON o.id = k.object_id`).run();
-  return performance.now() - start;
-}
-
-function syncSearchObject(db: Database, objectId: string): void {
-  const key = db.query<{ search_key: number }, [string]>('SELECT search_key FROM bench_search_key WHERE object_id = ?').get(objectId);
-  if (!key) throw new Error(`Missing search key for ${objectId}`);
-  db.query(`UPDATE bench_object_search SET title = (SELECT title FROM objects WHERE id = ?), body_text = (SELECT body_text FROM objects WHERE id = ?) WHERE rowid = ?`).run(objectId, objectId, key.search_key);
-}
-
-function baselineSearchIds(fixture: SyntheticFixture, query: string): string[] {
-  return fixture.runtime.listObjectSummaries({ search: query, limit: 50 }).map(row => row.id);
-}
-
-function candidateSearchIds(db: Database, query: string): { ids: string[]; fallback: boolean } {
-  const pattern = likePattern(query);
-  const phrase = safeFtsPhrase(query);
-  const baselineSql = "SELECT id FROM objects WHERE trashed = 0 AND (? = '' OR title LIKE ? ESCAPE '\\' OR body_text LIKE ? ESCAPE '\\') ORDER BY updated_at DESC, id LIMIT 50";
-  if (!phrase) return { ids: db.query<{ id: string }, SqlBinding[]>(baselineSql).all(query, pattern, pattern).map(row => row.id), fallback: true };
-  const candidateSql = `SELECT o.id FROM bench_object_search AS s JOIN bench_search_key AS k ON k.search_key = s.rowid JOIN objects AS o ON o.id = k.object_id
-    WHERE s.bench_object_search MATCH ? AND o.trashed = 0 AND (o.title LIKE ? ESCAPE '\\' OR o.body_text LIKE ? ESCAPE '\\')
-    ORDER BY o.updated_at DESC, o.id LIMIT 50`;
-  return { ids: db.query<{ id: string }, SqlBinding[]>(candidateSql).all(phrase, pattern, pattern).map(row => row.id), fallback: false };
-}
-
-export function searchCases(fixture: SyntheticFixture): { query: string; fallback: boolean; equivalent: boolean }[] {
-  return ['', 'a', 'ab', 'abc', 'Syn', 'Synthetic', 'synthetic', 'Synthetic object', 'two words', '100%', 'under_score_', 'back\\slash', '"quoted"', 'OR ', 'Café', '😀a', 'body-only-needle', 'title-only-needle'].map(query => {
-    const candidate = candidateSearchIds(fixture.db, query);
-    return { query, fallback: candidate.fallback, equivalent: sameIds(baselineSearchIds(fixture, query), candidate.ids) };
-  });
-}
-
-function addSearchBoundaryObjects(fixture: SyntheticFixture): { titleId: string; bodyId: string; unicodeId: string; removableId: string } {
-  const title = fixture.runtime.createObject({ typeId: PAGE_TYPE_ID, title: 'title-only-needle abc two words 100% under_score_ back\\slash "quoted" OR ', properties: { [fixture.scheduledPropertyId]: '2026-11-03' }, body: '' });
-  const body = fixture.runtime.createObject({ typeId: PAGE_TYPE_ID, title: 'body holder', properties: { [fixture.scheduledPropertyId]: '2026-11-04' }, body: 'body-only-needle mixed CASE Café' });
-  const unicode = fixture.runtime.createObject({ typeId: PAGE_TYPE_ID, title: 'Emoji needle 😀a', properties: { [fixture.scheduledPropertyId]: '2026-11-05' }, body: '' });
-  const removable = fixture.runtime.createObject({ typeId: PAGE_TYPE_ID, title: 'remove-mutation-needle', properties: { [fixture.scheduledPropertyId]: '2026-11-06' }, body: 'old mutation text' });
-  return { titleId: title.id, bodyId: body.id, unicodeId: unicode.id, removableId: removable.id };
-}
-
-function syntheticBodyForUpdate(body: string): string {
-  const marker = '\nupdate-mutation-needle-';
-  const markerIndex = body.indexOf(marker);
-  return markerIndex === -1 ? body : body.slice(0, markerIndex);
-}
-
-export function searchScenario(fixture: SyntheticFixture, warmups = 1, repetitions = 3): ScenarioResult {
-  const db = fixture.db;
-  const boundary = addSearchBoundaryObjects(fixture);
-  const buildMs = createSearchTables(db);
-  const query = 'Synthetic';
-  const pattern = likePattern(query);
-  const phrase = safeFtsPhrase(query)!;
-  const baselineSql = "SELECT id FROM objects WHERE trashed = 0 AND (title LIKE ? ESCAPE '\\' OR body_text LIKE ? ESCAPE '\\') ORDER BY updated_at DESC, id LIMIT 50";
-  const candidateSql = `SELECT o.id FROM bench_object_search AS s JOIN bench_search_key AS k ON k.search_key = s.rowid JOIN objects AS o ON o.id = k.object_id
-    WHERE s.bench_object_search MATCH ? AND o.trashed = 0 AND (o.title LIKE ? ESCAPE '\\' OR o.body_text LIKE ? ESCAPE '\\')
-    ORDER BY o.updated_at DESC, o.id LIMIT 50`;
-  const baselineValues: SqlBinding[] = [pattern, pattern];
-  const candidateValues: SqlBinding[] = [phrase, pattern, pattern];
-  const beforeBytes = dbBytes(db, fixture.file);
-  const baseline = measure(warmups, repetitions, () => db.query<{ id: string }, SqlBinding[]>(baselineSql).all(...baselineValues).map(row => row.id));
-  const candidate = measure(warmups, repetitions, () => db.query<{ id: string }, SqlBinding[]>(candidateSql).all(...candidateValues).map(row => row.id));
-  assertSameIds('search read semantic mismatch', baseline.value, candidate.value);
-
-  const baselineWriteFixture = buildSyntheticFixture({ objects: fixture.options.objects, bodyBytes: fixture.options.bodyBytes, revisions: 0, referenceEvery: fixture.options.referenceEvery, benchmarkProperties: true });
-  try {
-    const insertBaseline = measureWriteSamples(warmups, repetitions, index => baselineWriteFixture.runtime.createObject({ typeId: PAGE_TYPE_ID, title: `baseline search insert ${index}`, properties: { [baselineWriteFixture.scheduledPropertyId]: '2026-11-07' }, body: 'insert-mutation-needle' }));
-    const insertCandidate = measureWriteSamples(warmups, repetitions, index => {
-      const inserted = fixture.runtime.createObject({ typeId: PAGE_TYPE_ID, title: `candidate search insert ${index}`, properties: { [fixture.scheduledPropertyId]: '2026-11-07' }, body: 'insert-mutation-needle' });
-      const newKey = db.query<{ next: number }, []>('SELECT COALESCE(MAX(search_key), 0) + 1 AS next FROM bench_search_key').get()!.next;
-      db.query('INSERT INTO bench_search_key(search_key, object_id) VALUES (?, ?)').run(newKey, inserted.id);
-      db.query('INSERT INTO bench_object_search(rowid, object_id, title, body_text) SELECT ?, id, title, body_text FROM objects WHERE id = ?').run(newKey, inserted.id);
-    });
-    const baselineUpdateTarget = baselineWriteFixture.ids.find(id => baselineWriteFixture.runtime.getObject(id).typeId === PAGE_TYPE_ID)!;
-    const updateBaseline = measureWriteSamples(warmups, repetitions, index => {
-      const object = baselineWriteFixture.runtime.getObject(baselineUpdateTarget);
-      const suffix = index % 2 === 0 ? 'update-mutation-needle-a' : 'update-mutation-needle-b';
-      baselineWriteFixture.runtime.updateObject(object.id, object.revision, { typeId: object.typeId, title: `baseline search update ${suffix}`, properties: object.properties, body: `${syntheticBodyForUpdate(object.body)}\n${suffix}` });
-    });
-    const updateCandidate = measureWriteSamples(warmups, repetitions, index => {
-      const object = fixture.runtime.getObject(boundary.titleId);
-      const suffix = index % 2 === 0 ? 'update-mutation-needle-a' : 'update-mutation-needle-b';
-      const updated = fixture.runtime.updateObject(object.id, object.revision, { typeId: object.typeId, title: `candidate search update ${suffix}`, properties: object.properties, body: object.body });
-      syncSearchObject(db, updated.id);
-    });
-  const removable = fixture.runtime.getObject(boundary.removableId);
-  const removed = fixture.runtime.updateObject(removable.id, removable.revision, { typeId: removable.typeId, title: 'removed old search text', properties: removable.properties, body: removable.body.replace('mutation', 'changed') });
-  syncSearchObject(db, removed.id);
-  const removedCandidate = candidateSearchIds(db, 'remove-mutation-needle').ids;
-  const removedBaseline = baselineSearchIds(fixture, 'remove-mutation-needle');
-  const trashTarget = fixture.runtime.getObject(boundary.bodyId);
-  const trashed = fixture.runtime.setTrashed(trashTarget.id, trashTarget.revision, true);
-  syncSearchObject(db, trashed.id);
-  const mutationNeedleCandidate = candidateSearchIds(db, 'mutation-needle').ids;
-  const mutationNeedleBaseline = baselineSearchIds(fixture, 'mutation-needle');
-  const trashedCandidate = candidateSearchIds(db, 'body-only-needle').ids;
-  const trashedBaseline = baselineSearchIds(fixture, 'body-only-needle');
-  const restored = fixture.runtime.setTrashed(trashed.id, trashed.revision, false);
-  syncSearchObject(db, restored.id);
-  const restoredCandidate = candidateSearchIds(db, 'body-only-needle').ids;
-  const restoredBaseline = baselineSearchIds(fixture, 'body-only-needle');
-  assertScenarioEquivalent('search mutation', [['insert/update', mutationNeedleBaseline, mutationNeedleCandidate], ['replacement-removal', removedBaseline, removedCandidate], ['trash', trashedBaseline, trashedCandidate], ['restore', restoredBaseline, restoredCandidate]]);
-  const keyRows = db.query<{ mismatches: number }, []>('SELECT COUNT(*) AS mismatches FROM bench_search_key AS k LEFT JOIN bench_object_search AS s ON s.rowid = k.search_key WHERE s.object_id IS NOT k.object_id').get()!.mismatches;
-  const cases = searchCases(fixture);
-  for (const row of cases) if (!row.equivalent) throw new Error(`search case ${JSON.stringify(row.query)} semantic mismatch`);
-    const afterBytes = dbBytes(db, fixture.file);
-    return {
-    name: 'literal-search-fts5-trigram-candidate-plus-like',
-    equivalent: true,
-    metadata: { query, cases, mutationSynchronized: sameIds(mutationNeedleBaseline, mutationNeedleCandidate), replacementRemovalSynchronized: sameIds(removedBaseline, removedCandidate), trashSynchronized: sameIds(trashedBaseline, trashedCandidate), restoreSynchronized: sameIds(restoredBaseline, restoredCandidate), explicitIntegerKeyMismatches: keyRows, eligibility: 'ASCII letters/digits/space/hyphen, length 3-80, no AND/OR/NOT; every other shape executes LIKE fallback', unicodeBoundaryId: boundary.unicodeId },
-    baseline: { ids: baseline.value, plan: explain(db, baselineSql, baselineValues), read: baseline.measurement },
-    candidate: { ids: candidate.value, plan: explain(db, candidateSql, candidateValues), read: candidate.measurement, notes: ['FTS MATCH receives a quoted literal phrase only for documented ASCII-safe strings; unsafe, quoted, wildcard, operator and Unicode strings execute the exact LIKE baseline path.'] },
-    storage: { ftsBytes: Object.entries(afterBytes).filter(([name]) => name.startsWith('bench_object_search') || name === 'bench_search_key').reduce((sum, [, bytes]) => sum + bytes, 0), databaseBytesBefore: beforeBytes.databaseFile ?? 0, databaseBytesAfter: afterBytes.databaseFile ?? 0 },
-      write: { ftsBuildMs: buildMs, ...flattenMeasurement('insertBaseline', insertBaseline), ...flattenMeasurement('insertCandidate', insertCandidate), ...flattenMeasurement('updateBaseline', updateBaseline), ...flattenMeasurement('updateCandidate', updateCandidate), ftsRows: db.query<{ count: number }, []>('SELECT COUNT(*) AS count FROM bench_object_search').get()!.count },
-    };
-  } finally {
-    baselineWriteFixture.cleanup();
-  }
-}
-
-function benchmarkFixtureOptions(input: SyntheticFixtureOptions): Required<SyntheticFixtureOptions> {
-  return normalizeSyntheticFixtureOptions({ ...input, benchmarkProperties: true });
-}
-
-function referenceDistribution(db: Database, propertyId: string) {
-  const rows = db.query<{ target_id: string; count: number }, [string]>('SELECT target_id, COUNT(*) AS count FROM object_references WHERE property_id = ? GROUP BY target_id ORDER BY count DESC, target_id LIMIT 5').all(propertyId);
-  const arrayLengths = db.query<{ length: number; count: number }, [string]>(`SELECT COALESCE(json_array_length(json_extract(properties_json, '$."${propertyId}"')), 0) AS length, COUNT(*) AS count FROM objects WHERE type_id = '${PAGE_TYPE_ID}' GROUP BY length ORDER BY length`).all(propertyId);
-  return { topTargets: rows, arrayLengths };
-}
-
 export function collectOne(label: string, options: Required<SyntheticFixtureOptions>, bench: Pick<BenchmarkOptions, 'warmups' | 'repetitions'>) {
-  const setup = time(() => buildSyntheticFixture(options));
-  const setupFixture = setup.value;
-  const setupMs = setup.milliseconds;
-  const ownedFixtures: SyntheticFixture[] = [setupFixture];
+  const setup = timed(() => buildSyntheticFixture(options));
+  const f = setup.value;
   try {
-    const db = setupFixture.db;
-    const sqliteVersion = db.query<{ version: string }, []>('SELECT sqlite_version() AS version').get()!.version;
-    const sourceId = db.query<{ source_id: string }, []>('SELECT sqlite_source_id() AS source_id').get()!.source_id;
-    const pragmas = { journalMode: db.query<{ journal_mode: string }, []>('PRAGMA journal_mode').get()!.journal_mode, synchronous: db.query<{ synchronous: number }, []>('PRAGMA synchronous').get()!.synchronous, trustedSchema: db.query<{ trusted_schema: number }, []>('PRAGMA trusted_schema').get()!.trusted_schema };
-    const distribution = { requestedObjects: options.objects, pageRows: db.query<{ count: number }, []>(`SELECT COUNT(*) AS count FROM objects WHERE type_id = '${PAGE_TYPE_ID}'`).get()!.count, trashedRows: db.query<{ count: number }, []>('SELECT COUNT(*) AS count FROM objects WHERE trashed = 1').get()!.count, referenceRows: db.query<{ count: number }, []>('SELECT COUNT(*) AS count FROM object_references').get()!.count, bodyBytes: options.bodyBytes, revisions: options.revisions, reference: referenceDistribution(db, setupFixture.multiReferencePropertyId) };
-    const scenarioOptions = { objects: options.objects, bodyBytes: options.bodyBytes, revisions: options.revisions, referenceEvery: options.referenceEvery, benchmarkProperties: true };
-    const scenarioSetup: Record<string, number> = {};
-    const propertySetup = time(() => buildSyntheticFixture(scenarioOptions));
-    const propertyFixture = propertySetup.value;
-    ownedFixtures.push(propertyFixture);
-    scenarioSetup.propertyMs = propertySetup.milliseconds;
-    const referenceSetup = time(() => buildSyntheticFixture(scenarioOptions));
-    const referenceFixture = referenceSetup.value;
-    ownedFixtures.push(referenceFixture);
-    scenarioSetup.referenceMs = referenceSetup.milliseconds;
-    const searchSetup = time(() => buildSyntheticFixture(scenarioOptions));
-    const searchFixture = searchSetup.value;
-    ownedFixtures.push(searchFixture);
-    scenarioSetup.searchMs = searchSetup.milliseconds;
-    const totalSetupMs = setupMs + scenarioSetup.propertyMs + scenarioSetup.referenceMs + scenarioSetup.searchMs;
-    return { label, fixture: setupFixture.options, setupMs, scenarioSetup, totalSetupMs, setupScope: 'Elapsed wall-clock construction of owned synthetic fixtures before read/write measurements; excludes candidate index/FTS build times reported in scenarios.', distribution, engine: { bunVersion: Bun.version, sqliteVersion, sourceId, pragmas }, scenarios: [propertyIndexScenario(propertyFixture, bench.warmups, bench.repetitions), referenceScenario(referenceFixture, bench.warmups, bench.repetitions), searchScenario(searchFixture, bench.warmups, bench.repetitions)] };
+    const db = f.db;
+    const distribution = {
+      requestedObjects: options.objects,
+      actualObjects: db.query<{ n: number }, []>('SELECT COUNT(*) AS n FROM objects').get()!.n,
+      types: db.query('SELECT type_id, trashed, COUNT(*) AS count FROM objects GROUP BY type_id, trashed').all(),
+      arrays: db.query(`SELECT type_id, trashed, COALESCE(json_array_length(${expression(f.multiReferencePropertyId)}),0) AS length, COUNT(*) AS count FROM objects o GROUP BY type_id, trashed, length ORDER BY type_id, trashed, length`).all(),
+      historyRows: db.query<{ n: number }, []>('SELECT COUNT(*) AS n FROM object_revisions').get()!.n,
+    };
+    // All read probes precede all write probes. Each candidate removes its schema;
+    // search also rolls back its two explicit semantic records. Each later write
+    // comparison adds two setup records, explicitly reported separately.
+    const property = propertyIndexScenario(f, bench.warmups, bench.repetitions);
+    const reference = referenceScenario(f, bench.warmups, bench.repetitions);
+    const search = searchScenario(f, bench.warmups, bench.repetitions);
+    const propertyWrites = writeComparison(f, 'property', bench.warmups, bench.repetitions);
+    const referenceWrites = writeComparison(f, 'reference', bench.warmups, bench.repetitions);
+    const searchWrites = writeComparison(f, 'search', bench.warmups, bench.repetitions);
+    return { label, fixture: options, setupMs: setup.milliseconds, setupScope: 'One owned temporary database: open/schema, synthetic properties/type, canonical objects, revisions, references and trash. All scenarios reuse it; no internal fixtures.', distribution,
+      engine: { bun: Bun.version, sqlite: db.query('SELECT sqlite_version() AS version, sqlite_source_id() AS sourceId').get(), pragmas: { journalMode: db.query('PRAGMA journal_mode').get(), synchronous: db.query('PRAGMA synchronous').get(), trustedSchema: db.query('PRAGMA trusted_schema').get() } },
+      scenarios: {
+        property: { ...property, write: propertyWrites },
+        reference: { ...reference, write: referenceWrites, existingIndexWrite: referenceWrites.baseline, existingIndexWriteScope: 'The same measured canonical baseline samples, not another run: edge reads need no additional write maintenance.' },
+        search: { ...search, write: searchWrites },
+      } };
   } finally {
-    for (const owned of ownedFixtures.reverse()) owned.cleanup();
+    f.cleanup();
   }
 }
-
 export function collectBenchmarkReport(options: BenchmarkOptions) {
-  return {
-    generatedAt: new Date().toISOString(),
-    command: { options },
-    scales: [
-      collectOne('default/modest-writing-sparse-references', benchmarkFixtureOptions({ objects: options.objects, bodyBytes: options.bodyBytes, revisions: options.revisions, referenceEvery: options.referenceEvery }), options),
-      collectOne('larger-writing-dense-references', benchmarkFixtureOptions({ objects: options.largeObjects, bodyBytes: Math.max(options.bodyBytes, 2048), revisions: options.revisions, referenceEvery: Math.max(1, Math.min(2, options.referenceEvery)) }), options),
-    ],
-    conclusion: 'This synthetic benchmark reports candidate equivalence and costs only; it does not change production schema or authorize adoption.',
-  };
+  return { generatedAt: new Date().toISOString(), options, scales: [
+    collectOne('modest-writing-sparse-arrays', normalizeSyntheticFixtureOptions({ objects: options.objects, bodyBytes: options.bodyBytes, revisions: options.revisions, referenceEvery: options.referenceEvery, benchmarkProperties: true }), options),
+    collectOne('larger-writing-dense-arrays', normalizeSyntheticFixtureOptions({ objects: options.largeObjects, bodyBytes: Math.max(options.bodyBytes, 2048), revisions: options.revisions, referenceEvery: options.referenceEvery, benchmarkProperties: true, benchmarkDense: true }), options),
+  ], conclusion: 'Synthetic costs only; no production adoption. JSONB and deep pagination deferred.' };
 }
-
 if (import.meta.main) {
   try {
-    const options = parseArgs(Bun.argv.slice(2));
-    console.log(JSON.stringify(collectBenchmarkReport(options), null, 2));
+    console.log(JSON.stringify(collectBenchmarkReport(parseArgs(Bun.argv.slice(2))), null, 2));
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
-    process.exit(1);
+    process.exitCode = 1;
   }
 }

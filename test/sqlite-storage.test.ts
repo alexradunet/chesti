@@ -28,6 +28,10 @@ test('synthetic fixture creates bounded canonical objects, references, history, 
     assert.equal(fixture.ids.length, 8);
     assert.equal(count(fixture.db, 'objects'), 8);
     assert.equal(count(fixture.db, 'object_revisions'), 16);
+    assert.equal(fixture.multiReferencePropertyId, '');
+    assert.equal(fixture.scheduledPropertyId, '');
+    assert.equal(fixture.rareTypeId, '');
+    assert.equal(fixture.options.benchmarkDense, false);
     assert.ok(count(fixture.db, 'object_references') >= 1);
     const first = fixture.runtime.getObject(fixture.ids[0]!);
     assert.equal(first.body, syntheticWriting(0, 96 + (2 % 3) * 17, 2));

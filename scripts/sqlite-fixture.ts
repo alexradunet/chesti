@@ -14,6 +14,7 @@ export interface SyntheticFixtureOptions {
   revisions?: number;
   referenceEvery?: number;
   benchmarkProperties?: boolean;
+  benchmarkDense?: boolean;
 }
 
 export interface SyntheticFixture {
@@ -24,10 +25,8 @@ export interface SyntheticFixture {
   ids: string[];
   referencePropertyId: string;
   multiReferencePropertyId: string;
-  statusPropertyId: string;
-  scorePropertyId: string;
   scheduledPropertyId: string;
-  flagPropertyId: string;
+  rareTypeId: string;
   options: Required<SyntheticFixtureOptions>;
   cleanup(): void;
 }
@@ -78,6 +77,7 @@ export function normalizeSyntheticFixtureOptions(input: SyntheticFixtureOptions 
     revisions: boundedInteger(input.revisions ?? 2, 'revisions', 0),
     referenceEvery: boundedInteger(input.referenceEvery ?? 5, 'referenceEvery', 1),
     benchmarkProperties: input.benchmarkProperties === true,
+    benchmarkDense: input.benchmarkProperties === true && input.benchmarkDense === true,
   };
 }
 
@@ -93,21 +93,15 @@ export function buildSyntheticFixture(input: SyntheticFixtureOptions = {}): Synt
     pageType = runtime.addProperty(pageType.id, pageType.revision, { label: 'Related note', kind: 'reference', targetTypeId: PAGE_TYPE_ID });
     const referencePropertyId = pageType.propertyIds.at(-1)!;
     let multiReferencePropertyId = '';
-    let statusPropertyId = '';
-    let scorePropertyId = '';
     let scheduledPropertyId = '';
-    let flagPropertyId = '';
+    let rareTypeId = '';
     if (options.benchmarkProperties) {
       pageType = runtime.addProperty(pageType.id, pageType.revision, { label: 'Related notes', kind: 'reference', targetTypeId: PAGE_TYPE_ID, multiple: true });
       multiReferencePropertyId = pageType.propertyIds.at(-1)!;
-      pageType = runtime.addProperty(pageType.id, pageType.revision, { label: 'Synthetic status', kind: 'text' });
-      statusPropertyId = pageType.propertyIds.at(-1)!;
-      pageType = runtime.addProperty(pageType.id, pageType.revision, { label: 'Synthetic score', kind: 'number' });
-      scorePropertyId = pageType.propertyIds.at(-1)!;
       pageType = runtime.addProperty(pageType.id, pageType.revision, { label: 'Synthetic scheduled', kind: 'date' });
       scheduledPropertyId = pageType.propertyIds.at(-1)!;
-      pageType = runtime.addProperty(pageType.id, pageType.revision, { label: 'Synthetic flag', kind: 'boolean' });
-      flagPropertyId = pageType.propertyIds.at(-1)!;
+      const rareType = runtime.createType('Synthetic rare page', PAGE_TYPE_ID);
+      rareTypeId = rareType.id;
     }
     const ids: string[] = [];
     const pageIds: string[] = [];
@@ -115,30 +109,28 @@ export function buildSyntheticFixture(input: SyntheticFixtureOptions = {}): Synt
     db.transaction(() => {
       for (let index = 0; index < options.objects; index++) {
         const isTask = index % 4 === 0;
+        const isRare = options.benchmarkProperties && !isTask && index % 97 === 1;
         const properties: Record<string, PropertyValue> = isTask
           ? { [TASK_DUE_PROPERTY_ID]: `2026-10-${String((index % 28) + 1).padStart(2, '0')}` }
           : options.benchmarkProperties
             ? {
-                [statusPropertyId]: index % 11 === 0 ? '' : `batch-${index % 7}`,
-                [scorePropertyId]: index % 17 === 0 ? 0 : index % 101,
-                [scheduledPropertyId]: `2026-11-${String((index % 28) + 1).padStart(2, '0')}`,
-                [flagPropertyId]: index % 2 === 0,
+                [scheduledPropertyId]: isRare || index % 53 === 3 ? '2026-11-28' : `2026-11-${String((index % 28) + 1).padStart(2, '0')}`,
               }
             : {};
         if (!isTask && lastPageId && index % options.referenceEvery === 0) properties[referencePropertyId] = lastPageId;
-        if (options.benchmarkProperties && !isTask && pageIds.length >= 2 && index % Math.max(2, Math.floor(options.referenceEvery / 2)) === 0) {
-          const referenceCount = options.referenceEvery <= 2 && pageIds.length >= 12 ? 12 : 2;
+        if (options.benchmarkProperties && !isTask && pageIds.length >= 2 && (options.benchmarkDense || index % options.referenceEvery === 0)) {
+          const referenceCount = options.benchmarkDense ? Math.min(12, pageIds.length) : 2;
           const recentTargets = pageIds.slice(Math.max(0, pageIds.length - (referenceCount - 1)));
           properties[multiReferencePropertyId] = [pageIds[0]!, ...recentTargets].slice(0, referenceCount);
         }
         let object = runtime.createObject({
-          typeId: isTask ? TASK_TYPE_ID : PAGE_TYPE_ID,
-          title: `Synthetic object ${String(index).padStart(5, '0')}`,
+          typeId: isTask ? TASK_TYPE_ID : isRare ? rareTypeId : PAGE_TYPE_ID,
+          title: `${isRare ? 'Rare synthetic object' : 'Synthetic object'} ${String(index).padStart(5, '0')}`,
           properties,
           body: syntheticWriting(index, options.bodyBytes),
         });
         ids.push(object.id);
-        if (!isTask) {
+        if (!isTask && !isRare) {
           lastPageId = object.id;
           pageIds.push(object.id);
         }
@@ -166,10 +158,8 @@ export function buildSyntheticFixture(input: SyntheticFixtureOptions = {}): Synt
       ids,
       referencePropertyId,
       multiReferencePropertyId,
-      statusPropertyId,
-      scorePropertyId,
       scheduledPropertyId,
-      flagPropertyId,
+      rareTypeId,
       options,
       cleanup() {
         if (db) {
