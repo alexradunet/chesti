@@ -297,3 +297,40 @@ test('view evaluation uses body-free object projections while commands reload ca
   assert.equal(changed.body, 'Exact **Markdown** body.');
   assert.equal(f.objects.getObject(task.id).body, 'Exact **Markdown** body.');
 });
+
+test('multiple-reference contains uses target-first derived edges for reads and actions', t => {
+  const f = fixture(t);
+  const projects = f.objects.createType('Projects');
+  const tasks = f.objects.createType('Tasks');
+  const related = f.property(tasks, 'Related projects', 'reference', { targetTypeId: projects.id, multiple: true });
+  const done = f.property(tasks, 'Done', 'boolean');
+  const a = f.object(projects, 'A');
+  const b = f.object(projects, 'B');
+  const match = f.object(tasks, 'Match', { [related.id]: [a.id.toUpperCase(), b.id], [done.id]: false });
+  f.object(tasks, 'Other property only', { [done.id]: false });
+  const empty = f.object(tasks, 'Empty refs', { [related.id]: [], [done.id]: false });
+  f.objects.setTrashed(empty.id, empty.revision, true);
+  const spec: ViewSpec = { title: 'Related', input: { label: 'Project', typeId: projects.id }, blocks: [
+    { title: 'Editable matches', component: 'board', editable: true, sources: [{ typeId: tasks.id, bindings: { group: done.id }, where: [{ propertyId: related.id, operator: 'contains', value: { input: true } }, { propertyId: done.id, operator: 'equals', value: false }] }] },
+  ] };
+  const draft = f.views.create({ spec, model: 'test/model' }, 'Show related work');
+  const view = f.views.publish(draft.id, draft.revision);
+  const statements: string[] = [];
+  const originalQuery = f.db.query.bind(f.db);
+  f.db.query = ((sql: string) => {
+    statements.push(sql);
+    return originalQuery(sql as never);
+  }) as typeof f.db.query;
+  t.after(() => { f.db.query = originalQuery as typeof f.db.query; });
+
+  assert.deepEqual(f.views.evaluate(view.id, a.id).blocks[0]!.rows.map(row => row.object.id), [match.id]);
+  assert.ok(statements.some(sql => sql.includes('object_references') && sql.includes('target_id = ?')));
+  assert.equal(statements.some(sql => sql.includes('json_each')), false);
+  statements.length = 0;
+
+  const changed = f.views.act(view.id, view.revision, 0, match.id, match.revision, 'group', true, a.id);
+  assert.equal(changed.properties[done.id], true);
+  assert.ok(statements.some(sql => sql.includes('object_references') && sql.includes('target_id = ?')));
+  assert.equal(statements.some(sql => sql.includes('json_each')), false);
+  assert.throws(() => f.views.act(view.id, view.revision, 0, match.id, changed.revision, 'group', false, b.id), status(403));
+});

@@ -207,20 +207,29 @@ export function referenceScenario(f: SyntheticFixture, warmups = 1, repetitions 
     const select = `SELECT ${projection}, 0 AS source_index, 0 AS sort_missing, NULL AS sort_ascending, NULL AS sort_descending FROM objects AS o WHERE o.trashed = 0 AND o.type_id = ? AND `;
     const jsonSql = `${select}EXISTS (SELECT 1 FROM json_each(${expression(f.multiReferencePropertyId)}) member WHERE member.value COLLATE NOCASE = ?)${ordering}`;
     const edgeSql = `${select}EXISTS (SELECT 1 FROM object_references r WHERE r.source_id = o.id AND r.property_id = ? AND r.target_id COLLATE NOCASE = ?)${ordering}`;
+    const targetFirstSql = `${select}o.id IN (SELECT source_id FROM object_references WHERE property_id = ? AND target_id = ?)${ordering}`;
     const jsonValues: Binding[] = [PAGE_TYPE_ID, target.toUpperCase()];
     const edgeValues: Binding[] = [PAGE_TYPE_ID, f.multiReferencePropertyId, target.toUpperCase()];
+    const targetFirstValues: Binding[] = [PAGE_TYPE_ID, f.multiReferencePropertyId, target.toUpperCase()];
     const spec: ViewSpec = { title: 'Reference', blocks: [{ title: 'Reference', component: 'list', sources: [{ typeId: PAGE_TYPE_ID, bindings: {}, where: [{ propertyId: f.multiReferencePropertyId, operator: 'contains', value: target }] }] }] };
     const view = viewIds(f, spec);
     const baselineIds = ids(db, jsonSql, jsonValues);
     verifyView('reference', view, baselineIds);
     assertSameIds('reference existing-edge', baselineIds, ids(db, edgeSql, edgeValues));
+    assertSameIds('reference target-first', baselineIds, ids(db, targetFirstSql, targetFirstValues));
     const matchCount = db.query<{ n: number }, Binding[]>(`SELECT COUNT(*) AS n FROM objects o WHERE o.trashed = 0 AND o.type_id = ? AND EXISTS (SELECT 1 FROM json_each(${expression(f.multiReferencePropertyId)}) member WHERE member.value COLLATE NOCASE = ?)`).get(...jsonValues)!.n;
     const edgeCount = targets.find(row => row.target_id.toLowerCase() === target.toLowerCase())?.n ?? 0;
     if (matchCount !== edgeCount) throw new Error('reference full-count semantic mismatch');
-    return { label: index === 0 ? 'common-target' : 'rare-target', target, matchCount, view, ids: baselineIds, jsonSql, edgeSql, jsonValues, edgeValues, beforeStatistics: { json: explain(db, jsonSql, jsonValues), existing: explain(db, edgeSql, edgeValues) } };
+    return { label: index === 0 ? 'common-target' : 'rare-target', target, matchCount, view, ids: baselineIds, jsonSql, edgeSql, targetFirstSql, jsonValues, edgeValues, targetFirstValues, beforeStatistics: { json: explain(db, jsonSql, jsonValues), existing: explain(db, edgeSql, edgeValues), targetFirst: explain(db, targetFirstSql, targetFirstValues) } };
   });
   db.exec('ANALYZE');
   const existing = cases.map(c => ({ plan: explain(db, c.edgeSql, c.edgeValues), baselinePlan: explain(db, c.jsonSql, c.jsonValues), reads: pairedReads(warmups, repetitions, () => ids(db, c.jsonSql, c.jsonValues), () => ids(db, c.edgeSql, c.edgeValues)), addedStorageBytes: 0, buildMs: 0, buildScope: 'No additional schema to build; canonical reference maintenance already occurs in both sides.' }));
+  const targetFirst = cases.map(c => {
+    const targetIds = ids(db, c.targetFirstSql, c.targetFirstValues);
+    assertSameIds('reference target-first existing-index', c.ids, targetIds);
+    const plan = explain(db, c.targetFirstSql, c.targetFirstValues);
+    return { ids: targetIds, plan, usesExistingTargetIndex: plan.some(detail => detail.includes('object_references_target')), reads: pairedReads(warmups, repetitions, () => ids(db, c.jsonSql, c.jsonValues), () => ids(db, c.targetFirstSql, c.targetFirstValues)), addedStorageBytes: 0, buildMs: 0, buildScope: 'Adopted query-only target-first candidate using existing canonical target edges; no additional DDL.' };
+  });
   db.exec('SAVEPOINT bench_reference');
   try {
     const buildMs = timed(() => db.exec(referenceIndexSql)).milliseconds;
@@ -229,7 +238,7 @@ export function referenceScenario(f: SyntheticFixture, warmups = 1, repetitions 
     const results = cases.map((c, index) => {
       const candidateIds = ids(db, c.edgeSql, c.edgeValues);
       assertSameIds('reference composite', c.ids, candidateIds);
-      return { ...c, existing: existing[index]!, composite: { ids: candidateIds, beforeStatistics: beforeStatistics[index]!, plan: explain(db, c.edgeSql, c.edgeValues), reads: pairedReads(warmups, repetitions, () => ids(db, c.jsonSql, c.jsonValues), () => ids(db, c.edgeSql, c.edgeValues)) } };
+      return { ...c, existing: existing[index]!, targetFirst: targetFirst[index]!, composite: { ids: candidateIds, beforeStatistics: beforeStatistics[index]!, plan: explain(db, c.edgeSql, c.edgeValues), reads: pairedReads(warmups, repetitions, () => ids(db, c.jsonSql, c.jsonValues), () => ids(db, c.edgeSql, c.edgeValues)) } };
     });
     return { name: 'reference-membership', equivalent: true, buildMs, storageBytes: bytes(db, ['bench_refs_property_target_source']), cases: results };
   } finally {
@@ -335,7 +344,7 @@ export function collectBenchmarkReport(options: BenchmarkOptions) {
   return { generatedAt: new Date().toISOString(), options, scales: [
     collectOne('modest-writing-sparse-arrays', normalizeSyntheticFixtureOptions({ objects: options.objects, bodyBytes: options.bodyBytes, revisions: options.revisions, referenceEvery: options.referenceEvery, benchmarkProperties: true }), options),
     collectOne('larger-writing-dense-arrays', normalizeSyntheticFixtureOptions({ objects: options.largeObjects, bodyBytes: Math.max(options.bodyBytes, 2048), revisions: options.revisions, referenceEvery: options.referenceEvery, benchmarkProperties: true, benchmarkDense: true }), options),
-  ], conclusion: 'Synthetic costs only; no production adoption. JSONB and deep pagination deferred.' };
+  ], conclusion: 'Synthetic costs only. Production adopts only the target-first reference membership query using existing edges; added indexes, FTS, JSONB and deep pagination remain deferred.' };
 }
 if (import.meta.main) {
   try {

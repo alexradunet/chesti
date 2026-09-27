@@ -1,6 +1,6 @@
 # SQLite benchmark experiments
 
-These disposable synthetic experiments do not authorize production adoption or change application queries/schema. JSONB and deep pagination remain deferred.
+These disposable synthetic experiments document bounded query/storage tradeoffs. Taskdesk now uses the query-only target-first multiple-reference membership path backed by existing canonical reference edges; JSONB, deep pagination, added indexes, and FTS remain deferred.
 
 ## Reproduce
 
@@ -18,7 +18,7 @@ Only owned temporary databases are opened. `DATABASE_PATH` is ignored and caller
 
 One fixture per profile is reused by all experiments; there are no internal baseline/candidate fixture pairs. `setupMs` measures directory/database/schema creation, benchmark property/type creation, canonical objects/history/references and trash. Profile setup is measured independently. Candidate builds and write-probe setup are not part of that number.
 
-All read probes precede write probes. Property queries use the same body-free ViewService projection, ascending date, title/UUID ordering, 101-row lookahead and 100-row display. Reference probes keep exact property provenance and NOCASE target membership, compare actual validated views, and verify both full match counts and bounded ordered IDs. A mismatch throws; timing results are not returned as equivalent.
+All read probes precede write probes. Property queries use the same body-free ViewService projection, ascending date, title/UUID ordering, 101-row lookahead and 100-row display. Reference probes keep exact property provenance and NOCASE target membership, compare actual validated views, and verify both full match counts and bounded ordered IDs. They report the adopted target-first/no-added-index query alongside historical JSON, correlated-edge, and optional-composite variants. A mismatch throws; timing results are not returned as equivalent.
 
 Read results contain median, p95, min/max milliseconds and measured sample count. Property reads have fixed analyzed-baseline then indexed/analyzed-candidate phases, explicitly labeled. Reference JSON/edge and LIKE/FTS reads alternate execution order per sample. Initial and post-ANALYZE plans are retained; later scenarios reuse the fixture's existing statistics. Warmups exclude the untimed semantic validation reads, so these are warm/in-process measurements, not cold-cache or end-to-end request benchmarks.
 
@@ -26,7 +26,7 @@ Writes use the **same database, submitted title/body/properties, initial revisio
 
 Each write experiment adds two dedicated canonical setup objects after all reads, then rolls back every measured mutation. Thus six write-setup records are separate from requested object counts. Reference write targets remain live and are independent of read targets. Search adds two temporary semantic records during reads and rolls them back afterward. These counts are explicit in the report.
 
-Build times measure index DDL or FTS key-table/FTS population inside the read experiment's savepoint, excluding outer commit/fsync and ANALYZE. Storage uses `dbstat` allocated bytes, **not** main-file/WAL deltas. FTS storage includes all shadow tables, the explicit integer-key table **and its unique object-ID index**. Existing-edge reads add no schema/build/storage or maintenance: their write numbers are the same measured canonical baseline samples, not an invented second measurement.
+Build times measure index DDL or FTS key-table/FTS population inside the read experiment's savepoint, excluding outer commit/fsync and ANALYZE. Storage uses `dbstat` allocated bytes, **not** main-file/WAL deltas. FTS storage includes all shadow tables, the explicit integer-key table **and its unique object-ID index**. Target-first and existing-edge reads add no schema/build/storage or maintenance: their write numbers are the same measured canonical baseline samples, not an invented second measurement.
 
 ## Fixture matrix and checked evidence
 
@@ -60,6 +60,8 @@ All values below are **median milliseconds**, two warmups and **nine measured sa
 | `title-only-needle` / FTS + exact LIKE | 1 / 1 | 0.759 → 0.049 | 32.202 → 0.373 |
 | `body-only-needle` / FTS + exact LIKE | 1 / 1 | 0.557 → 0.041 | 22.703 → 0.361 |
 
+A 2026-09-27 default rerun of the adopted target-first/no-added-index query reported these warm medians using the same options: sparse common target 0.484 ms JSON membership to 0.281 ms target-first, sparse rare target 0.281 ms to 0.027 ms, dense common target 36.535 ms to 26.043 ms, and dense rare target 13.804 ms to 0.106 ms. Each target-first plan used the existing `object_references_target` index, with zero incremental DDL/storage.
+
 The composite phase remeasures its own JSON baseline; do not compare its timing against the earlier existing-index phase as if execution conditions were identical.
 
 ### Build, storage and writes: default run
@@ -89,4 +91,4 @@ Permanent tests assert actual IDs/order, not only implementation booleans:
 
 ## Decisions
 
-**Defer all production adoption.** The property index helps these static date paths, but dynamic-property DDL/migration policy is unaddressed. Existing reference edges are semantically usable but not consistently faster; the optional composite helps this rare dense lookup at substantial storage/write cost. FTS is much slower for a common bounded query but faster for these rare needles, with substantial build/storage/maintenance costs. None of these results predicts real-user speedups. No production FTS synchronization, new engine/dependencies, JSONB, deep pagination, UI changes or native beforeunload-dialog verification is included.
+**Adopt only the target-first reference query.** It uses existing derived edges and the existing `object_references_target` index, so it adds no DDL, storage, or write maintenance beyond canonical edge maintenance already required for backlinks. The property index helps these static date paths, but dynamic-property DDL/migration policy is unaddressed. The optional reference composite helps this rare dense lookup at substantial storage/write cost. FTS is much slower for a common bounded query but faster for these rare needles, with substantial build/storage/maintenance costs. None of these results predicts real-user speedups. No production FTS synchronization, new engine/dependencies, JSONB, deep pagination, UI changes or native beforeunload-dialog verification is included.

@@ -158,9 +158,15 @@ function sourcePredicate(source: ViewSource, properties: Map<string, PropertyDef
       case 'notEquals': predicates.push(`NOT ${empty} AND ${field} != ${parameter}`); break;
       case 'before': predicates.push(`${field} < ${parameter}`); break;
       case 'after': predicates.push(`${field} > ${parameter}`); break;
-      case 'contains': predicates.push(property.multiple
-        ? `EXISTS (SELECT 1 FROM json_each(${expression(property.id)}) AS member WHERE member.value COLLATE NOCASE = ?)`
-        : `NOT ${empty} AND instr(${expression(property.id)}, ?) > 0`); break;
+      case 'contains':
+        if (property.multiple) {
+          const target = values.pop()!;
+          values.push(property.id, target);
+          predicates.push('o.id IN (SELECT source_id FROM object_references WHERE property_id = ? AND target_id = ?)');
+        } else {
+          predicates.push(`NOT ${empty} AND instr(${expression(property.id)}, ?) > 0`);
+        }
+        break;
     }
   }
   return { sql: predicates.map(predicate => `(${predicate})`).join(' AND '), values };
