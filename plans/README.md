@@ -1,6 +1,33 @@
 # Implementation plans
 
-## Latest owner direction — publication before remaining browser verification
+## Current assignment — six SQLite priorities, 2026-09-27
+
+The owner requested plans for all six research priorities and implementation through subagents. The initial authority covered **isolated Pi implementation, review and a combined review branch**, not merge/push or `.data/` access. Baseline `133f8a6`: Bun 1.4.2, strict TypeScript and **91 tests / 0 failures**, diff hygiene passed again for this assignment.
+
+**Latest owner direction: “let's commit and push.”** [Publication procedure](015-020-publication.md) authorizes a separate Pi executor to commit these SQLite records on top of reviewed `cc46cae` and normally push to the existing `origin/master`. A new isolated child avoids restarting the owner's live watch server in the original checkout or taking over the reviewed checkout's user-owned terminal. Original local `master`, pending plan copies and owner drafts 012/013 remain untouched; updating that live checkout is separate. The advisor writes plans/reviews only. This record is prepared before the push: the final executor report and remote-ref verification establish the actual publication result.
+
+| Plan | Research priority / outcome | Dependencies | Status |
+| --- | --- | --- | --- |
+| [015](015-lightweight-object-queries.md) | 1 — direct typed predicates, lightweight reads, bounded backlinks | — | DONE for authorized integration — `209c256` reviewed; native-dialog check remains open by owner approval |
+| [016](016-sqlite-connection-hardening.md) | 2 — trusted schema OFF, post-initialization planner maintenance | — | DONE — reviewed `e49eaf8`; lead TS/97 tests/hygiene pass |
+| [017](017-evaluate-sqlite-runtime.md) | 3 — inspect/evaluate actual embedded runtime; update only if verified | — | DONE — reviewed `cc693c0`; latest stable Bun also embeds 3.53.2, so no upgrade claimed |
+| [018](018-canonical-schema-invariants.md) | 4 — one current schema owner, data-preserving simple invariants | 016 | DONE — reviewed `680e7ce`; TS/102 tests/direct revision and version probes pass |
+| [019](019-storage-and-backup-verification.md) | 5 — synthetic dbstat measurements and live-WAL snapshot restoration | — | DONE — reviewed `0ed4376`; TS/98 tests/diagnostics/fail-closed restore probes pass |
+| [020](020-sqlite-query-experiments.md) | 6 — property-index, reference-edge and literal-search experiments | 015, 016, 018, 019 combined | DONE — [reviewed `cc46cae`](020-accepted-review.md); TS/128 tests, default/matrix/max-sample diagnostics pass; production adoption deferred |
+
+[Execution/review record](015-020-execution.md), Run `run_6bb039a2b387`. **All six priorities are reviewed on isolated branch `alexradunet/sqlite-reviewed-integration` at `cc46cae2bfb8eadb46ec70e49e5c3c238f3040d7`.** Lead independently passed strict TypeScript, 128 tests, focused regressions, all benchmark variants, runtime/storage commands, scope/hygiene and clean status. Production src is unchanged from approved integration `9282c6d`; the additional owner-authorized benchmark repair closes the blocked `8e61f6a` findings with comparable savepoint writes, real setup/build/storage accounting, cleanup and substantive semantic tests.
+
+Native unsaved-edit-dialog cancellation remains **unverified**, under the owner's explicit continuation approval; keyboard paging and responsive visuals were verified. Both owner gates `gate_2613561975cf` and `gate_63220a55eeb3` are resolved without claiming that UI check passed. The new publication authority does not authorize a third UI repair or production candidate adoption. Original local master remains `133f8a6` to preserve the running application. All implementation/review dispatches are settled and deliveries acknowledged; Orca retains the final terminal as `user_owned/user_takeover`, so it was deliberately left untouched. Earlier exited-worker release metadata anomalies remain recorded.
+
+Execution uses explicit Orca Tasks/Dispatches, one writer per isolated checkout, bounded waits and release of settled workers. Query/schema changes overlap core files; isolated branches prevent collision. The configured `npm install` hook is skipped in favor of `bun install --frozen-lockfile`. No real application provider calls, global runtime installation, dependency churn, JSONB conversion or production FTS/index rollout. Benchmark results may justify a later separately scoped change, not automatic adoption. Browser changes use Orca's embedded browser only; unverified interaction/layout is a blocker, not a pass.
+
+**Workspace-plan coordination:** owner plans 012/013 remain unmodified and unimplemented; 014 is reserved by their references for the future access boundary. These six plans therefore start at 015. Plan 018 reuses the intended `src/schema.ts` location but preserves current data and supported upgrades. Its current single-workspace version 4 supersedes the *unimplemented* workspace plan's proposed version-4 allocation: before executing Plan 012 later, reconcile it to a distinct fresh format/version and current initialization, never treat preserving version 4 as a workspace database or silently reset it. This is a drift notice, not authorization to execute workspace redesign or remove current upgrade support.
+
+Verification: each executor runs focused regressions, strict TS, full suite and diff hygiene; lead reads full diffs and reruns gates. Combined branch verification follows integration by a separate executor. Publication uses an isolated child; the owner's original source branch stays unchanged. Runtime evaluation may honestly conclude no suitable update is available; optional upgrade failure must not be disguised as a successful upgrade.
+
+---
+
+## Earlier owner direction — publication before remaining browser verification
 
 The owner explicitly requested **“push everything to main and then continue with browser verification.”** Publication of the reviewed `1796ccf` stack and all current planning records is now authorized before final UI acceptance. The existing default branch is named `master` (remote HEAD → master; no main branch), so the target is `origin/master` without renaming branches. Preserve owner `95594c4` and its Orca-only browser policy. [Publication procedure](007-011-publication.md) governs the separate Pi executor. No browser gate is being marked passed by this authorization; verification will continue afterward against the published application. Earlier no-push/conditional-merge statements below describe superseded checkpoints.
 
