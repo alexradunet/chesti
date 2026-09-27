@@ -4,6 +4,7 @@ import { renderMarkdown } from './markdown.js';
 import { Badge, Button, ButtonLink, EmptyState, Icon, PageHeading, type IconName } from './ui.js';
 import { BUILTIN_PROPERTIES, BUILTIN_TYPES, EVENT_DATES_PROPERTY_ID, EVENT_TIME_PROPERTY_ID, EVENT_TYPE_ID, JOURNAL_DATE_PROPERTY_ID, JOURNAL_TYPE_ID, PAGE_TYPE_ID, REMINDER_DATE_PROPERTY_ID, REMINDER_TIME_PROPERTY_ID, REMINDER_TYPE_ID, TASK_DONE_PROPERTY_ID, TASK_DUE_PROPERTY_ID, TASK_SCHEDULED_PROPERTY_ID, TASK_TYPE_ID } from './model.js';
 import type { DayTaskSummary, EvaluatedBlock, ObjectPageModel, ObjectSummary, PropertyDefinition, PropertyValue, SavedView, ViewRow } from './model.js';
+import { WritingFields } from './writing-fields.js';
 
 const Hidden = ({ name, value }: { name: string; value: string | number }) => <input type="hidden" name={name} value={value} />;
 const Token = ({ model }: { model: ObjectPageModel }) => <Hidden name="csrf" value={model.csrf} />;
@@ -34,7 +35,6 @@ function WorkspaceNav({ model }: { model: ObjectPageModel }) {
   const links: { href: string; label: string; icon: IconName; active: boolean }[] = [
     { href: '/', label: 'Objects', icon: 'objects', active: model.screen === 'home' && !model.trashed },
     { href: '/?focus=search', label: 'Search', icon: 'search', active: browsing && !currentType },
-    { href: '/calendar', label: 'Calendar', icon: 'calendar', active: model.screen === 'calendar' },
     { href: '/tasks', label: 'Tasks', icon: 'tasks', active: model.section === 'tasks' },
     { href: '/journal', label: 'Journal', icon: 'calendar', active: model.screen === 'journal' },
     { href: '/views', label: 'Views', icon: 'views', active: !model.section && (model.screen === 'views' || model.screen === 'view') },
@@ -43,7 +43,7 @@ function WorkspaceNav({ model }: { model: ObjectPageModel }) {
     <div class="nav-brand"><a class="brand" href="/"><span class="brand-mark"><Icon name="objects" /></span>Taskdesk</a><Button class="icon-button js-only nav-close" type="button" data-nav-close="" aria-label="Close navigation"><Icon name="close" /></Button></div>
     <div class="nav-actions"><ButtonLink variant="primary" class="nav-new" href="/objects/new?type=00000000-0000-4000-8000-000000000001" aria-current={model.screen === 'new-object' ? 'page' : undefined}><Icon name="plus" />New note</ButtonLink><ButtonLink class="nav-new" href="/calendar" aria-current={model.screen === 'calendar' ? 'page' : undefined}><Icon name="calendar" />Calendar</ButtonLink></div>
     <div class="nav-links">{links.filter(link => link.label !== 'Tasks' && link.label !== 'Journal').map(link => <a href={link.href} data-object-search={link.icon === 'search' ? '' : undefined} aria-keyshortcuts={link.icon === 'search' ? 'Control+k Meta+k' : undefined} aria-current={link.active ? 'page' : undefined}><Icon name={link.icon} /><span>{link.label}</span>{link.icon === 'search' && <kbd class="js-only">Ctrl/⌘ K</kbd>}</a>)}</div>
-    <section class="nav-section" aria-labelledby="favorites-heading"><h2 id="favorites-heading">Favorites</h2>{model.favorites?.items.length ? <div class="nav-links">{model.favorites.items.map(record => <a href={objectUrl(record.id)} aria-current={model.object?.id === record.id ? 'page' : undefined}><Icon name={typeIcon(record.typeId)} /><span>{titleOf(record)}</span></a>)}{model.favorites.hasMore && <a href="/objects/favorites"><Icon name="arrow" /><span>All favorites</span></a>}</div> : <p class="nav-hint">Favorite saved objects to keep them here.</p>}</section>
+    <section class="nav-section" aria-labelledby="favorites-heading"><h2 id="favorites-heading">Favorites</h2>{model.favorites?.items.length ? <div class="nav-links">{model.favorites.items.map(record => <a href={objectUrl(record.id)} aria-current={model.object?.id === record.id ? 'page' : undefined}><Icon name={typeIcon(record.typeId)} /><span>{titleOf(record)}</span></a>)}{model.favorites.hasMore && <a href="/objects/favorites"><Icon name="arrow" /><span>All favorites</span></a>}</div> : <p class="nav-hint">No favorites yet. Use Favorite on saved objects to pin them here.</p>}</section>
     <section class="nav-section js-only" aria-labelledby="pinned-heading"><h2 id="pinned-heading">Pinned views</h2><p class="nav-hint" data-pins-empty="">Pin a view to keep it here.</p><div class="nav-links">{model.views.map(view => <a href={`/views/${view.id}`} data-pinned-view="" data-view-id={view.id} hidden aria-current={model.evaluatedView?.view.id === view.id ? 'page' : undefined}><Icon name="pin" /><span>{view.spec.title}</span></a>)}</div></section>
     <div class="nav-bottom nav-links"><a href="/types" aria-current={model.screen === 'types' || model.screen === 'type' ? 'page' : undefined}><Icon name="settings" /><span>Manage types</span></a><a href="/?trash=1" aria-current={model.trashed ? 'page' : undefined}><Icon name="trash" /><span>Trash</span></a><p class="nav-hint">Your objects. Your workspace.</p></div>
   </nav>;
@@ -176,7 +176,7 @@ function Objects({ model }: { model: ObjectPageModel }) {
   else if (selectedType) emptyMessage = `No ${selectedType} objects yet. Create one to get started.`;
   return <>
     {selectedType && <a class="back-link" href={model.trashed ? '/?trash=1' : '/'}>← Object types</a>}
-    <PageHeading title={heading} description={!selectedType ? 'Find objects across your types.' : undefined}>
+    <PageHeading title={heading} description={model.section === 'favorites' ? 'Saved objects you explicitly favorited.' : !selectedType ? 'Find objects across your types.' : undefined}>
       {selectedType && !model.trashed && <ButtonLink variant="primary" href={`/objects/new?type=${encodeURIComponent(model.selectedTypeId!)}`}><Icon name="plus" />New object</ButtonLink>}
     </PageHeading>
     {model.section !== 'favorites' && <div class="browse-toolbar">
@@ -357,12 +357,12 @@ function DayWorkspace({ model }: { model: ObjectPageModel }) {
       </PageHeading>
       <form class="filter-bar day-mobile-picker" method="get" action="/calendar"><label>Choose date<input type="date" name="date" value={date} required /></label><Button type="submit">Show day</Button></form>
       <section class="panel day-journal"><div class="section-heading"><h2>Journal</h2>{journal?.trashed && <Badge tone="warning">In trash</Badge>}</div>
-        {journal?.trashed && !draft ? <p>This day's journal is in Trash. <a href={objectUrl(journal.id)}>Open the existing journal to restore it</a>.</p> : <form class="object-editor" method="post" action="/calendar/journal" data-enhance={draft?.safeConflict === false ? undefined : ''} data-object-editor={draft?.safeConflict === false ? undefined : ''} data-draft={draft || model.objectDraft ? 'true' : undefined}>
-          <Token model={model} /><Hidden name="date" value={draft?.date ?? date} />{draft?.mode === 'update' ? <><Hidden name="objectId" value={draft.objectId ?? ''} /><Hidden name="revision" value={draft.revision ?? ''} /></> : journal && !draft ? <><Hidden name="objectId" value={journal.id} /><Hidden name="revision" value={journal.revision} /></> : <Hidden name="requestId" value={draft?.requestId ?? model.objectDraft?.requestId ?? crypto.randomUUID()} />}
-          <div class="writing" id="writing-area"><div class="writing-heading"><h3 id="writing-heading">Writing</h3><Button class="js-only" type="button" data-insert-object-link="">Insert object link</Button></div><div class="writing-toolbar" role="toolbar" aria-label="Writing formatting" data-writing-toolbar="" hidden><label class="sr-only" for="day-writing-block">Paragraph style</label><select id="day-writing-block" data-writing-block="" aria-label="Paragraph style"><option value="paragraph">Paragraph</option>{[1, 2, 3, 4, 5, 6].map(level => <option value={`heading-${level}`}>Heading {level}</option>)}</select>{([['bold', 'Bold'], ['italic', 'Italic'], ['strike', 'Strikethrough'], ['bullet', 'Bulleted list'], ['ordered', 'Numbered list'], ['quote', 'Block quote'], ['code', 'Inline code'], ['code-block', 'Code block'], ['link', 'Link'], ['undo', 'Undo'], ['redo', 'Redo']] as const).map(([command, label]) => <Button type="button" variant="ghost" data-writing-command={command} aria-label={label} title={label}>{label}</Button>)}</div><div data-writing-mount="" hidden></div><label class="sr-only" for="day-journal-body">Journal Markdown source</label><textarea id="day-journal-body" class="markdown-source" name="body" rows={12} aria-describedby="markdown-help" data-writing-source={JSON.stringify(body)}>{`\n${body}`}</textarea><p class="fine" id="markdown-help">Use # headings, **bold**, and [label](url). Changes need saving.</p><p class="fine" data-writing-status="" role="status" hidden></p><dialog class="writing-link-dialog" data-writing-link-dialog="" aria-labelledby="day-writing-link-heading"><h2 id="day-writing-link-heading">Edit link</h2><label>Link address<input data-writing-link-url="" type="text" inputmode="url" autocomplete="off" placeholder="https://example.com" /></label><p class="fine">Use https, http, mailto, or an object link. Leave empty to remove a link.</p><p data-writing-link-error="" role="alert"></p><Button type="button" data-writing-link-apply="">Apply link</Button> <Button type="button" variant="ghost" data-writing-link-cancel="">Cancel</Button></dialog></div>
-          <div class="save-bar"><span data-object-save-controls="">{draft?.safeConflict === false ? <ButtonLink href={`/calendar?date=${date}`}>Reload selected day</ButtonLink> : model.dayJournalConflict && journal ? <Button type="submit" variant="primary" name="reviewedRevision" value={journal.revision}>Save reconciled journal</Button> : <Button type="submit" variant="primary">Save journal</Button>}</span><State message={model.error || (journal ? `Saved revision ${journal.revision}.` : 'Write something, then save to create this journal.')} error={Boolean(model.error)} /></div>
-          {draft?.safeConflict === false && <p class="notice error">This draft no longer has a safe same-journal save target. Copy the writing above, then open the current day journal or reload the selected day.</p>}
-          {model.dayJournalConflict && journal && <aside class="saved-conflict" data-conflict-panel="" tabindex={-1}><h3>Latest saved journal · revision {journal.revision}</h3><div class="markdown-content">{raw(renderMarkdown(journal.body))}</div><details><summary>Latest Markdown source</summary><pre class="saved-source">{`\n${journal.body}`}</pre></details><p>Reconcile your draft above, then choose Save reconciled journal. Another intervening save will still reject.</p></aside>}
+        {journal?.trashed && !draft ? <p>This day's journal is in Trash. <a href={objectUrl(journal.id)}>Open the existing journal to restore it</a>.</p> : <form class="object-editor" method="post" action="/calendar/journal" data-enhance="" data-object-editor="" data-draft={draft || model.objectDraft ? 'true' : undefined}>
+          <Token model={model} /><Hidden name="date" value={draft?.date ?? date} />{draft?.mode === 'update' ? <><Hidden name="objectId" value={draft.objectId ?? ''} /><Hidden name="revision" value={draft.revision ?? ''} /></> : journal && !draft ? <><Hidden name="objectId" value={journal.id} /><Hidden name="revision" value={journal.revision} /></> : <Hidden name="requestId" value={draft?.requestId ?? crypto.randomUUID()} />}
+          <WritingFields body={body} headingLevel={3} textareaId="day-journal-body" blockId="day-writing-block" linkHeadingId="day-writing-link-heading" rows={12} />
+          <div class="save-bar"><span data-object-save-controls="">{draft?.saveBlocked ? <ButtonLink href={draft.objectId ? objectUrl(draft.objectId) : `/calendar?date=${date}`}>{draft.objectId ? 'Open submitted journal' : 'Reload selected day'}</ButtonLink> : model.dayJournalConflict && journal ? <Button type="submit" variant="primary" name="reviewedRevision" value={journal.revision}>Save reconciled journal</Button> : <Button type="submit" variant="primary">Save journal</Button>}</span><State message={model.error || (journal ? `Saved revision ${journal.revision}.` : 'Write something, then save to create this journal.')} error={Boolean(model.error)} /></div>
+          {draft?.saveBlocked && <p class="notice error">This draft no longer has a safe same-journal save target. Copy the writing above, then open the submitted journal or reload the selected day before saving.</p>}
+          <aside class="saved-conflict" data-conflict-panel="" hidden={!model.dayJournalConflict || !journal} tabindex={-1}>{model.dayJournalConflict && journal && <><h3>Latest saved journal · revision {journal.revision}</h3><div class="markdown-content">{raw(renderMarkdown(journal.body))}</div><details><summary>Latest Markdown source</summary><pre class="saved-source">{`\n${journal.body}`}</pre></details><p>Reconcile your draft above, then choose Save reconciled journal. Another intervening save will still reject.</p></>}</aside>
         </form>}
       </section>
       <section class="panel"><div class="section-heading"><h2>Tasks</h2><Badge>{model.dayTasks?.items.length ?? 0}</Badge></div>{model.dayTasks?.items.length ? <ul class="day-list">{model.dayTasks.items.map(task => <li><div><a href={objectUrl(task.id)}>{titleOf(task)}</a><span class="fine">{taskMatchLabel(task)}{task.done ? ' · completed' : ''}</span></div><form method="post" action="/calendar/task"><Token model={model} /><Hidden name="date" value={date} /><Hidden name="objectId" value={task.id} /><Hidden name="revision" value={task.revision} /><Hidden name="done" value={task.done ? 'false' : 'true'} /><Button type="submit">{task.done ? 'Mark incomplete' : 'Mark done'}</Button></form></li>)}</ul> : <p class="muted">No scheduled or due tasks for this date.</p>}<nav class="pagination">{(model.dayTasks?.offset ?? 0) > 0 && <a href={taskPage(Math.max(0, (model.dayTasks?.offset ?? 0) - 50))}>Previous tasks</a>}{model.dayTasks?.hasMore && <a href={taskPage((model.dayTasks.offset ?? 0) + 50)}>Next tasks</a>}</nav></section>
@@ -487,29 +487,7 @@ function ObjectEditor({ model }: { model: ObjectPageModel }) {
         })}</div>
       </section>
       <JournalDiscovery model={model} />
-      <section class="writing" id="writing-area" tabindex={-1}>
-        <div class="writing-heading"><h2 id="writing-heading">Writing</h2><Button class="js-only" type="button" data-insert-object-link="">Insert object link</Button></div>
-        <div class="writing-toolbar" role="toolbar" aria-label="Writing formatting" data-writing-toolbar="" hidden>
-          <label class="sr-only" for="writing-block">Paragraph style</label>
-          <select id="writing-block" data-writing-block="" aria-label="Paragraph style">
-            <option value="paragraph">Paragraph</option>
-            {[1, 2, 3, 4, 5, 6].map(level => <option value={`heading-${level}`}>Heading {level}</option>)}
-          </select>
-          {([['bold', 'Bold'], ['italic', 'Italic'], ['strike', 'Strikethrough'], ['bullet', 'Bulleted list'], ['ordered', 'Numbered list'], ['quote', 'Block quote'], ['code', 'Inline code'], ['code-block', 'Code block'], ['link', 'Link'], ['undo', 'Undo'], ['redo', 'Redo']] as const).map(([command, label]) => <Button type="button" variant="ghost" data-writing-command={command} aria-label={label} title={label}>{label}</Button>)}
-        </div>
-        <div data-writing-mount="" hidden></div>
-        <label class="sr-only" for="markdown-body">Writing Markdown source</label>
-        <textarea id="markdown-body" class="markdown-source" name="body" rows={14} aria-describedby="markdown-help" spellcheck={true} data-writing-source={JSON.stringify(body)}>{`\n${body}`}</textarea>
-        <p class="fine" id="markdown-help">Use # headings, **bold**, and [label](url). Changes need saving.</p>
-        <p class="fine" data-writing-status="" role="status" hidden></p>
-        <dialog class="writing-link-dialog" data-writing-link-dialog="" aria-labelledby="writing-link-heading">
-          <h2 id="writing-link-heading">Edit link</h2>
-          <label>Link address<input data-writing-link-url="" type="text" inputmode="url" autocomplete="off" placeholder="https://example.com" /></label>
-          <p class="fine">Use https, http, mailto, or an object link. Leave empty to remove a link.</p>
-          <p data-writing-link-error="" role="alert"></p>
-          <Button type="button" data-writing-link-apply="">Apply link</Button> <Button type="button" variant="ghost" data-writing-link-cancel="">Cancel</Button>
-        </dialog>
-      </section>
+      <WritingFields body={body} />
       <div class="save-bar">
         <span data-object-save-controls="">{conflict && record ? <Button type="submit" variant="primary" name="reviewedRevision" value={record.revision}>Save reconciled changes</Button> : <Button type="submit" variant="primary">{record ? 'Save changes' : 'Create object'}</Button>} <Button class="native-only" type="submit" name="intent" value="change-type" formnovalidate>Use type</Button></span>
         <State message={state} error={Boolean(model.error)} />
@@ -710,7 +688,7 @@ export function renderObjectWorkspace(model: ObjectPageModel): string {
   else if (model.screen === 'types') title = 'Manage types';
   else if (model.screen === 'view') title = model.evaluatedView?.view.spec.title || 'View';
   else if (model.screen === 'views') title = 'Views';
-  else if (model.screen === 'objects') title = model.selectedTypeId ? typeName(model, model.selectedTypeId) : 'Search';
+  else if (model.screen === 'objects') title = model.section === 'favorites' ? 'Favorites' : model.selectedTypeId ? typeName(model, model.selectedTypeId) : 'Search';
   const currentView = model.screen === 'view' ? model.evaluatedView?.view : undefined;
   const suggestedPrompt = model.screen === 'calendar' ? 'Create a calendar of my objects using their date properties.' : model.section === 'tasks' && model.selectedTypeId ? 'Create a view of my tasks using their existing properties.' : undefined;
   const objectEditor = model.screen === 'new-object' || model.screen === 'calendar' || (model.screen === 'object' && Boolean(model.object));

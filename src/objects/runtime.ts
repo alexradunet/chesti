@@ -266,8 +266,10 @@ export class ObjectRuntime {
     let bounds: { start: string; end: string };
     try { bounds = localDateBounds(date); } catch { throw new AppError(422, 'Choose a real calendar date in YYYY-MM-DD format.'); }
     if (!Number.isInteger(offset) || offset < 0 || offset > 1_000_000) throw new AppError(422, 'Invalid created-object page.');
-    const rows = this.db.query<ObjectSummaryRow, [string, string, number, number]>(`SELECT id, type_id, title, revision, created_at, updated_at, trashed
-      FROM objects WHERE trashed = 0 AND created_at >= ? AND created_at < ? ORDER BY created_at, id LIMIT ? OFFSET ?`).all(bounds.start, bounds.end, 51, offset);
+    const hasFiniteEnd = !bounds.end.startsWith('+');
+    const rows = this.db.query<ObjectSummaryRow, (string | number)[]>(`SELECT id, type_id, title, revision, created_at, updated_at, trashed
+      FROM objects WHERE trashed = 0 AND created_at >= ?${hasFiniteEnd ? ' AND created_at < ?' : ''} ORDER BY created_at, id LIMIT ? OFFSET ?`)
+      .all(...(hasFiniteEnd ? [bounds.start, bounds.end] : [bounds.start]), 51, offset);
     return { items: rows.slice(0, 50).map(objectSummary), offset, hasMore: rows.length > 50 };
   }
   listFavoriteObjects(offset = 0): BoundedPage<ObjectSummary> {

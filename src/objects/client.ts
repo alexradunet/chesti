@@ -637,7 +637,9 @@ function warnAboutDirtyWriting(): void {
     status.setAttribute('role', 'alert');
     status.setAttribute('aria-live', 'assertive');
     status.classList.add('error');
-    status.textContent = 'Save or discard your journal changes before using another calendar action.';
+    status.textContent = location.pathname === '/calendar'
+      ? 'Save your journal changes before using another calendar action.'
+      : 'Save your writing changes before using this action.';
   }
 }
 if (writingForm) {
@@ -646,7 +648,7 @@ if (writingForm) {
     const link = event.target instanceof Element ? event.target.closest<HTMLAnchorElement>('a[href]') : null;
     if (!link || link.closest('[data-writing-toolbar], [data-writing-link-dialog], [data-object-search]')) return;
     const href = new URL(link.href, location.href);
-    const blocksDirtyWriting = (location.pathname === '/calendar' && href.pathname === '/calendar') || link.closest('form[action$="/favorite"]');
+    const blocksDirtyWriting = (location.pathname === '/calendar' && href.pathname === '/calendar') || Boolean(link.closest('form[action$="/favorite"]'));
     if (!blocksDirtyWriting) return;
     event.preventDefault();
     event.stopImmediatePropagation();
@@ -656,7 +658,8 @@ if (writingForm) {
     if (!dirtyForms.has(writingForm) || event.target === writingForm) return;
     const form = event.target instanceof HTMLFormElement ? event.target : undefined;
     const action = form ? new URL(form.action, location.href).pathname : '';
-    const blocksDirtyWriting = action === '/calendar/task' || action.endsWith('/favorite');
+    const method = (form?.method || 'get').toLowerCase();
+    const blocksDirtyWriting = (method === 'get' && location.pathname === '/calendar' && action === '/calendar') || action === '/calendar/task' || action.endsWith('/favorite');
     if (!blocksDirtyWriting) return;
     event.preventDefault();
     event.stopImmediatePropagation();

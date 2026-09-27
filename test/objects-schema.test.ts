@@ -103,6 +103,32 @@ function installV3Fixture(file: string): { schema: unknown[]; rows: Record<strin
   return { schema, rows };
 }
 
+function installV4Fixture(file: string): { schema: unknown[]; rows: Record<string, unknown[]> } {
+  installV3Fixture(file);
+  const db = openDatabase(file);
+  db.query("UPDATE object_metadata SET value = '4' WHERE key = 'schema_version'").run();
+  db.exec(`
+    CREATE TRIGGER object_builtin_type_1_insert BEFORE INSERT ON object_types
+    WHEN NEW.id = '${TASK_TYPE_ID}' AND (json_type(NEW.property_ids_json) IS NOT 'array'
+      OR (SELECT COUNT(*) FROM json_each(NEW.property_ids_json) WHERE type = 'text' AND value = '${TASK_DONE_PROPERTY_ID}') != 1
+      OR (SELECT COUNT(*) FROM json_each(NEW.property_ids_json) WHERE type = 'text' AND value = '${TASK_DUE_PROPERTY_ID}') != 1)
+    BEGIN SELECT RAISE(ABORT, 'Built-in type core fields are protected.'); END;
+    CREATE TRIGGER object_builtin_type_1_update BEFORE UPDATE ON object_types
+    WHEN (OLD.id = '${TASK_TYPE_ID}' OR NEW.id = '${TASK_TYPE_ID}') AND (OLD.id != NEW.id OR json_type(NEW.property_ids_json) IS NOT 'array'
+      OR (SELECT COUNT(*) FROM json_each(NEW.property_ids_json) WHERE type = 'text' AND value = '${TASK_DONE_PROPERTY_ID}') != 1
+      OR (SELECT COUNT(*) FROM json_each(NEW.property_ids_json) WHERE type = 'text' AND value = '${TASK_DUE_PROPERTY_ID}') != 1)
+    BEGIN SELECT RAISE(ABORT, 'Built-in type identity and core fields are protected.'); END;
+    CREATE TRIGGER object_builtin_type_1_delete BEFORE DELETE ON object_types
+    WHEN OLD.id = '${TASK_TYPE_ID}'
+    BEGIN SELECT RAISE(ABORT, 'Built-in types cannot be deleted.'); END;
+  `);
+  assert.throws(() => db.query('UPDATE object_types SET property_ids_json = ? WHERE id = ?').run(JSON.stringify([TASK_DONE_PROPERTY_ID]), TASK_TYPE_ID), /core fields/);
+  const schema = db.query('SELECT type, name, tbl_name, sql FROM sqlite_schema ORDER BY type, name').all();
+  const rows = captureRows(db);
+  db.close();
+  return { schema, rows };
+}
+
 function captureRows(db: ReturnType<typeof openDatabase>): Record<string, unknown[]> {
   const tables = ['object_metadata', 'object_types', 'object_properties', 'objects', 'object_references', 'object_revisions', 'object_create_requests', 'object_favorites', 'object_views', 'object_view_revisions', 'object_view_conversations', 'object_view_conversation_turns', 'browser_visitors', 'unrelated'];
   return Object.fromEntries(tables.filter(table => db.query<{ present: number }, [string]>("SELECT 1 AS present FROM sqlite_schema WHERE type = 'table' AND name = ?").get(table))
@@ -193,6 +219,36 @@ test('version-3 application schema upgrades to version 5 without changing object
   db = openDatabase(file);
   const reopened = new ObjectRuntime(db);
   assert.deepEqual(reopened.getObject(page), upgradedPage);
+  db.close();
+});
+
+test('genuine version-4 workspace upgrades to version 5 preserving logical rows and new protection', t => {
+  const file = temporaryWorkspace(t);
+  const before = installV4Fixture(file);
+  let db = openDatabase(file);
+  const runtime = new ObjectRuntime(db);
+  assert.equal(db.query<{ value: string }, []>("SELECT value FROM object_metadata WHERE key = 'schema_version'").get()!.value, '5');
+  assert.deepEqual(runtime.getType(TASK_TYPE_ID).propertyIds, [TASK_DONE_PROPERTY_ID, TASK_DUE_PROPERTY_ID, textProperty, TASK_SCHEDULED_PROPERTY_ID]);
+  assert.equal(runtime.getType(TASK_TYPE_ID).revision, 6);
+  assert.equal(runtime.getType(PAGE_TYPE_ID).name, 'Renamed Page');
+  assert.equal(runtime.getProperty(textProperty).label, 'Notes');
+  assert.equal(runtime.getObject(page).body, 'Exact **Markdown**\n\nEmoji 🚀');
+  assert.equal(runtime.getObject(task).revision, 1);
+  assert.throws(() => db.query('UPDATE object_types SET property_ids_json = ? WHERE id = ?').run(JSON.stringify([TASK_DONE_PROPERTY_ID, TASK_DUE_PROPERTY_ID]), TASK_TYPE_ID), /core fields/);
+  const expectedRows = structuredClone(before.rows) as Record<string, any[]>;
+  expectedRows.object_metadata = [{ key: 'schema_version', value: '5' }];
+  expectedRows.object_favorites = [];
+  expectedRows.object_properties = [...expectedRows.object_properties!, { id: TASK_SCHEDULED_PROPERTY_ID, label: 'Scheduled date', kind: 'date', options_json: null, target_type_id: null, multiple: 0, revision: 1 }]
+    .sort((left, right) => String(left.id).localeCompare(String(right.id)));
+  expectedRows.object_types = expectedRows.object_types!.map(row => row.id === TASK_TYPE_ID
+    ? { ...row, property_ids_json: JSON.stringify([TASK_DONE_PROPERTY_ID, TASK_DUE_PROPERTY_ID, textProperty, TASK_SCHEDULED_PROPERTY_ID]), revision: 6 }
+    : row);
+  assert.deepEqual(captureRows(db), expectedRows);
+  db.close();
+
+  db = openDatabase(file);
+  new ObjectRuntime(db);
+  assert.deepEqual(captureRows(db), expectedRows);
   db.close();
 });
 

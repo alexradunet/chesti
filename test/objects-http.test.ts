@@ -1749,3 +1749,47 @@ test('day task action failures keep selected day content and reject stale scope'
   assert.equal(response.status, 409);
   assert.match(html, /This task is no longer in the selected day/);
 });
+
+test('day journal correctable create errors keep save path and request id', async t => {
+  const { objects, post } = await setup(t, async () => { throw new Error('no model'); });
+  const requestId = randomUUID();
+  const response = await post('/calendar/journal', { date: '2027-01-01', requestId, body: '' });
+  const html = await response.text();
+  assert.equal(response.status, 422);
+  assert.match(html, /Save journal/);
+  assert.doesNotMatch(html, /Reload selected day/);
+  const fields = nativeObjectFields(html);
+  assert.equal(fields.requestId, requestId);
+  assert.equal(fields.date, '2027-01-01');
+  assert.equal(fields.body, '');
+  const saved = await post('/calendar/journal', { date: fields.date!, requestId: fields.requestId!, body: 'Now written' });
+  assert.equal(saved.status, 303);
+  assert.equal(objects.getJournal('2027-01-01')?.body, 'Now written');
+});
+
+test('day journal conflicts preserve original revision and require it with reviewed revision', async t => {
+  const { objects, post } = await setup(t, async () => { throw new Error('no model'); });
+  const date = '2027-02-01';
+  const journal = objects.createObject({ typeId: JOURNAL_TYPE_ID, title: date, properties: { [JOURNAL_DATE_PROPERTY_ID]: date }, body: 'saved 1' });
+  const changed = objects.saveDayJournal({ date, body: 'saved 2', objectId: journal.id, revision: journal.revision });
+  let response = await post('/calendar/journal', { date, objectId: journal.id, revision: String(journal.revision), body: 'draft 2' });
+  let html = await response.text();
+  assert.equal(response.status, 409);
+  assert.match(html, /data-conflict-panel/);
+  assert.match(html, /Save reconciled journal/);
+  let fields = nativeObjectFields(html);
+  assert.equal(fields.objectId, journal.id);
+  assert.equal(fields.revision, String(journal.revision));
+  assert.equal(fields.body, 'draft 2');
+  response = await post('/calendar/journal', { date, objectId: journal.id, revision: '', reviewedRevision: String(changed.revision), body: 'bad bypass' });
+  assert.equal(response.status, 422);
+  assert.equal(objects.getObject(journal.id).body, 'saved 2');
+  const saved3 = objects.saveDayJournal({ date, body: 'saved 3', objectId: journal.id, revision: changed.revision });
+  response = await post('/calendar/journal', { date, objectId: journal.id, revision: String(journal.revision), reviewedRevision: String(changed.revision), body: 'draft 3' });
+  html = await response.text();
+  assert.equal(response.status, 409);
+  fields = nativeObjectFields(html);
+  assert.equal(fields.revision, String(journal.revision));
+  assert.equal(fields.body, 'draft 3');
+  assert.match(html, new RegExp(`name="reviewedRevision" value="${saved3.revision}"`));
+});

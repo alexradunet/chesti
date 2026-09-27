@@ -396,12 +396,12 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
         model.dayJournalDraft = fields.has('objectId')
           ? { mode: 'update', date: model.journalDate, body: fields.get('body') ?? '', objectId: fields.get('objectId') ?? '', revision: fields.get('revision') ?? '' }
           : { mode: 'create', date: model.journalDate, body: fields.get('body') ?? '', requestId: fields.get('requestId') ?? '' };
-        model.objectDraft = { title: model.journalDate, body: model.dayJournalDraft.body, revision: model.dayJournalDraft.revision ?? '', requestId: model.dayJournalDraft.requestId ?? '' };
         requireFields(fields, ['csrf', 'date', 'body', 'revision', 'reviewedRevision', 'requestId', 'objectId']);
         if (!validDate(model.journalDate)) throw new AppError(422, 'Choose a real calendar date in YYYY-MM-DD format.');
         let saved: ObjectRecord;
         if (fields.has('objectId')) {
-          const expectedRevision = fields.has('reviewedRevision') ? revision(fields, 'reviewedRevision') : revision(fields);
+          const originalRevision = revision(fields);
+          const expectedRevision = fields.has('reviewedRevision') ? revision(fields, 'reviewedRevision') : originalRevision;
           saved = objects.saveDayJournal({ date: model.journalDate, body: fields.get('body') ?? '', objectId: fields.get('objectId') ?? '', revision: expectedRevision });
         } else {
           const requestId = fields.get('requestId') ?? '';
@@ -630,10 +630,12 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
         const safeSameObject = model.dayJournalDraft.mode === 'update' && model.journal && !model.journal.trashed &&
           model.journal.id.toLowerCase() === (model.dayJournalDraft.objectId ?? '').toLowerCase() &&
           model.journal.properties[JOURNAL_DATE_PROPERTY_ID] === model.dayJournalDraft.date;
-        model.dayJournalDraft.safeConflict = Boolean(error.status === 409 && safeSameObject);
-        if (model.dayJournalDraft.safeConflict) {
+        if (error.status === 409 && safeSameObject) {
           model.dayJournalConflict = true;
+          model.dayJournalDraft.conflictRevision = String(model.journal!.revision);
           model.error = 'This journal changed. Compare the latest saved writing with your draft before saving.';
+        } else if (error.status === 409 && model.dayJournalDraft.mode === 'update') {
+          model.dayJournalDraft.saveBlocked = true;
         }
       }
       if (error.status === 409 && model.object && model.objectDraft?.revision && Number(model.objectDraft.revision) !== model.object.revision) {

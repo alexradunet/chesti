@@ -56,9 +56,20 @@ test('created-on query uses local calendar bounds and bounded deterministic page
     db.query('UPDATE objects SET created_at = ? WHERE id = ?').run('2026-03-08T05:00:00.000Z', first.id);
     db.query('UPDATE objects SET created_at = ? WHERE id = ?').run('2026-03-09T03:59:59.999Z', last.id);
     db.query('UPDATE objects SET created_at = ? WHERE id = ?').run('2026-03-09T04:00:00.000Z', after.id);
-    const page = runtime.listObjectsCreatedOn('2026-03-08');
+    let page = runtime.listObjectsCreatedOn('2026-03-08');
     assert.deepEqual(page.items.map(item => item.id), [first.id, last.id]);
     assert.equal(page.hasMore, false);
+
+    const fallBefore = runtime.createObject(input(PAGE_TYPE_ID, 'Fall before'));
+    const fallFirst = runtime.createObject(input(PAGE_TYPE_ID, 'Fall first'));
+    const fallLast = runtime.createObject(input(PAGE_TYPE_ID, 'Fall last'));
+    const fallAfter = runtime.createObject(input(PAGE_TYPE_ID, 'Fall after'));
+    db.query('UPDATE objects SET created_at = ? WHERE id = ?').run('2026-11-01T03:59:59.999Z', fallBefore.id);
+    db.query('UPDATE objects SET created_at = ? WHERE id = ?').run('2026-11-01T04:00:00.000Z', fallFirst.id);
+    db.query('UPDATE objects SET created_at = ? WHERE id = ?').run('2026-11-02T04:59:59.999Z', fallLast.id);
+    db.query('UPDATE objects SET created_at = ? WHERE id = ?').run('2026-11-02T05:00:00.000Z', fallAfter.id);
+    page = runtime.listObjectsCreatedOn('2026-11-01');
+    assert.deepEqual(page.items.map(item => item.id), [fallFirst.id, fallLast.id]);
   } finally {
     if (previousTZ === undefined) delete process.env.TZ; else process.env.TZ = previousTZ;
   }
@@ -87,6 +98,11 @@ test('day projections page deterministically beyond fifty rows and preserve tiny
     assert.equal(localDateBounds('0001-01-01').start.slice(0, 10), '0001-01-01');
     assert.equal(localDateBounds('0099-12-31').start.slice(0, 10), '0099-12-31');
     assert.equal(localDateBounds('0100-01-01').start.slice(0, 10), '0100-01-01');
+    const high = runtime.createObject(input(PAGE_TYPE_ID, 'Last supported date'));
+    const beforeHigh = runtime.createObject(input(PAGE_TYPE_ID, 'Before last supported date'));
+    db.query('UPDATE objects SET created_at = ? WHERE id = ?').run('9999-12-31T00:00:00.000Z', high.id);
+    db.query('UPDATE objects SET created_at = ? WHERE id = ?').run('9999-12-30T23:59:59.999Z', beforeHigh.id);
+    assert.deepEqual(runtime.listObjectsCreatedOn('9999-12-31').items.map(item => item.id), [high.id]);
   } finally {
     if (previousTZ === undefined) delete process.env.TZ; else process.env.TZ = previousTZ;
   }
