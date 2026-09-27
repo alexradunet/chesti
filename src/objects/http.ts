@@ -87,12 +87,16 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
     const lookupRoute = url.pathname === '/objects/lookup';
     const json = lookupRoute || conversationRoute || (url.pathname === '/views/generate' && req.headers.get('accept')?.includes('application/json'));
     const catalog = objects.catalog();
+    const typeNames = new Map(catalog.types.map(type => [type.id, type.name]));
     const model: ObjectPageModel = {
-      csrf: visitor.csrf, path: url.pathname, screen: 'objects', catalog, views: views.list(), objects: [],
+      csrf: visitor.csrf, path: url.pathname, screen: 'objects', catalog, views: [], objects: [],
       aiOpen: url.searchParams.get('ai') === '1',
       ...(url.searchParams.has('saved') ? { notice: 'Saved.' } : {}),
     };
-    const page = (status = 200) => new Response(renderObjectWorkspace(model), { status, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+    const page = (status = 200) => {
+      model.views = views.list();
+      return new Response(renderObjectWorkspace(model), { status, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+    };
     const go = (path: string) => new Response(null, { status: 303, headers: { Location: path } });
     const backlinksOffset = () => {
       if (url.searchParams.getAll('backlinksOffset').length > 1) throw new AppError(422, 'Invalid backlinks page.');
@@ -238,7 +242,7 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
           if (typeId !== null) objects.getType(typeId);
           const rows = objects.listObjectSummaries({ search, typeId: typeId ?? undefined, limit: 51 });
           const result: ObjectLookupResult = {
-            items: rows.slice(0, 50).map(record => ({ id: record.id, title: record.title, typeName: objects.getType(record.typeId).name })),
+            items: rows.slice(0, 50).map(record => ({ id: record.id, title: record.title, typeName: typeNames.get(record.typeId) ?? objects.getType(record.typeId).name })),
             truncated: rows.length > 50,
           };
           return Response.json(result, { headers: { 'Cache-Control': 'no-store' } });

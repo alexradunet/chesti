@@ -11,7 +11,7 @@ import { ObjectRuntime } from '../src/objects/runtime.js';
 import { ViewConversationService } from '../src/objects/conversations.js';
 import { ViewService } from '../src/objects/views.js';
 import { ObjectLookupSchema, PAGE_TYPE_ID, TASK_TYPE_ID, TASK_DUE_PROPERTY_ID, JOURNAL_TYPE_ID, JOURNAL_DATE_PROPERTY_ID } from '../src/objects/model.js';
-import type { ObjectLookupResult, ViewConversation, ViewGenerator } from '../src/objects/model.js';
+import type { ObjectLookupResult, ViewConversation, ViewGenerator, ViewSpec } from '../src/objects/model.js';
 
 async function setup(t: TestContext, generator: ViewGenerator) {
   const db = openDatabase();
@@ -1520,4 +1520,49 @@ test('object backlinks use bounded native pages and reject invalid offsets witho
   assert.equal(rejectedDraft.revision, String(concurrent.revision));
   assert.equal(rejectedDraft.historyRevision, '0');
   assert.equal(f.objects.getObject(target.id).title, concurrent.title);
+});
+
+test('JSON endpoints and successful redirects do not load saved views while HTML still does', async t => {
+  const spec: ViewSpec = { title: 'Pages', blocks: [{ title: 'Pages', component: 'list', sources: [{ typeId: PAGE_TYPE_ID, bindings: {} }] }] };
+  const f = await setup(t, async () => ({ spec, model: 'test/model' }));
+  const saved = f.views.create({ spec, model: 'test/model' }, 'Show pages');
+  const object = f.objects.createObject({ typeId: PAGE_TYPE_ID, title: 'Lookup target', properties: {}, body: 'Searchable body' });
+
+  let listCalls = 0;
+  const original = ViewService.prototype.list;
+  ViewService.prototype.list = function patchedList(this: ViewService) {
+    listCalls += 1;
+    return original.call(this);
+  };
+  t.after(() => { ViewService.prototype.list = original; });
+
+  const lookup = await f.get('/objects/lookup?q=Lookup');
+  assert.equal(lookup.status, 200);
+  assert.deepEqual(await lookup.json(), { items: [{ id: object.id, title: object.title, typeName: 'Page' }], truncated: false });
+  assert.equal(listCalls, 0);
+
+  const generated = await f.post('/views/generate', { prompt: 'Show pages' }, 'application/json');
+  assert.equal(generated.status, 200);
+  const generatedJson = await generated.json() as { conversation: ViewConversation };
+  assert.equal(listCalls, 0);
+  const conversation = await f.get(`/views/conversations/${generatedJson.conversation.id}`);
+  assert.equal(conversation.status, 200);
+  assert.equal((await conversation.json() as ViewConversation).id, generatedJson.conversation.id);
+  assert.equal(listCalls, 0);
+
+  const renamed = await f.post(`/objects/${object.id}/update`, { revision: String(object.revision), title: 'Redirect only', body: object.body });
+  assert.equal(renamed.status, 303);
+  assert.equal(listCalls, 0);
+
+  const html = await f.get('/views');
+  assert.equal(html.status, 200);
+  assert.ok((await html.text()).includes(saved.spec.title));
+  assert.equal(listCalls, 1);
+
+  const stale = await f.post(`/objects/${object.id}/update`, { revision: String(object.revision), title: 'Rejected draft', body: 'Draft body' });
+  assert.equal(stale.status, 409);
+  const staleMarkup = await stale.text();
+  assert.ok(staleMarkup.includes('Rejected draft'));
+  assert.equal(nativeObjectFields(staleMarkup).body, 'Draft body');
+  assert.equal(listCalls, 2);
 });
