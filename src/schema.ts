@@ -208,7 +208,7 @@ function refreshTaskBuiltInTriggers(db: Database): void {
   db.exec('DROP TRIGGER IF EXISTS object_builtin_property_7_insert; DROP TRIGGER IF EXISTS object_builtin_property_7_update; DROP TRIGGER IF EXISTS object_builtin_property_7_delete;');
 }
 
-function installBuiltins(db: Database): void {
+function installBuiltins(db: Database, refreshTaskTriggers = false): void {
   for (const [index, type] of BUILTIN_TYPES.entries()) {
     const existing = db.query<TypeRow, [string]>('SELECT * FROM object_types WHERE id = ?').get(type.id);
     if (existing) {
@@ -221,7 +221,7 @@ function installBuiltins(db: Database): void {
       db.query('INSERT INTO object_types(id, name, property_ids_json, revision) VALUES (?, ?, ?, 1)')
         .run(type.id, type.name, JSON.stringify(type.propertyIds));
     }
-    if (type.id === TASK_TYPE_ID) refreshTaskBuiltInTriggers(db);
+    if (type.id === TASK_TYPE_ID && refreshTaskTriggers) refreshTaskBuiltInTriggers(db);
     const invalid = [
       "json_type(NEW.property_ids_json) IS NOT 'array'",
       ...type.propertyIds.map(id => `(SELECT COUNT(*) FROM json_each(NEW.property_ids_json) WHERE type = 'text' AND value = '${id}') != 1`),
@@ -295,7 +295,7 @@ export function initializeApplicationSchema(db: Database): void {
     }
     installCoreTables(db);
     if (version !== undefined && version !== '5') attachTaskScheduledProperty(db);
-    installBuiltins(db);
+    installBuiltins(db, version !== undefined && version !== '5');
     installViewTables(db);
     installConversationTables(db);
     installVisitorTables(db);

@@ -297,3 +297,25 @@ test('invalid existing structural data rolls back the version-4 upgrade complete
     db.close();
   }
 });
+
+test('version-4 reserved scheduled property conflicts roll back without mutation', t => {
+  const file = temporaryWorkspace(t);
+  installV3Fixture(file);
+  let db = openDatabase(file);
+  db.query("UPDATE object_metadata SET value = '4' WHERE key = 'schema_version'").run();
+  db.query('INSERT INTO object_properties VALUES (?, ?, ?, NULL, NULL, 0, 1)').run(TASK_SCHEDULED_PROPERTY_ID, 'Wrong scheduled', 'text');
+  const schema = db.query('SELECT type, name, tbl_name, sql FROM sqlite_schema ORDER BY type, name').all();
+  const rows = captureRows(db);
+  db.close();
+  db = openDatabase(file);
+  try {
+    assert.throws(() => new ObjectRuntime(db), /Reserved built-in property/);
+  } finally {
+    db.close();
+  }
+  db = openDatabase(file);
+  assert.deepEqual(db.query('SELECT type, name, tbl_name, sql FROM sqlite_schema ORDER BY type, name').all(), schema);
+  assert.deepEqual(captureRows(db), rows);
+  assert.equal(db.query<{ value: string }, []>("SELECT value FROM object_metadata WHERE key = 'schema_version'").get()!.value, '4');
+  db.close();
+});

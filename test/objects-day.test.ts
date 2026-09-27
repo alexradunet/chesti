@@ -81,8 +81,15 @@ test('day projections page deterministically beyond fifty rows and preserve tiny
   }
   assert.equal(runtime.listObjectsCreatedOn(date).items.length, 50);
   assert.equal(runtime.listObjectsCreatedOn(date, 50).items.length >= 5, true);
-  assert.doesNotMatch(localDateBounds('0001-01-01').start, /^1901-/);
-  assert.doesNotMatch(localDateBounds('0099-12-31').start, /^1999-/);
+  const previousTZ = process.env.TZ;
+  process.env.TZ = 'UTC';
+  try {
+    assert.equal(localDateBounds('0001-01-01').start.slice(0, 10), '0001-01-01');
+    assert.equal(localDateBounds('0099-12-31').start.slice(0, 10), '0099-12-31');
+    assert.equal(localDateBounds('0100-01-01').start.slice(0, 10), '0100-01-01');
+  } finally {
+    if (previousTZ === undefined) delete process.env.TZ; else process.env.TZ = previousTZ;
+  }
 });
 
 test('favorites are idempotent shared metadata and hide trashed members', t => {
@@ -107,4 +114,20 @@ test('favorites are idempotent shared metadata and hide trashed members', t => {
   runtime.setTrashed(restored.id, revision, true);
   assert.throws(() => runtime.setFavorite(restored.id, true), status(409));
   assert.throws(() => runtime.setFavorite(crypto.randomUUID(), true), status(404));
+});
+
+test('favorite pages are bounded beyond fifty and persist after reopening', t => {
+  const { db, runtime } = fixture(t);
+  for (let index = 0; index < 55; index++) {
+    const object = runtime.createObject(input(PAGE_TYPE_ID, `Favorite ${String(index).padStart(2, '0')}`));
+    runtime.setFavorite(object.id, true);
+  }
+  const first = runtime.listFavoriteObjects();
+  const second = runtime.listFavoriteObjects(50);
+  assert.equal(first.items.length, 50);
+  assert.equal(first.hasMore, true);
+  assert.equal(second.items.length, 5);
+  assert.equal(new Set([...first.items, ...second.items].map(item => item.id)).size, 55);
+  const reopened = new ObjectRuntime(db);
+  assert.equal(reopened.listFavoriteObjects(50).items.length, 5);
 });

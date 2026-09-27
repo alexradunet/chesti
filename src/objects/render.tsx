@@ -305,15 +305,20 @@ function localDateValue(year: number, month: number, day: number): Date {
 function dateString(value: Date): string {
   return `${String(value.getFullYear()).padStart(4, '0')}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`;
 }
-function addDays(date: string, days: number): string {
+function validDateString(value: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value) && value >= '0001-01-01' && value <= '9999-12-31';
+}
+function addDays(date: string, days: number): string | undefined {
   const [year, month, day] = date.split('-').map(Number) as [number, number, number];
-  return dateString(localDateValue(year, month, day + days));
+  const next = dateString(localDateValue(year, month, day + days));
+  return validDateString(next) ? next : undefined;
 }
 function addMonths(month: string, count: number): string | undefined {
   const [year, monthNumber] = month.split('-').map(Number) as [number, number];
   const value = localDateValue(year, monthNumber + count, 1);
-  const next = `${String(value.getFullYear()).padStart(4, '0')}-${String(value.getMonth() + 1).padStart(2, '0')}`;
-  return next >= '0001-01' && next <= '9999-12' ? next : undefined;
+  const yearValue = value.getFullYear();
+  if (yearValue < 1 || yearValue > 9999) return undefined;
+  return `${String(yearValue).padStart(4, '0')}-${String(value.getMonth() + 1).padStart(2, '0')}`;
 }
 function localTime(value: string): string {
   return new Date(value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -325,7 +330,8 @@ function taskMatchLabel(task: DayTaskSummary): string {
 function DayWorkspace({ model }: { model: ObjectPageModel }) {
   const date = model.journalDate ?? '';
   const journal = model.journal;
-  const body = model.objectDraft?.body ?? journal?.body ?? '';
+  const draft = model.dayJournalDraft;
+  const body = draft?.body ?? model.objectDraft?.body ?? journal?.body ?? '';
   const displayMonth = model.calendarMonth ?? date.slice(0, 7);
   const monthWeeks = (() => {
     if (!displayMonth) return [] as (string | undefined)[][];
@@ -347,15 +353,16 @@ function DayWorkspace({ model }: { model: ObjectPageModel }) {
   return <div class="day-workspace">
     <section class="day-main">
       <PageHeading eyebrow={`Server-local day · ${model.timeZone ?? 'local time'}`} title={date} description="Journal, scheduled or due tasks, and objects created on this day.">
-        <ButtonLink href={`/calendar?date=${addDays(date, -1)}`}>Previous day</ButtonLink><ButtonLink href="/calendar">Today</ButtonLink><ButtonLink href={`/calendar?date=${addDays(date, 1)}`}>Next day</ButtonLink>
+        {addDays(date, -1) && <ButtonLink href={`/calendar?date=${addDays(date, -1)}`}>Previous day</ButtonLink>}<ButtonLink href="/calendar">Today</ButtonLink>{addDays(date, 1) && <ButtonLink href={`/calendar?date=${addDays(date, 1)}`}>Next day</ButtonLink>}
       </PageHeading>
       <form class="filter-bar day-mobile-picker" method="get" action="/calendar"><label>Choose date<input type="date" name="date" value={date} required /></label><Button type="submit">Show day</Button></form>
       <section class="panel day-journal"><div class="section-heading"><h2>Journal</h2>{journal?.trashed && <Badge tone="warning">In trash</Badge>}</div>
-        {journal?.trashed ? <p>This day's journal is in Trash. <a href={objectUrl(journal.id)}>Open the existing journal to restore it</a>.</p> : <form class="object-editor" method="post" action="/calendar/journal" data-enhance="" data-object-editor="" data-draft={model.objectDraft ? 'true' : undefined}>
-          <Token model={model} /><Hidden name="date" value={date} />{journal ? <><Hidden name="objectId" value={journal.id} /><Hidden name="revision" value={model.objectDraft?.revision ?? journal.revision} /></> : <Hidden name="requestId" value={model.objectDraft?.requestId ?? crypto.randomUUID()} />}
+        {journal?.trashed && !draft ? <p>This day's journal is in Trash. <a href={objectUrl(journal.id)}>Open the existing journal to restore it</a>.</p> : <form class="object-editor" method="post" action="/calendar/journal" data-enhance={draft?.safeConflict === false ? undefined : ''} data-object-editor={draft?.safeConflict === false ? undefined : ''} data-draft={draft || model.objectDraft ? 'true' : undefined}>
+          <Token model={model} /><Hidden name="date" value={draft?.date ?? date} />{draft?.mode === 'update' ? <><Hidden name="objectId" value={draft.objectId ?? ''} /><Hidden name="revision" value={draft.revision ?? ''} /></> : journal && !draft ? <><Hidden name="objectId" value={journal.id} /><Hidden name="revision" value={journal.revision} /></> : <Hidden name="requestId" value={draft?.requestId ?? model.objectDraft?.requestId ?? crypto.randomUUID()} />}
           <div class="writing" id="writing-area"><div class="writing-heading"><h3 id="writing-heading">Writing</h3><Button class="js-only" type="button" data-insert-object-link="">Insert object link</Button></div><div class="writing-toolbar" role="toolbar" aria-label="Writing formatting" data-writing-toolbar="" hidden><label class="sr-only" for="day-writing-block">Paragraph style</label><select id="day-writing-block" data-writing-block="" aria-label="Paragraph style"><option value="paragraph">Paragraph</option>{[1, 2, 3, 4, 5, 6].map(level => <option value={`heading-${level}`}>Heading {level}</option>)}</select>{([['bold', 'Bold'], ['italic', 'Italic'], ['strike', 'Strikethrough'], ['bullet', 'Bulleted list'], ['ordered', 'Numbered list'], ['quote', 'Block quote'], ['code', 'Inline code'], ['code-block', 'Code block'], ['link', 'Link'], ['undo', 'Undo'], ['redo', 'Redo']] as const).map(([command, label]) => <Button type="button" variant="ghost" data-writing-command={command} aria-label={label} title={label}>{label}</Button>)}</div><div data-writing-mount="" hidden></div><label class="sr-only" for="day-journal-body">Journal Markdown source</label><textarea id="day-journal-body" class="markdown-source" name="body" rows={12} aria-describedby="markdown-help" data-writing-source={JSON.stringify(body)}>{`\n${body}`}</textarea><p class="fine" id="markdown-help">Use # headings, **bold**, and [label](url). Changes need saving.</p><p class="fine" data-writing-status="" role="status" hidden></p><dialog class="writing-link-dialog" data-writing-link-dialog="" aria-labelledby="day-writing-link-heading"><h2 id="day-writing-link-heading">Edit link</h2><label>Link address<input data-writing-link-url="" type="text" inputmode="url" autocomplete="off" placeholder="https://example.com" /></label><p class="fine">Use https, http, mailto, or an object link. Leave empty to remove a link.</p><p data-writing-link-error="" role="alert"></p><Button type="button" data-writing-link-apply="">Apply link</Button> <Button type="button" variant="ghost" data-writing-link-cancel="">Cancel</Button></dialog></div>
-          <div class="save-bar"><span>{model.dayJournalConflict && journal ? <Button type="submit" variant="primary" name="reviewedRevision" value={journal.revision}>Save reconciled journal</Button> : <Button type="submit" variant="primary">Save journal</Button>}</span><State message={model.error || (journal ? `Saved revision ${journal.revision}.` : 'Write something, then save to create this journal.')} error={Boolean(model.error)} /></div>
-          {model.dayJournalConflict && journal && <aside class="saved-conflict" tabindex={-1}><h3>Latest saved journal · revision {journal.revision}</h3><div class="markdown-content">{raw(renderMarkdown(journal.body))}</div><details><summary>Latest Markdown source</summary><pre class="saved-source">{`\n${journal.body}`}</pre></details><p>Reconcile your draft above, then choose Save reconciled journal. Another intervening save will still reject.</p></aside>}
+          <div class="save-bar"><span data-object-save-controls="">{draft?.safeConflict === false ? <ButtonLink href={`/calendar?date=${date}`}>Reload selected day</ButtonLink> : model.dayJournalConflict && journal ? <Button type="submit" variant="primary" name="reviewedRevision" value={journal.revision}>Save reconciled journal</Button> : <Button type="submit" variant="primary">Save journal</Button>}</span><State message={model.error || (journal ? `Saved revision ${journal.revision}.` : 'Write something, then save to create this journal.')} error={Boolean(model.error)} /></div>
+          {draft?.safeConflict === false && <p class="notice error">This draft no longer has a safe same-journal save target. Copy the writing above, then open the current day journal or reload the selected day.</p>}
+          {model.dayJournalConflict && journal && <aside class="saved-conflict" data-conflict-panel="" tabindex={-1}><h3>Latest saved journal · revision {journal.revision}</h3><div class="markdown-content">{raw(renderMarkdown(journal.body))}</div><details><summary>Latest Markdown source</summary><pre class="saved-source">{`\n${journal.body}`}</pre></details><p>Reconcile your draft above, then choose Save reconciled journal. Another intervening save will still reject.</p></aside>}
         </form>}
       </section>
       <section class="panel"><div class="section-heading"><h2>Tasks</h2><Badge>{model.dayTasks?.items.length ?? 0}</Badge></div>{model.dayTasks?.items.length ? <ul class="day-list">{model.dayTasks.items.map(task => <li><div><a href={objectUrl(task.id)}>{titleOf(task)}</a><span class="fine">{taskMatchLabel(task)}{task.done ? ' · completed' : ''}</span></div><form method="post" action="/calendar/task"><Token model={model} /><Hidden name="date" value={date} /><Hidden name="objectId" value={task.id} /><Hidden name="revision" value={task.revision} /><Hidden name="done" value={task.done ? 'false' : 'true'} /><Button type="submit">{task.done ? 'Mark incomplete' : 'Mark done'}</Button></form></li>)}</ul> : <p class="muted">No scheduled or due tasks for this date.</p>}<nav class="pagination">{(model.dayTasks?.offset ?? 0) > 0 && <a href={taskPage(Math.max(0, (model.dayTasks?.offset ?? 0) - 50))}>Previous tasks</a>}{model.dayTasks?.hasMore && <a href={taskPage((model.dayTasks.offset ?? 0) + 50)}>Next tasks</a>}</nav></section>

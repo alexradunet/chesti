@@ -56,7 +56,7 @@ function formValue(property: PropertyDefinition, fields: URLSearchParams, prefix
 
 function localDate(): string {
   const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(4, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  return `${String(now.getFullYear()).padStart(4, '0')}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 }
 function validMonth(value: unknown): value is string {
   return typeof value === 'string' && /^\d{4}-\d{2}$/.test(value) && validDate(`${value}-01`);
@@ -98,7 +98,8 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
     };
     const page = (status = 200) => {
       model.views = views.list();
-      model.favorites ??= objects.listFavoriteObjects();
+      model.favorites = objects.listFavoriteObjects(0);
+      if (model.object) model.favorite = objects.isFavorite(model.object.id);
       return new Response(renderObjectWorkspace(model), { status, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
     };
     const go = (path: string) => new Response(null, { status: 303, headers: { Location: path } });
@@ -392,7 +393,10 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
       if (!fields) throw new AppError(400, 'Submit a form.');
       if (url.pathname === '/calendar/journal') {
         model.journalDate = fields.get('date') ?? '';
-        model.objectDraft = { title: model.journalDate, body: fields.get('body') ?? '', revision: fields.get('reviewedRevision') ?? fields.get('revision') ?? '', requestId: fields.get('requestId') ?? '' };
+        model.dayJournalDraft = fields.has('objectId')
+          ? { mode: 'update', date: model.journalDate, body: fields.get('body') ?? '', objectId: fields.get('objectId') ?? '', revision: fields.get('revision') ?? '' }
+          : { mode: 'create', date: model.journalDate, body: fields.get('body') ?? '', requestId: fields.get('requestId') ?? '' };
+        model.objectDraft = { title: model.journalDate, body: model.dayJournalDraft.body, revision: model.dayJournalDraft.revision ?? '', requestId: model.dayJournalDraft.requestId ?? '' };
         requireFields(fields, ['csrf', 'date', 'body', 'revision', 'reviewedRevision', 'requestId', 'objectId']);
         if (!validDate(model.journalDate)) throw new AppError(422, 'Choose a real calendar date in YYYY-MM-DD format.');
         let saved: ObjectRecord;
@@ -588,7 +592,7 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
       if (!(error instanceof AppError)) throw error;
       if (json) return Response.json({ error: error.message }, { status: error.status, headers: { 'Cache-Control': 'no-store' } });
       model.error = error.message;
-      if (model.screen === 'calendar' || url.pathname === '/calendar/journal') {
+      if (model.screen === 'calendar' || url.pathname.startsWith('/calendar/')) {
         try {
           const date = model.journalDate ?? fields?.get('date') ?? localDate();
           if (validDate(date)) loadCalendar(date);
@@ -600,7 +604,16 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
       }
       const favoriteErrorMatch = /^\/objects\/([a-f0-9-]{36})\/favorite$/.exec(url.pathname);
       if (favoriteErrorMatch) {
-        try { model.favorite = objects.isFavorite(favoriteErrorMatch[1]!); } catch {}
+        try {
+          model.screen = 'object';
+          model.object = objects.getObject(favoriteErrorMatch[1]!);
+          model.objectType = objects.getType(model.object.typeId);
+          model.favorite = objects.isFavorite(model.object.id);
+          loadBacklinks(model.object.id, 0);
+          model.objects = pickerObjects();
+        } catch (favoriteLookupError) {
+          if (!(favoriteLookupError instanceof AppError && favoriteLookupError.status === 404)) throw favoriteLookupError;
+        }
       }
       if (model.objectDraft?.typeId === JOURNAL_TYPE_ID) {
         const date = model.objectDraft.fields?.[`p:${JOURNAL_DATE_PROPERTY_ID}`]?.[0];
@@ -613,9 +626,15 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
           }
         }
       }
-      if (error.status === 409 && url.pathname === '/calendar/journal' && model.journal && !model.journal.trashed) {
-        model.dayJournalConflict = true;
-        model.error = 'This journal changed. Compare the latest saved writing with your draft before saving.';
+      if (url.pathname === '/calendar/journal' && model.dayJournalDraft) {
+        const safeSameObject = model.dayJournalDraft.mode === 'update' && model.journal && !model.journal.trashed &&
+          model.journal.id.toLowerCase() === (model.dayJournalDraft.objectId ?? '').toLowerCase() &&
+          model.journal.properties[JOURNAL_DATE_PROPERTY_ID] === model.dayJournalDraft.date;
+        model.dayJournalDraft.safeConflict = Boolean(error.status === 409 && safeSameObject);
+        if (model.dayJournalDraft.safeConflict) {
+          model.dayJournalConflict = true;
+          model.error = 'This journal changed. Compare the latest saved writing with your draft before saving.';
+        }
       }
       if (error.status === 409 && model.object && model.objectDraft?.revision && Number(model.objectDraft.revision) !== model.object.revision) {
         model.error = 'This object changed. Compare the latest saved version with your draft before saving.';

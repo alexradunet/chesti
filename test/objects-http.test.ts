@@ -1683,3 +1683,69 @@ test('calendar validates month inputs and renders semantic month navigation', as
   response = await get('/calendar?date=2026-02-28&tasksOffset=1&tasksOffset=2');
   assert.equal(response.status, 422);
 });
+
+test('calendar and journal default dates are valid entry points', async t => {
+  const { get } = await setup(t, async () => { throw new Error('no model'); });
+  let response = await get('/calendar');
+  let html = await response.text();
+  assert.equal(response.status, 200);
+  assert.match(html, /Calendar · Taskdesk|Journal, scheduled or due tasks/);
+  assert.doesNotMatch(html, /(?:date=|value=\")\d{4}-\d{4}-\d{2}/);
+  response = await get('/journal');
+  html = await response.text();
+  assert.equal(response.status, 200);
+  assert.match(html, /Open your daily journal/);
+  assert.doesNotMatch(html, /(?:date=|value=\")\d{4}-\d{4}-\d{2}/);
+  assert.match(html, /data-journal-today/);
+});
+
+test('rejected stale day journal keeps submitted identity instead of retargeting replacement', async t => {
+  const { objects, post } = await setup(t, async () => { throw new Error('no model'); });
+  const date = '2026-11-01';
+  const original = objects.createObject({ typeId: JOURNAL_TYPE_ID, title: 'Original', properties: { [JOURNAL_DATE_PROPERTY_ID]: date }, body: 'original' });
+  objects.updateObject(original.id, original.revision, { ...original, properties: { [JOURNAL_DATE_PROPERTY_ID]: '2026-11-02' } });
+  const replacement = objects.createObject({ typeId: JOURNAL_TYPE_ID, title: 'Replacement', properties: { [JOURNAL_DATE_PROPERTY_ID]: date }, body: 'replacement' });
+  const response = await post('/calendar/journal', { date, body: 'draft body', objectId: original.id, revision: String(original.revision) });
+  const html = await response.text();
+  assert.equal(response.status, 409);
+  assert.match(html, new RegExp(`name="objectId" value="${original.id}"`));
+  assert.doesNotMatch(html, new RegExp(`name="objectId" value="${replacement.id}"`));
+  assert.doesNotMatch(html, /Save reconciled journal/);
+  assert.match(html, /draft body/);
+  assert.equal(objects.getObject(replacement.id).body, 'replacement');
+});
+
+test('favorite pages keep sidebar on first page and favorite errors render current state', async t => {
+  const { objects, get, post } = await setup(t, async () => { throw new Error('no model'); });
+  const ids: string[] = [];
+  for (let index = 0; index < 55; index++) {
+    const object = objects.createObject({ typeId: PAGE_TYPE_ID, title: `Fav ${String(index).padStart(2, '0')}`, properties: {}, body: '' });
+    objects.setFavorite(object.id, true);
+    ids.push(object.id);
+  }
+  const html = await (await get('/objects/favorites?offset=50')).text();
+  assert.match(html, /Fav 00/);
+  assert.match(html, /Fav 50/);
+  const response = await post(`/objects/${ids[0]}/favorite`, { favorite: 'false', context: 'bogus', date: '' });
+  const errorHtml = await response.text();
+  assert.equal(response.status, 422);
+  assert.equal(objects.isFavorite(ids[0]!), true);
+  assert.match(errorHtml, /Unfavorite/);
+});
+
+test('day task action failures keep selected day content and reject stale scope', async t => {
+  const { objects, post } = await setup(t, async () => { throw new Error('no model'); });
+  const date = '2026-12-01';
+  const task = objects.createObject({ typeId: TASK_TYPE_ID, title: 'Scoped task', properties: { [TASK_DUE_PROPERTY_ID]: date }, body: '' });
+  const moved = objects.patchProperties(task.id, task.revision, { [TASK_DUE_PROPERTY_ID]: '2026-12-02' });
+  let response = await post('/calendar/task', { date, objectId: task.id, revision: String(moved.revision), done: 'true' });
+  let html = await response.text();
+  assert.equal(response.status, 409);
+  assert.match(html, /2026-12-01/);
+  assert.doesNotMatch(html, /Find something in your workspace/);
+  const trashed = objects.setTrashed(moved.id, moved.revision, true);
+  response = await post('/calendar/task', { date: '2026-12-02', objectId: task.id, revision: String(trashed.revision), done: 'true' });
+  html = await response.text();
+  assert.equal(response.status, 409);
+  assert.match(html, /This task is no longer in the selected day/);
+});

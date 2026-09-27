@@ -186,6 +186,7 @@ export interface ObjectPageModel {
   favorite?: boolean;
   timeZone?: string;
   dayJournalConflict?: boolean;
+  dayJournalDraft?: { mode: 'create' | 'update'; date: string; body: string; requestId?: string; objectId?: string; revision?: string; safeConflict?: boolean };
   calendarMonth?: string;
   basedOnTypeId?: string;
   typeDraft?: { name: string; basedOnTypeId?: string };
