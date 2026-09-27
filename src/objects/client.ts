@@ -124,10 +124,10 @@ function renderConversation(): void {
     const article = document.createElement('article');
     article.className = 'ai-turn';
     const prompt = document.createElement('p');
-    prompt.className = 'ai-user-message';
+    prompt.className = 'parch ai-user-message';
     prompt.textContent = turn.prompt;
     const result = document.createElement('div');
-    result.className = 'ai-result';
+    result.className = 'parch ai-result';
     const title = document.createElement('strong');
     title.textContent = turn.title;
     const description = document.createElement('p');

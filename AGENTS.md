@@ -29,7 +29,8 @@ Read `README.md` for setup and current boundaries. Read `docs/object-contract.md
 - `src/objects/markdown.ts`, `values.ts`: bounded Markdown writing and scalar/temporal validation.
 - `src/objects/writing.ts`, `writing-format.ts`, `writing-links.ts`, `public/writing.css`: optional Milkdown editing, import fidelity, shared safe links, and editor styling; the server serves its same-origin bundle and base prose/table CSS.
 - `src/objects/upgrade-markdown.ts`: one-time transactional upgrade of the current object writing format.
-- `src/objects/http.ts`, `render.tsx`, `client.ts`, `public/objects.css`: HTTP parsing, trusted rendering, browser enhancement, and styling.
+- `src/objects/http.ts`, `render.tsx`, `client.ts`, `public/objects.css`: HTTP parsing, trusted rendering, browser enhancement, and domain layout.
+- `src/ui/`, `public/tokens.css`, `public/ui.css`: shared native UI components and Hearthwood materials. See `docs/design-system.md` and `/design-system` before extending them.
 - `src/pi.ts`: resource isolation for the embedded view generator.
 - `test/objects-*.test.ts`, `test/http.test.ts`, `test/pi.test.ts`: domain, HTTP/security, and model-isolation contracts.
 

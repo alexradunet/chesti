@@ -1,14 +1,15 @@
 import type { JSX } from 'hono/jsx/jsx-runtime';
 import { raw } from 'hono/html';
 import { renderMarkdown } from './markdown.js';
-import { Badge, Button, ButtonLink, EmptyState, Icon, PageHeading, type IconName } from './ui.js';
+import { Badge, Brand, Button, ButtonLink, CardLink, Dialog, EmptyState, Field, Icon, Input, Notice, PageHeading, Panel, Select, Status, Textarea, type IconName } from '../ui/index.js';
 import { BUILTIN_PROPERTIES, BUILTIN_TYPES, EVENT_DATES_PROPERTY_ID, EVENT_TIME_PROPERTY_ID, EVENT_TYPE_ID, JOURNAL_DATE_PROPERTY_ID, JOURNAL_TYPE_ID, PAGE_TYPE_ID, REMINDER_DATE_PROPERTY_ID, REMINDER_TIME_PROPERTY_ID, REMINDER_TYPE_ID, TASK_DONE_PROPERTY_ID, TASK_DUE_PROPERTY_ID, TASK_SCHEDULED_PROPERTY_ID, TASK_TYPE_ID } from './model.js';
 import type { DayTaskSummary, EvaluatedBlock, ObjectPageModel, ObjectSummary, PropertyDefinition, PropertyValue, SavedView, ViewRow } from './model.js';
 import { WritingFields } from './writing-fields.js';
+import { Document } from '../ui/document.js';
 
 const Hidden = ({ name, value }: { name: string; value: string | number }) => <input type="hidden" name={name} value={value} />;
 const Token = ({ model }: { model: ObjectPageModel }) => <Hidden name="csrf" value={model.csrf} />;
-const State = ({ message, error = false }: { message?: string; error?: boolean }) => <p class={`form-state${error ? ' error' : ''}`} data-form-state="" role={error ? 'alert' : 'status'} aria-live={error ? 'assertive' : 'polite'}>{message}</p>;
+const State = ({ message, error = false }: { message?: string; error?: boolean }) => <Status message={message} error={error} data-form-state="" />;
 const titleOf = (record: ObjectSummary) => record.title || 'Untitled';
 const objectIdentity = (id: string) => id.toLowerCase();
 const sameObjectIdentity = (left: string, right: string) => objectIdentity(left) === objectIdentity(right);
@@ -39,8 +40,8 @@ function WorkspaceNav({ model }: { model: ObjectPageModel }) {
     { href: '/journal', label: 'Journal', icon: 'calendar', active: model.screen === 'journal' },
     { href: '/views', label: 'Views', icon: 'views', active: !model.section && (model.screen === 'views' || model.screen === 'view') },
   ];
-  return <nav id="workspace-nav" class="workspace-nav" aria-label="Workspace">
-    <div class="nav-brand"><a class="brand" href="/"><span class="brand-mark"><Icon name="objects" /></span>Taskdesk</a><Button class="icon-button js-only nav-close" type="button" data-nav-close="" aria-label="Close navigation"><Icon name="close" /></Button></div>
+  return <nav id="workspace-nav" class="wood workspace-nav" aria-label="Workspace">
+    <div class="nav-brand"><Brand /><Button class="icon-button js-only nav-close" type="button" data-nav-close="" aria-label="Close navigation"><Icon name="close" /></Button></div>
     <div class="nav-actions"><ButtonLink variant="primary" class="nav-new" href="/objects/new?type=00000000-0000-4000-8000-000000000001" aria-current={model.screen === 'new-object' ? 'page' : undefined}><Icon name="plus" />New note</ButtonLink><ButtonLink class="nav-new" href="/calendar" aria-current={model.screen === 'calendar' ? 'page' : undefined}><Icon name="calendar" />Calendar</ButtonLink></div>
     <div class="nav-links">{links.filter(link => link.label !== 'Tasks' && link.label !== 'Journal').map(link => <a href={link.href} data-object-search={link.icon === 'search' ? '' : undefined} aria-keyshortcuts={link.icon === 'search' ? 'Control+k Meta+k' : undefined} aria-current={link.active ? 'page' : undefined}><Icon name={link.icon} /><span>{link.label}</span>{link.icon === 'search' && <kbd class="js-only">Ctrl/⌘ K</kbd>}</a>)}</div>
     <section class="nav-section" aria-labelledby="favorites-heading"><h2 id="favorites-heading">Favorites</h2>{model.favorites?.items.length ? <div class="nav-links">{model.favorites.items.map(record => <a href={objectUrl(record.id)} aria-current={model.object?.id === record.id ? 'page' : undefined}><Icon name={typeIcon(record.typeId)} /><span>{titleOf(record)}</span></a>)}{model.favorites.hasMore && <a href="/objects/favorites"><Icon name="arrow" /><span>All favorites</span></a>}</div> : <p class="nav-hint">No favorites yet. Use Favorite on saved objects to pin them here.</p>}</section>
@@ -73,11 +74,11 @@ function AiPanel({ model }: { model: ObjectPageModel }) {
   if (model.prompt !== undefined) intent = 'submitted';
   return <aside id="ai-panel" class="ai-panel" hidden={!model.aiOpen} aria-labelledby="ai-heading">
     <div class="ai-resize js-only" data-ai-resize="" role="separator" tabindex={0} aria-label="Resize AI panel" aria-orientation="vertical" aria-valuemin={320} aria-valuemax={560} aria-valuenow={380}></div>
-    <header class="ai-header"><div><Icon name="ai" /><h2 id="ai-heading">View assistant</h2></div><div class="ai-header-actions"><ButtonLink class="icon-button native-only" href="/views?ai=1" aria-label="Start a new conversation" title="New conversation"><Icon name="plus" /></ButtonLink><Button class="icon-button js-only" type="button" data-ai-new="" aria-label="Start a new conversation" title="New conversation"><Icon name="plus" /></Button><Button class="icon-button js-only" type="button" data-ai-close="" aria-label="Close view assistant"><Icon name="close" /></Button><ButtonLink variant="ghost" class="icon-button native-only" href={previous ? `/views/${previous.id}` : '/views'} aria-label="Close view assistant"><Icon name="close" /></ButtonLink></div></header>
-    <div class="ai-context"><span class="fine">Working on</span><span class="context-chip" data-ai-context-label="">{model.aiContextTitle ?? previous?.spec.title ?? 'New view'}</span></div>
+    <header class="wood ai-header"><div><Icon name="ai" /><h2 id="ai-heading">View assistant</h2></div><div class="ai-header-actions"><ButtonLink class="icon-button native-only" href="/views?ai=1" aria-label="Start a new conversation" title="New conversation"><Icon name="plus" /></ButtonLink><Button class="icon-button js-only" type="button" data-ai-new="" aria-label="Start a new conversation" title="New conversation"><Icon name="plus" /></Button><Button class="icon-button js-only" type="button" data-ai-close="" aria-label="Close view assistant"><Icon name="close" /></Button><ButtonLink variant="ghost" class="icon-button native-only" href={previous ? `/views/${previous.id}` : '/views'} aria-label="Close view assistant"><Icon name="close" /></ButtonLink></div></header>
+    <div class="wood ai-context"><span class="fine">Working on</span><span class="context-chip" data-ai-context-label="">{model.aiContextTitle ?? previous?.spec.title ?? 'New view'}</span></div>
     <div class="ai-turns" data-ai-turns="" aria-live="polite" aria-relevant="additions text"><AiEmpty model={model} /></div>
     <template data-ai-empty-template=""><AiEmpty model={model} /></template>
-    <div class="ai-composer"><form data-ai-form="" data-ai-intent={intent} method="post" action="/views/generate"><Token model={model} />{model.aiConversationId ? <Hidden name="conversationId" value={model.aiConversationId} /> : previousId && <Hidden name="previousId" value={previousId} />}<label for="ai-prompt">Describe your view<textarea id="ai-prompt" name="prompt" rows={4} required maxlength={4000} placeholder="What would you like to see?">{'\n' + (model.prompt ?? '')}</textarea></label><div class="ai-submit-row"><span class="fine">Creates a draft to review</span><Button type="submit" variant="primary"><Icon name="ai" />Generate view</Button></div><p class={`form-state${model.error ? ' error' : ''}`} data-ai-status="" role="status">{model.aiOpen ? model.error : undefined}</p></form><details class="ai-privacy"><summary>What is shared with AI?</summary><p>Your prompt, conversation prompts, type and property schema, and any previous view specification go to your configured model provider. Object titles, property values, and note bodies are not sent. Successful prompts and view results are saved in this workspace.</p></details></div>
+    <div class="wood ai-composer"><form data-ai-form="" data-ai-intent={intent} method="post" action="/views/generate"><Token model={model} />{model.aiConversationId ? <Hidden name="conversationId" value={model.aiConversationId} /> : previousId && <Hidden name="previousId" value={previousId} />}<Field for="ai-prompt" label="Describe your view"><Textarea id="ai-prompt" name="prompt" rows={4} required maxlength={4000} placeholder="What would you like to see?">{'\n' + (model.prompt ?? '')}</Textarea></Field><div class="ai-submit-row"><span class="fine">Creates a draft to review</span><Button type="submit" variant="primary"><Icon name="ai" />Generate view</Button></div><p class={`form-state${model.error ? ' error' : ''}`} data-ai-status="" role="status">{model.aiOpen ? model.error : undefined}</p></form><details class="ai-privacy"><summary>What is shared with AI?</summary><p>Your prompt, conversation prompts, type and property schema, and any previous view specification go to your configured model provider. Object titles, property values, and note bodies are not sent. Successful prompts and view results are saved in this workspace.</p></details></div>
   </aside>;
 }
 
@@ -85,16 +86,16 @@ function PropertyControl({ model, property, value, name = `p:${property.id}`, re
   const id = `field-${crypto.randomUUID()}`;
   const fields = name.startsWith('p:') ? model.objectDraft?.fields : undefined;
   const scalar = fields?.[name]?.[0] ?? (typeof value === 'string' || typeof value === 'number' ? String(value) : '');
-  if (property.kind === 'boolean') return <label class="check"><input type="checkbox" name={name} value="true" checked={fields?.[name] ? ['true', 'on'].includes(fields[name]?.[0] ?? '') : value === true} />{property.label}</label>;
+  if (property.kind === 'boolean') return <Field class="check"><Input type="checkbox" name={name} value="true" checked={fields?.[name] ? ['true', 'on'].includes(fields[name]?.[0] ?? '') : value === true} />{property.label}</Field>;
   if (property.kind === 'date-range' || property.kind === 'time-range') {
     const range = isRange(value) ? value : undefined;
     return <fieldset class="range-field"><legend>{property.label}</legend><div class="range-inputs">
-      <label>Start<input name={`${name}:start`} type={property.kind === 'date-range' ? 'date' : 'text'} value={fields?.[`${name}:start`]?.[0] ?? range?.start ?? ''} aria-describedby={`${id}-help`} /></label>
-      <label>End<input name={`${name}:end`} type={property.kind === 'date-range' ? 'date' : 'text'} value={fields?.[`${name}:end`]?.[0] ?? range?.end ?? ''} aria-describedby={`${id}-help`} /></label>
-      {property.kind === 'time-range' && <label>Time zone<input name={`${name}:timeZone`} type="text" value={fields?.[`${name}:timeZone`]?.[0] ?? range?.timeZone ?? ''} placeholder="Europe/London" /></label>}
+      <Field label="Start"><Input name={`${name}:start`} type={property.kind === 'date-range' ? 'date' : 'text'} value={fields?.[`${name}:start`]?.[0] ?? range?.start ?? ''} aria-describedby={`${id}-help`} /></Field>
+      <Field label="End"><Input name={`${name}:end`} type={property.kind === 'date-range' ? 'date' : 'text'} value={fields?.[`${name}:end`]?.[0] ?? range?.end ?? ''} aria-describedby={`${id}-help`} /></Field>
+      {property.kind === 'time-range' && <Field label="Time zone"><Input name={`${name}:timeZone`} type="text" value={fields?.[`${name}:timeZone`]?.[0] ?? range?.timeZone ?? ''} placeholder="Europe/London" /></Field>}
     </div><small id={`${id}-help`}>{property.kind === 'time-range' ? 'ISO timestamps with offsets, for example 2026-09-24T09:00:00+01:00.' : 'End is exclusive: for one all-day event on September 24, use September 24 to September 25. Fill both dates, or clear both to leave unset.'}</small></fieldset>;
   }
-  if (property.kind === 'select') return <label>{property.label}<select name={name}><option value="" selected={!scalar}>Not set</option>{property.options?.map(option => <option value={option.id} selected={scalar === option.id}>{option.label}</option>)}</select></label>;
+  if (property.kind === 'select') return <Field label={property.label}><Select name={name}><option value="" selected={!scalar}>Not set</option>{property.options?.map(option => <option value={option.id} selected={scalar === option.id}>{option.label}</option>)}</Select></Field>;
   if (property.kind === 'reference') {
     const selected = fields?.[name]?.filter(Boolean) ?? (Array.isArray(value) ? value : typeof value === 'string' ? [value] : []);
     const selectedIds = new Set(selected.map(objectIdentity));
@@ -102,17 +103,17 @@ function PropertyControl({ model, property, value, name = `p:${property.id}`, re
     const missing = selected.filter((item, index) => selected.findIndex(other => sameObjectIdentity(other, item)) === index && !candidates.some(record => sameObjectIdentity(record.id, item)));
     const helpId = `${id}-help`;
     return <div class="reference-control">
-      <label for={id}>{property.label}</label>
-      <select id={id} name={name} multiple={property.multiple} size={property.multiple ? 4 : undefined} aria-describedby={property.multiple ? helpId : undefined}>
+      <Field for={id} label={property.label} />
+      <Select id={id} name={name} multiple={property.multiple} size={property.multiple ? 4 : undefined} aria-describedby={property.multiple ? helpId : undefined}>
         {!property.multiple && <option value="" selected={!selected.length}>Not set</option>}
         {candidates.map(record => <option value={record.id} selected={selectedIds.has(objectIdentity(record.id))}>{titleOf(record)} · {typeName(model, record.typeId)}</option>)}
         {missing.map(item => { const record = objectOf(model, item); return <option value={record?.id ?? item} selected>{record?.title || `Linked object ${item}`}</option>; })}
-      </select>
+      </Select>
       <Button class="js-only reference-search-button" type="button" data-reference-search="" data-reference-target={id} data-reference-type={property.targetTypeId} aria-label={`Find object for ${property.label}`}>Find object</Button>
       {property.multiple && <small id={helpId}>Choose multiple with Ctrl or Command. Clear the selection to remove all links.</small>}
     </div>;
   }
-  return <label>{property.label}<input name={name} type={property.kind === 'number' ? 'number' : property.kind === 'date' ? 'date' : 'text'} step={property.kind === 'number' ? 'any' : undefined} value={scalar} required={required} data-journal-date={property.id === JOURNAL_DATE_PROPERTY_ID ? '' : undefined} aria-describedby={property.kind === 'datetime' ? `${id}-help` : undefined} />{property.kind === 'datetime' && <small id={`${id}-help`}>ISO timestamp with offset, for example 2026-09-24T09:00:00+01:00.</small>}</label>;
+  return <Field label={property.label}><Input name={name} type={property.kind === 'number' ? 'number' : property.kind === 'date' ? 'date' : 'text'} step={property.kind === 'number' ? 'any' : undefined} value={scalar} required={required} data-journal-date={property.id === JOURNAL_DATE_PROPERTY_ID ? '' : undefined} aria-describedby={property.kind === 'datetime' ? `${id}-help` : undefined} />{property.kind === 'datetime' && <small id={`${id}-help`}>ISO timestamp with offset, for example 2026-09-24T09:00:00+01:00.</small>}</Field>;
 }
 
 function Value({ model, propertyId, value }: { model: ObjectPageModel; propertyId: string; value: PropertyValue | undefined }): JSX.Element {
@@ -139,17 +140,17 @@ function ObjectHome({ model }: { model: ObjectPageModel }) {
     </div>
     <div class="browse-heading"><h2>Browse by type</h2><p class="fine">Everything in its own place.</p></div>
     <div class="type-cards type-browser">
-      {model.catalog.types.map((type, index) => {
+      {model.catalog.types.map(type => {
         const count = model.typeCounts?.[type.id] ?? 0;
         const builtin = BUILTIN_TYPES.find(item => item.id === type.id);
         const description = builtin?.description ?? (type.propertyIds.length ? type.propertyIds.map(id => propertyOf(model, id)?.label).filter(Boolean).join(' · ') : 'A title and space to write. Make it your own.');
         const query = new URLSearchParams({ type: type.id, ...(model.trashed ? { trash: '1' } : {}) });
-        return <a class={`type-card type-browse-card type-accent-${index % 5}`} href={`/?${query}`}>
-          <div class="type-card-top"><span class={`type-card-icon type-accent-${index % 5}`}><Icon name={typeIcon(type.id)} /></span><Badge>{count} {count === 1 ? 'object' : 'objects'}</Badge></div>
+        return <CardLink class="type-card type-browse-card" href={`/?${query}`}>
+          <div class="type-card-top"><span class="type-card-icon"><Icon name={typeIcon(type.id)} /></span><Badge>{count} {count === 1 ? 'object' : 'objects'}</Badge></div>
           <h2>{type.name}</h2>
           <p class="muted">{description}</p>
           <span class="type-card-footer"><span>Browse {type.name}</span><Icon name="arrow" /></span>
-        </a>;
+        </CardLink>;
       })}
     </div>
   </>;
@@ -181,28 +182,28 @@ function Objects({ model }: { model: ObjectPageModel }) {
     </PageHeading>
     {model.section !== 'favorites' && <div class="browse-toolbar">
       <form class="filter-bar" method="get" action={path}>
-        <label>{selectedType ? `Search ${selectedType}` : 'Search'}<input type="search" name="q" value={model.search ?? ''} maxlength={200} /></label>
+        <Field label={selectedType ? `Search ${selectedType}` : 'Search'}><Input type="search" name="q" value={model.search ?? ''} maxlength={200} /></Field>
         {model.selectedTypeId ? model.section !== 'tasks' && <Hidden name="type" value={model.selectedTypeId} /> : <>
           <Hidden name="focus" value="search" />
-          <label>Type<select name="type"><option value="">All types</option>{model.catalog.types.map(type => <option value={type.id}>{type.name}</option>)}</select></label>
+          <Field label="Type"><Select name="type"><option value="">All types</option>{model.catalog.types.map(type => <option value={type.id}>{type.name}</option>)}</Select></Field>
         </>}
         <Hidden name="layout" value={layout} />
         {model.trashed && <Hidden name="trash" value="1" />}
         <Button type="submit">Search</Button>
       </form>
-      {selectedType && <nav class="layout-switch" aria-label="Object layout">
+      {selectedType && <nav class="wood layout-switch" aria-label="Object layout">
         <a href={query(offset, 'list')} aria-current={layout === 'list' ? 'page' : undefined}><Icon name="tasks" />List</a>
         <a href={query(offset, 'gallery')} aria-current={layout === 'gallery' ? 'page' : undefined}><Icon name="objects" />Gallery</a>
       </nav>}
     </div>}
-    {model.objects.length ? <ul class={layout === 'gallery' ? 'object-gallery' : 'object-index'} aria-label={model.section === 'favorites' ? 'Favorite objects' : selectedType ? `${selectedType} objects` : 'Search results'} data-object-results="">
+    {model.objects.length ? <ul class={layout === 'gallery' ? 'object-gallery' : 'parch object-index'} aria-label={model.section === 'favorites' ? 'Favorite objects' : selectedType ? `${selectedType} objects` : 'Search results'} data-object-results="">
       {model.objects.map(record => <li>
-        {layout === 'gallery' ? <a class="object-card" href={objectUrl(record.id)}>
+        {layout === 'gallery' ? <CardLink class="object-card" href={objectUrl(record.id)}>
           <div class="object-card-heading"><Icon name={typeIcon(record.typeId)} /><strong>{titleOf(record)}</strong></div>
           {!selectedType && <span class="fine">{typeName(model, record.typeId)}</span>}
           <p class="object-card-excerpt">{model.objectExcerpts?.[record.id] || 'No writing yet.'}</p>
           <time datetime={record.updatedAt}>Updated {record.updatedAt.slice(0, 10)}</time>
-        </a> : <>
+        </CardLink> : <>
           <a href={objectUrl(record.id)}><strong>{titleOf(record)}</strong>{!selectedType && <span>{typeName(model, record.typeId)}</span>}</a>
           <time datetime={record.updatedAt} aria-label={`Updated ${record.updatedAt.slice(0, 10)}`}>{record.updatedAt.slice(0, 10)}</time>
         </>}
@@ -215,7 +216,7 @@ function Objects({ model }: { model: ObjectPageModel }) {
         {model.hasMore && <a href={model.section === 'favorites' ? `/objects/favorites?offset=${offset + 50}` : query(offset + 50)}>Next</a>}
       </nav>
     </div>
-    {model.section === 'tasks' && <div class="view-invitation"><Icon name="ai" /><div><strong>See your tasks differently</strong><p>Generate a board or calendar using your existing task properties.</p></div><ButtonLink href="/views?ai=1" data-ai-start="">Create task view</ButtonLink></div>}
+    {model.section === 'tasks' && <div class="parch view-invitation"><Icon name="ai" /><div><strong>See your tasks differently</strong><p>Generate a board or calendar using your existing task properties.</p></div><ButtonLink href="/views?ai=1" data-ai-start="">Create task view</ButtonLink></div>}
   </>;
 }
 
@@ -236,24 +237,24 @@ function Types({ model }: { model: ObjectPageModel }) {
   const base = model.typeDraft?.basedOnTypeId ?? model.basedOnTypeId;
   return <>
     <PageHeading eyebrow="Shape your workspace" title="Object types" description="Built-in foundations and your own independent types."><ButtonLink href="#create-type"><Icon name="plus" />New type</ButtonLink></PageHeading>
-    <div class="type-cards">{model.catalog.types.map((type, index) => {
+    <div class="type-cards">{model.catalog.types.map(type => {
       const builtin = BUILTIN_TYPES.find(item => item.id === type.id);
-      return <article class="type-card"><span class={`type-card-icon type-accent-${index % 5}`}><Icon name={typeIcon(type.id)} /></span><h2><a href={`/types/${type.id}`}>{type.name}</a></h2>
+      return <Panel as="article" class="type-card"><span class="type-card-icon"><Icon name={typeIcon(type.id)} /></span><h2><a href={`/types/${type.id}`}>{type.name}</a></h2>
         {builtin && <Badge>Protected {builtin.name} · customizable</Badge>}
         <p class="muted">{type.propertyIds.length ? type.propertyIds.map(id => propertyOf(model, id)?.label).filter(Boolean).join(' · ') : 'A title and space to write. No extra properties yet.'}</p>
         <div class="type-card-footer"><span class="fine">{type.propertyIds.length} {type.propertyIds.length === 1 ? 'property' : 'properties'}</span><a href={`/objects/new?type=${type.id}`} aria-label={`New ${type.name}`}>Create object →</a></div>
-      </article>;
+      </Panel>;
     })}</div>
-    <section class="creation-panel" id="create-type">
+    <Panel class="creation-panel" id="create-type">
       <div><span class="eyebrow">Make it your own</span><h2>Create a type</h2><p class="muted">Start empty or copy another type’s current properties.</p><p class="fine" id="based-on-help">Copied properties share their identities and labels; each object keeps its own values. Your new type is independent: it does not inherit built-in rules or future fields. A copy of Journal is not another daily journal.</p></div>
       <form method="post" action="/types/create" data-enhance="" data-type-create="" data-draft={model.typeDraft ? 'true' : undefined}>
-        <Token model={model} /><label>Type name<input name="name" value={model.typeDraft?.name ?? ''} required maxlength={100} placeholder="e.g. Book, Project, or Person" autocomplete="off" aria-describedby="type-name-help" /></label>
+        <Token model={model} /><Field label="Type name"><Input name="name" value={model.typeDraft?.name ?? ''} required maxlength={100} placeholder="e.g. Book, Project, or Person" autocomplete="off" aria-describedby="type-name-help" /></Field>
         <small id="type-name-help">Name one thing, like “Book”, rather than a collection.</small>
-        <label>Based on<select name="basedOnTypeId" aria-describedby="based-on-help"><option value="" selected={!base}>Empty type</option>{model.catalog.types.map(type => <option value={type.id} selected={base === type.id}>{type.name}</option>)}{base && !model.catalog.types.some(type => type.id === base) && <option value={base} selected>Unavailable type</option>}</select></label>
+        <Field label="Based on"><Select name="basedOnTypeId" aria-describedby="based-on-help"><option value="" selected={!base}>Empty type</option>{model.catalog.types.map(type => <option value={type.id} selected={base === type.id}>{type.name}</option>)}{base && !model.catalog.types.some(type => type.id === base) && <option value={base} selected>Unavailable type</option>}</Select></Field>
         <div class="type-name-preview" aria-hidden="true"><span class="type-card-icon"><Icon name="type" /></span><div><strong data-type-name-preview="">{model.typeDraft?.name || 'Your new type'}</strong><small>Title · Writing · Your properties</small></div></div>
         <Button variant="primary" type="submit">Create type &amp; add properties</Button><State />
       </form>
-    </section>
+    </Panel>
   </>;
 }
 
@@ -266,34 +267,34 @@ function TypeEditor({ model }: { model: ObjectPageModel }) {
   const selectedKind = draft?.kind ?? propertyKinds[0].value;
   const selectedTargetTypeId = draft?.targetTypeId ?? '';
   return <><a class="back-link" href="/types">← All types</a><PageHeading eyebrow="Type setup" title={type.name} description={`Choose the details that make a ${type.name} useful to you.`}><ButtonLink variant="primary" href={`/objects/new?type=${type.id}`}><Icon name="plus" />Create object</ButtonLink></PageHeading>
-    {builtin && <p class="notice"><strong>Protected {builtin.name} · customizable.</strong> Its identity and core fields remain available. Rename this type, rename field labels, and add your own fields. {builtin.description}</p>}
+    {builtin && <p class="parch notice"><strong>Protected {builtin.name} · customizable.</strong> Its identity and core fields remain available. Rename this type, rename field labels, and add your own fields. {builtin.description}</p>}
     <p><a href={`/types?basedOnTypeId=${type.id}#create-type`}>Create an independent type based on {type.name}</a></p>
-    <details class="type-settings"><summary>Rename type</summary><form class="inline-form" method="post" action={`/types/${type.id}/update`} data-enhance=""><Token model={model} /><Hidden name="revision" value={type.revision} /><label>Type name<input name="name" value={type.name} required maxlength={100} /></label><Button type="submit">Save name</Button><State /></form></details>
-    <section class="type-properties"><div class="section-heading"><h2>Object properties</h2><Badge>{type.propertyIds.length} fields</Badge></div><p class="muted">Core field rules apply to built-in types. Additional fields are optional.</p><div class="built-in-properties"><span>Title <small>Built in</small></span><span>Writing <small>Built in</small></span></div>
-      {type.propertyIds.length ? <ul class="property-list property-cards">{type.propertyIds.map(id => { const property = propertyOf(model, id); const sharedWith = model.catalog.types.filter(item => item.id !== type.id && item.propertyIds.includes(id)); return property && <li><div class="property-card-heading"><strong>{property.label}</strong><Badge>{kindLabel(property)}</Badge>{BUILTIN_PROPERTIES.some(item => item.id === id) && <Badge>Protected core field</Badge>}</div>{property.options?.length ? <div class="option-chips">{property.options.map(option => <Badge>{option.label}</Badge>)}</div> : null}{property.targetTypeId && <p class="muted">Links to {typeName(model, property.targetTypeId)}{property.multiple ? ' · multiple links' : ''}</p>}<details><summary>Rename property</summary><p class="fine">{sharedWith.length ? `Shared with ${sharedWith.map(item => item.name).join(', ')}. Renaming changes the label there too.` : 'Renaming keeps existing values and views connected.'}</p><form class="inline-form" method="post" action={`/properties/${id}/update`} data-enhance=""><Token model={model} /><Hidden name="revision" value={property.revision} /><label>Property label<input name="label" value={property.label} required maxlength={100} /></label><Button type="submit">Save label</Button><State /></form></details></li>; })}</ul> : <div class="empty property-empty"><Icon name="type" /><div><strong>Start simple. Add structure when you need it.</strong><p>You can create objects now, or add a property below. Existing objects keep their writing.</p></div></div>}</section>
+    <details class="parch type-settings"><summary>Rename type</summary><form class="inline-form" method="post" action={`/types/${type.id}/update`} data-enhance=""><Token model={model} /><Hidden name="revision" value={type.revision} /><Field label="Type name"><Input name="name" value={type.name} required maxlength={100} /></Field><Button type="submit">Save name</Button><State /></form></details>
+    <section class="type-properties"><div class="section-heading"><h2>Object properties</h2><Badge>{type.propertyIds.length} fields</Badge></div><p class="muted">Core field rules apply to built-in types. Additional fields are optional.</p><div class="built-in-properties"><span class="parch">Title <small>Built in</small></span><span class="parch">Writing <small>Built in</small></span></div>
+      {type.propertyIds.length ? <ul class="property-list property-cards">{type.propertyIds.map(id => { const property = propertyOf(model, id); const sharedWith = model.catalog.types.filter(item => item.id !== type.id && item.propertyIds.includes(id)); return property && <li class="parch"><div class="property-card-heading"><strong>{property.label}</strong><Badge>{kindLabel(property)}</Badge>{BUILTIN_PROPERTIES.some(item => item.id === id) && <Badge>Protected core field</Badge>}</div>{property.options?.length ? <div class="option-chips">{property.options.map(option => <Badge>{option.label}</Badge>)}</div> : null}{property.targetTypeId && <p class="muted">Links to {typeName(model, property.targetTypeId)}{property.multiple ? ' · multiple links' : ''}</p>}<details><summary>Rename property</summary><p class="fine">{sharedWith.length ? `Shared with ${sharedWith.map(item => item.name).join(', ')}. Renaming changes the label there too.` : 'Renaming keeps existing values and views connected.'}</p><form class="inline-form" method="post" action={`/properties/${id}/update`} data-enhance=""><Token model={model} /><Hidden name="revision" value={property.revision} /><Field label="Property label"><Input name="label" value={property.label} required maxlength={100} /></Field><Button type="submit">Save label</Button><State /></form></details></li>; })}</ul> : <div class="parch empty property-empty"><Icon name="type" /><div><strong>Start simple. Add structure when you need it.</strong><p>You can create objects now, or add a property below. Existing objects keep their writing.</p></div></div>}</section>
     <div class="two-columns property-builders">
-      <section class="panel">
+      <Panel>
         <h2>Add a property</h2>
         <p class="muted">What would you like to keep track of?</p>
         <form method="post" action={`/types/${type.id}/properties`} data-enhance="" data-new-property="" data-draft={draft ? 'true' : undefined}>
           <Token model={model} />
           <Hidden name="revision" value={draft?.revision ?? type.revision} />
-          <label>Property label<input name="label" value={draft?.label ?? ''} required maxlength={100} placeholder="e.g. Status, Due date, or Author" /></label>
-          <label>Property format<select name="kind" data-property-kind="" aria-describedby="property-kind-help">
+          <Field label="Property label"><Input name="label" value={draft?.label ?? ''} required maxlength={100} placeholder="e.g. Status, Due date, or Author" /></Field>
+          <Field label="Property format"><Select name="kind" data-property-kind="" aria-describedby="property-kind-help">
             {propertyKinds.map(kind => <option value={kind.value} selected={selectedKind === kind.value} data-help={kind.help}>{kind.label}</option>)}
             {!propertyKinds.some(kind => kind.value === selectedKind) && <option value={selectedKind} selected>Unavailable format</option>}
-          </select></label>
+          </Select></Field>
           <p class="kind-help fine" id="property-kind-help" data-kind-help="">{propertyKinds.find(kind => kind.value === selectedKind)?.help ?? 'Choose a supported property format.'}</p>
-          <div data-kind-options="select"><label>Choices<textarea name="options" rows={4} placeholder={'Not started\nIn progress\nDone'}>{draft ? `\n${draft.options}` : ''}</textarea></label><small>One choice per line. Required for a Select property.</small></div>
+          <div data-kind-options="select"><Field label="Choices"><Textarea name="options" rows={4} placeholder={'Not started\nIn progress\nDone'}>{draft ? `\n${draft.options}` : ''}</Textarea></Field><small>One choice per line. Required for a Select property.</small></div>
           <div data-kind-options="reference">
-            <label>Link to type<select name="targetTypeId"><option value="" selected={!selectedTargetTypeId}>Choose a type</option>{model.catalog.types.map(item => <option value={item.id} selected={selectedTargetTypeId === item.id}>{item.name}</option>)}{selectedTargetTypeId && !model.catalog.types.some(item => item.id === selectedTargetTypeId) && <option value={selectedTargetTypeId} selected>Unavailable type</option>}</select></label>
-            <label class="check"><input type="checkbox" name="multiple" value="true" checked={draft?.multiple ? true : undefined} />Allow multiple object links</label>
+            <Field label="Link to type"><Select name="targetTypeId"><option value="" selected={!selectedTargetTypeId}>Choose a type</option>{model.catalog.types.map(item => <option value={item.id} selected={selectedTargetTypeId === item.id}>{item.name}</option>)}{selectedTargetTypeId && !model.catalog.types.some(item => item.id === selectedTargetTypeId) && <option value={selectedTargetTypeId} selected>Unavailable type</option>}</Select></Field>
+            <Field class="check"><Input type="checkbox" name="multiple" value="true" checked={draft?.multiple ? true : undefined} />Allow multiple object links</Field>
             <small>Only objects of this type can be linked.</small>
           </div>
           <Button variant="primary" type="submit"><Icon name="plus" />Add property</Button><State />
         </form>
-      </section>
-    <section class="panel reuse-property"><span class="eyebrow">Keep things connected</span><h2>Use an existing property</h2><p class="muted">Already tracking this elsewhere? Reuse the same property so views can bring your objects together.</p>{available.length ? <form method="post" action={`/types/${type.id}/properties`} data-enhance=""><Token model={model} /><Hidden name="revision" value={type.revision} /><label>Shared property<select name="propertyId" required><option value="" selected>Choose a property</option>{available.map(property => <option value={property.id}>{property.label} · {kindLabel(property)}</option>)}</select></label><p class="fine">Labels and choices are shared. Each object keeps its own value.</p><Button type="submit">Use property</Button><State /></form> : <p class="fine">No other properties to reuse yet. New properties you add will be available to other types.</p>}</section></div></>;
+      </Panel>
+    <Panel class="reuse-property"><span class="eyebrow">Keep things connected</span><h2>Use an existing property</h2><p class="muted">Already tracking this elsewhere? Reuse the same property so views can bring your objects together.</p>{available.length ? <form method="post" action={`/types/${type.id}/properties`} data-enhance=""><Token model={model} /><Hidden name="revision" value={type.revision} /><Field label="Shared property"><Select name="propertyId" required><option value="" selected>Choose a property</option>{available.map(property => <option value={property.id}>{property.label} · {kindLabel(property)}</option>)}</Select></Field><p class="fine">Labels and choices are shared. Each object keeps its own value.</p><Button type="submit">Use property</Button><State /></form> : <p class="fine">No other properties to reuse yet. New properties you add will be available to other types.</p>}</Panel></div></>;
 }
 
 function localDateValue(year: number, month: number, day: number): Date {
@@ -355,25 +356,25 @@ function DayWorkspace({ model }: { model: ObjectPageModel }) {
       <PageHeading eyebrow={`Server-local day · ${model.timeZone ?? 'local time'}`} title={date} description="Journal, scheduled or due tasks, and objects created on this day.">
         {addDays(date, -1) && <ButtonLink href={`/calendar?date=${addDays(date, -1)}`}>Previous day</ButtonLink>}<ButtonLink href="/calendar">Today</ButtonLink>{addDays(date, 1) && <ButtonLink href={`/calendar?date=${addDays(date, 1)}`}>Next day</ButtonLink>}
       </PageHeading>
-      <form class="filter-bar day-mobile-picker" method="get" action="/calendar"><label>Choose date<input type="date" name="date" value={date} required /></label><Button type="submit">Show day</Button></form>
-      <section class="panel day-journal"><div class="section-heading"><h2>Journal</h2>{journal?.trashed && <Badge tone="warning">In trash</Badge>}</div>
+      <form class="filter-bar day-mobile-picker" method="get" action="/calendar"><Field label="Choose date"><Input type="date" name="date" value={date} required /></Field><Button type="submit">Show day</Button></form>
+      <Panel class="day-journal"><div class="section-heading"><h2>Journal</h2>{journal?.trashed && <Badge tone="warning">In trash</Badge>}</div>
         {journal?.trashed && !draft ? <p>This day's journal is in Trash. <a href={objectUrl(journal.id)}>Open the existing journal to restore it</a>.</p> : <form class="object-editor" method="post" action="/calendar/journal" data-enhance="" data-object-editor="" data-draft={draft || model.objectDraft ? 'true' : undefined}>
           <Token model={model} /><Hidden name="date" value={draft?.date ?? date} />{draft?.mode === 'update' ? <><Hidden name="objectId" value={draft.objectId ?? ''} /><Hidden name="revision" value={draft.revision ?? ''} /></> : journal && !draft ? <><Hidden name="objectId" value={journal.id} /><Hidden name="revision" value={journal.revision} /></> : <Hidden name="requestId" value={draft?.requestId ?? crypto.randomUUID()} />}
           <WritingFields body={body} headingLevel={3} textareaId="day-journal-body" blockId="day-writing-block" linkHeadingId="day-writing-link-heading" rows={12} />
           <div class="save-bar"><span data-object-save-controls="">{draft?.saveBlocked ? <ButtonLink href={draft.objectId ? objectUrl(draft.objectId) : `/calendar?date=${date}`}>{draft.objectId ? 'Open submitted journal' : 'Reload selected day'}</ButtonLink> : model.dayJournalConflict && journal ? <Button type="submit" variant="primary" name="reviewedRevision" value={journal.revision}>Save reconciled journal</Button> : <Button type="submit" variant="primary">Save journal</Button>}</span><State message={model.error || (journal ? `Saved revision ${journal.revision}.` : 'Write something, then save to create this journal.')} error={Boolean(model.error)} /></div>
           {draft?.saveBlocked && <p class="notice error">This draft no longer has a safe same-journal save target. Copy the writing above, then open the submitted journal or reload the selected day before saving.</p>}
-          <aside class="saved-conflict" data-conflict-panel="" hidden={!model.dayJournalConflict || !journal} tabindex={-1}>{model.dayJournalConflict && journal && <><h3>Latest saved journal · revision {journal.revision}</h3><div class="markdown-content">{raw(renderMarkdown(journal.body))}</div><details><summary>Latest Markdown source</summary><pre class="saved-source">{`\n${journal.body}`}</pre></details><p>Reconcile your draft above, then choose Save reconciled journal. Another intervening save will still reject.</p></>}</aside>
+          <aside class="parch saved-conflict" data-conflict-panel="" hidden={!model.dayJournalConflict || !journal} tabindex={-1}>{model.dayJournalConflict && journal && <><h3>Latest saved journal · revision {journal.revision}</h3><div class="markdown-content">{raw(renderMarkdown(journal.body))}</div><details><summary>Latest Markdown source</summary><pre class="saved-source">{`\n${journal.body}`}</pre></details><p>Reconcile your draft above, then choose Save reconciled journal. Another intervening save will still reject.</p></>}</aside>
         </form>}
-      </section>
-      <section class="panel"><div class="section-heading"><h2>Tasks</h2><Badge>{model.dayTasks?.items.length ?? 0}</Badge></div>{model.dayTasks?.items.length ? <ul class="day-list">{model.dayTasks.items.map(task => <li><div><a href={objectUrl(task.id)}>{titleOf(task)}</a><span class="fine">{taskMatchLabel(task)}{task.done ? ' · completed' : ''}</span></div><form method="post" action="/calendar/task"><Token model={model} /><Hidden name="date" value={date} /><Hidden name="objectId" value={task.id} /><Hidden name="revision" value={task.revision} /><Hidden name="done" value={task.done ? 'false' : 'true'} /><Button type="submit">{task.done ? 'Mark incomplete' : 'Mark done'}</Button></form></li>)}</ul> : <p class="muted">No scheduled or due tasks for this date.</p>}<nav class="pagination">{(model.dayTasks?.offset ?? 0) > 0 && <a href={taskPage(Math.max(0, (model.dayTasks?.offset ?? 0) - 50))}>Previous tasks</a>}{model.dayTasks?.hasMore && <a href={taskPage((model.dayTasks.offset ?? 0) + 50)}>Next tasks</a>}</nav></section>
-      <section class="panel"><div class="section-heading"><h2>Created on this day</h2><Badge>{model.dayCreated?.items.length ?? 0}</Badge></div>{model.dayCreated?.items.length ? <ul class="object-index">{model.dayCreated.items.map(record => <li><a href={objectUrl(record.id)}><strong>{titleOf(record)}</strong><span>{typeName(model, record.typeId)}</span></a><time datetime={record.createdAt}>{localTime(record.createdAt)}</time></li>)}</ul> : <p class="muted">No live objects were created on this day.</p>}<nav class="pagination">{(model.dayCreated?.offset ?? 0) > 0 && <a href={createdPage(Math.max(0, (model.dayCreated?.offset ?? 0) - 50))}>Previous created objects</a>}{model.dayCreated?.hasMore && <a href={createdPage((model.dayCreated.offset ?? 0) + 50)}>Next created objects</a>}</nav></section>
+      </Panel>
+      <Panel><div class="section-heading"><h2>Tasks</h2><Badge>{model.dayTasks?.items.length ?? 0}</Badge></div>{model.dayTasks?.items.length ? <ul class="day-list">{model.dayTasks.items.map(task => <li><div><a href={objectUrl(task.id)}>{titleOf(task)}</a><span class="fine">{taskMatchLabel(task)}{task.done ? ' · completed' : ''}</span></div><form method="post" action="/calendar/task"><Token model={model} /><Hidden name="date" value={date} /><Hidden name="objectId" value={task.id} /><Hidden name="revision" value={task.revision} /><Hidden name="done" value={task.done ? 'false' : 'true'} /><Button type="submit">{task.done ? 'Mark incomplete' : 'Mark done'}</Button></form></li>)}</ul> : <p class="muted">No scheduled or due tasks for this date.</p>}<nav class="pagination">{(model.dayTasks?.offset ?? 0) > 0 && <a href={taskPage(Math.max(0, (model.dayTasks?.offset ?? 0) - 50))}>Previous tasks</a>}{model.dayTasks?.hasMore && <a href={taskPage((model.dayTasks.offset ?? 0) + 50)}>Next tasks</a>}</nav></Panel>
+      <Panel><div class="section-heading"><h2>Created on this day</h2><Badge>{model.dayCreated?.items.length ?? 0}</Badge></div>{model.dayCreated?.items.length ? <ul class="object-index">{model.dayCreated.items.map(record => <li><a href={objectUrl(record.id)}><strong>{titleOf(record)}</strong><span>{typeName(model, record.typeId)}</span></a><time datetime={record.createdAt}>{localTime(record.createdAt)}</time></li>)}</ul> : <p class="muted">No live objects were created on this day.</p>}<nav class="pagination">{(model.dayCreated?.offset ?? 0) > 0 && <a href={createdPage(Math.max(0, (model.dayCreated?.offset ?? 0) - 50))}>Previous created objects</a>}{model.dayCreated?.hasMore && <a href={createdPage((model.dayCreated.offset ?? 0) + 50)}>Next created objects</a>}</nav></Panel>
     </section>
-    <aside class="day-rail" aria-label="Month date picker"><div class="month-heading"><h2>{displayMonth}</h2><nav aria-label="Month navigation">{previousMonth && <a href={`/calendar?date=${date}&month=${previousMonth}`} aria-label={`Show ${previousMonth}`}>‹</a>}{nextMonth && <a href={`/calendar?date=${date}&month=${nextMonth}`} aria-label={`Show ${nextMonth}`}>›</a>}</nav></div><table class="month-table"><caption class="sr-only">Choose a date in {displayMonth}</caption><thead><tr>{['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => <th scope="col">{day}</th>)}</tr></thead><tbody>{monthWeeks.map(week => <tr>{week.map(day => <td>{day && <a href={`/calendar?date=${day}&month=${displayMonth}`} aria-label={`Open ${day}`} aria-current={day === date ? 'date' : day === today ? 'true' : undefined} class={`${day === date ? 'selected ' : ''}${day === today ? 'today' : ''}`}>{String(Number(day.slice(8)))}</a>}</td>)}</tr>)}</tbody></table></aside>
+    <aside class="parch day-rail" aria-label="Month date picker"><div class="month-heading"><h2>{displayMonth}</h2><nav aria-label="Month navigation">{previousMonth && <a href={`/calendar?date=${date}&month=${previousMonth}`} aria-label={`Show ${previousMonth}`}>‹</a>}{nextMonth && <a href={`/calendar?date=${date}&month=${nextMonth}`} aria-label={`Show ${nextMonth}`}>›</a>}</nav></div><table class="month-table"><caption class="sr-only">Choose a date in {displayMonth}</caption><thead><tr>{['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => <th scope="col">{day}</th>)}</tr></thead><tbody>{monthWeeks.map(week => <tr>{week.map(day => <td>{day && <a href={`/calendar?date=${day}&month=${displayMonth}`} aria-label={`Open ${day}`} aria-current={day === date ? 'date' : day === today ? 'true' : undefined} class={`${day === date ? 'selected ' : ''}${day === today ? 'today' : ''}`}>{String(Number(day.slice(8)))}</a>}</td>)}</tr>)}</tbody></table></aside>
   </div>;
 }
 
 function JournalDiscovery({ model }: { model: ObjectPageModel }) {
-  return <div data-journal-discovery="" class="journal-discovery" hidden={!model.journal}>
+  return <div data-journal-discovery="" class="parch journal-discovery" hidden={!model.journal}>
     {model.journal && <p>This date already has a journal{model.journal.trashed ? ' in trash' : ''}. <a href={objectUrl(model.journal.id)}>{model.journal.trashed ? 'Open existing journal to restore it' : 'Open existing journal'}</a>. Your draft is not merged or discarded.</p>}
   </div>;
 }
@@ -382,16 +383,16 @@ function Journal({ model }: { model: ObjectPageModel }) {
   return <>
     <PageHeading title="Journal" description="One journal per calendar date, including journals in trash." />
     <form class="filter-bar" method="get" action="/journal" data-journal-picker="" data-local-date-default={model.journalDateDefault ? 'true' : undefined}>
-      <label>Journal date<input name="date" type="date" required value={model.journalDate ?? ''} /></label><Button type="submit">Find journal</Button><ButtonLink href="/journal" data-journal-today="">Today</ButtonLink>
+      <Field label="Journal date"><Input name="date" type="date" required value={model.journalDate ?? ''} /></Field><Button type="submit">Find journal</Button><ButtonLink href="/journal" data-journal-today="">Today</ButtonLink>
     </form>
     <JournalDiscovery model={model} />
-    <section class="panel">
+    <Panel>
       <h2>Open your daily journal</h2><p class="muted">Opening an existing day keeps its writing and revision. Opening a new day creates an empty journal. Journals in trash are never restored automatically.</p>
       <form method="post" action="/journal/open" data-enhance="" data-journal-open="">
         <Token model={model} /><Hidden name="date" value={model.journalDate ?? ''} /><Button variant="primary" type="submit">Open journal for <span data-journal-day="">{model.journalDate}</span></Button><State />
       </form>
       <p class="fine">Find a date above, then open it. Nothing is created by viewing this page.</p>
-    </section>
+    </Panel>
   </>;
 }
 
@@ -406,16 +407,16 @@ function BuiltinRules({ model, typeId }: { model: ObjectPageModel; typeId: strin
 }
 
 function ObjectSearch() {
-  return <dialog class="object-search" id="object-search" aria-labelledby="object-search-heading">
+  return <Dialog class="object-search" id="object-search" aria-labelledby="object-search-heading">
     <header><h2 id="object-search-heading">Find an object</h2><Button variant="ghost" class="icon-button" type="button" data-search-close="" aria-label="Close search"><Icon name="close" /></Button></header>
     <form method="get" action="/" data-object-search-form="">
-      <label>Search title or writing<input type="search" name="q" maxlength={200} autocomplete="off" autofocus /></label>
+      <Field label="Search title or writing"><Input type="search" name="q" maxlength={200} autocomplete="off" autofocus /></Field>
       <Button type="submit">Search</Button>
     </form>
     <p class="fine" data-search-status="" role="status">Press Enter to search. Use arrow keys or Tab to choose a result.</p>
     <ul class="object-index" data-search-results="" aria-label="Matching objects"></ul>
     <div class="search-hints" aria-hidden="true"><span><kbd>↑</kbd><kbd>↓</kbd> navigate</span><span><kbd>Enter</kbd> select</span><span><kbd>Esc</kbd> close</span></div>
-  </dialog>;
+  </Dialog>;
 }
 
 function SavedConflict({ model }: { model: ObjectPageModel }) {
@@ -459,12 +460,12 @@ function ObjectEditor({ model }: { model: ObjectPageModel }) {
   return <><h1 class="sr-only">{record ? 'Edit object' : 'New object'}</h1><a class="back-link" data-object-back="" href={`/?type=${type.id}`}>← {type.name} objects</a>{record?.trashed && <Badge tone="warning">In trash</Badge>}
     {record && <div class="object-actions-row"><nav class="object-sections" aria-label="Object sections"><a href="#writing-area">Writing</a><a href="#object-backlinks">Linked from</a><a href={`/objects/${record.id}/history`}>History</a></nav><form method="post" action={`/objects/${record.id}/favorite`}><Token model={model} /><Hidden name="favorite" value={model.favorite ? 'false' : 'true'} /><Hidden name="context" value="object" /><Hidden name="date" value="" /><Button type="submit" variant={model.favorite ? 'secondary' : 'ghost'}>{model.favorite ? 'Unfavorite' : 'Favorite'}</Button></form></div>}
     <div class={`object-editing${conflict ? ' has-conflict' : ''}`}>
-    <form id="object-editor" class="object-editor" method="post" action={record ? `/objects/${record.id}/update` : '/objects/create'} data-enhance="" data-object-editor="" data-new-object={!record ? 'true' : undefined} data-local-date-default={!record && !draft && model.journalDateDefault ? 'true' : undefined} data-draft={draft ? 'true' : undefined}><Token model={model} />{record ? <Hidden name="revision" value={draft?.revision ?? record.revision} /> : <Hidden name="requestId" value={draft?.requestId ?? crypto.randomUUID()} />}{draft?.historyRevision && <Hidden name="historyRevision" value={draft.historyRevision} />}
-      <label class="title-field"><span class="sr-only">Title</span><input name="title" value={draft?.title ?? record?.title ?? (type.id === JOURNAL_TYPE_ID ? journalDate ?? '' : '')} data-journal-title-default={!record && !draft && type.id === JOURNAL_TYPE_ID ? 'true' : undefined} required maxlength={500} autocomplete="off" placeholder="Untitled" /></label>
+    <form id="object-editor" class="parch object-editor" method="post" action={record ? `/objects/${record.id}/update` : '/objects/create'} data-enhance="" data-object-editor="" data-new-object={!record ? 'true' : undefined} data-local-date-default={!record && !draft && model.journalDateDefault ? 'true' : undefined} data-draft={draft ? 'true' : undefined}><Token model={model} />{record ? <Hidden name="revision" value={draft?.revision ?? record.revision} /> : <Hidden name="requestId" value={draft?.requestId ?? crypto.randomUUID()} />}{draft?.historyRevision && <Hidden name="historyRevision" value={draft.historyRevision} />}
+      <Field class="title-field" label={<span class="sr-only">Title</span>}><Input name="title" value={draft?.title ?? record?.title ?? (type.id === JOURNAL_TYPE_ID ? journalDate ?? '' : '')} data-journal-title-default={!record && !draft && type.id === JOURNAL_TYPE_ID ? 'true' : undefined} required maxlength={500} autocomplete="off" placeholder="Untitled" /></Field>
       <section class="properties" aria-labelledby="object-properties-heading">
         <header class={record ? 'properties-heading' : 'properties-heading sr-only'}><h2 id="object-properties-heading">Properties <Badge data-property-count="" hidden={!propertyCount}>{propertyCount}</Badge></h2><span class="fine" data-object-type-label="">{type.name}</span></header>
         <div class="object-type-picker">
-          <label>Object type<select name="typeId" data-new-type="">{model.catalog.types.map(item => <option value={item.id} selected={item.id === type.id}>{item.name}</option>)}</select></label>
+          <Field label="Object type"><Select name="typeId" data-new-type="">{model.catalog.types.map(item => <option value={item.id} selected={item.id === type.id}>{item.name}</option>)}</Select></Field>
           {!record && <a href="/types#create-type">Create a new type</a>}
           <p class={record ? 'fine' : 'fine native-only'}>{record && 'Changing type keeps existing values.'}<span class="native-only"> Choose Use type below to load its fields without saving or losing your writing.</span></p>
         </div>
@@ -493,10 +494,10 @@ function ObjectEditor({ model }: { model: ObjectPageModel }) {
         <State message={state} error={Boolean(model.error)} />
       </div>
     </form>
-    <aside id="saved-conflict" class="saved-conflict" data-conflict-panel="" hidden={!conflict} tabindex={-1} aria-labelledby={conflict ? 'conflict-heading' : undefined}>{conflict && <SavedConflict model={model} />}</aside>
+    <aside id="saved-conflict" class="parch saved-conflict" data-conflict-panel="" hidden={!conflict} tabindex={-1} aria-labelledby={conflict ? 'conflict-heading' : undefined}>{conflict && <SavedConflict model={model} />}</aside>
     </div>
     {record && <>
-      {!conflict && <details class="markdown-preview" data-native-reading="">
+      {!conflict && <details class="parch markdown-preview" data-native-reading="">
         <summary>Read saved writing</summary>
         <div id="saved-writing" tabindex={-1}>
           <p class="fine">Saved revision {record.revision}. Unsaved edits are not shown here.</p>
@@ -540,7 +541,7 @@ function ObjectHistory({ model }: { model: ObjectPageModel }) {
       title={`${titleOf(record)} history`}
       description="Saved snapshots are read-only. Opening one loads an unsaved draft for this same object; nothing is restored until you explicitly save."
     />
-    <section class="panel history-current">
+    <Panel class="history-current">
       <h2>Current version</h2>
       <dl class="saved-details">
         <dt>Revision</dt><dd>{record.revision}</dd>
@@ -548,9 +549,9 @@ function ObjectHistory({ model }: { model: ObjectPageModel }) {
         <dt>Updated</dt><dd>{record.updatedAt}</dd>
         <dt>Trash</dt><dd>{record.trashed ? 'In trash' : 'Active'}</dd>
       </dl>
-    </section>
+    </Panel>
     <div class="history-layout">
-      <section class="panel">
+      <Panel>
         <h2>Historical revisions</h2>
         {history.revisions.length ? <ul class="history-list">
           {history.revisions.map(item => <li>
@@ -564,8 +565,8 @@ function ObjectHistory({ model }: { model: ObjectPageModel }) {
           {history.offset > 0 && <a href={pageUrl(Math.max(0, history.offset - 20))}>Previous</a>}
           {history.hasMore && <a href={pageUrl(history.offset + 20)}>Next</a>}
         </nav>
-      </section>
-      <section class="panel history-snapshot">
+      </Panel>
+      <Panel class="history-snapshot">
         <h2>{selected ? `Revision ${selected.revision}` : 'Select a revision'}</h2>
         {selected ? <>
           <dl class="saved-details">
@@ -589,7 +590,7 @@ function ObjectHistory({ model }: { model: ObjectPageModel }) {
             <State />
           </form>}
         </> : <p class="muted">Choose a historical revision to inspect its title, type, fields, rendered writing, and exact Markdown source.</p>}
-      </section>
+      </Panel>
     </div>
   </>;
 }
@@ -598,9 +599,9 @@ function Views({ model }: { model: ObjectPageModel }) {
   const calendar = model.section === 'calendar';
   const views = calendar ? model.views.filter(view => view.spec.blocks.some(block => block.component === 'calendar')) : model.views;
   return <><PageHeading title={calendar ? 'Calendar' : 'Views'} description={calendar ? 'Your dated objects, seen together. Open a saved calendar or create your own.' : 'Different perspectives on the same objects. Nothing copied, nothing moved.'}><ButtonLink variant="primary" href={calendar ? '/calendar?ai=1' : '/views?ai=1'} data-ai-start=""><Icon name="ai" />{calendar ? 'Create calendar' : 'Create view'}</ButtonLink></PageHeading>
-    <div class="view-invitation"><span class="invitation-icon"><Icon name={calendar ? 'calendar' : 'views'} /></span><div><strong>{calendar ? 'Make room for what’s coming up' : 'A view that fits the way you think'}</strong><p>{calendar ? 'Ask for a calendar using date properties already in your workspace.' : 'Describe a list, table, calendar, or board. The view assistant creates a draft you can review.'}</p></div></div>
+    <div class="parch view-invitation"><span class="invitation-icon"><Icon name={calendar ? 'calendar' : 'views'} /></span><div><strong>{calendar ? 'Make room for what’s coming up' : 'A view that fits the way you think'}</strong><p>{calendar ? 'Ask for a calendar using date properties already in your workspace.' : 'Describe a list, table, calendar, or board. The view assistant creates a draft you can review.'}</p></div></div>
     {calendar && <p class="fine">For Events, include separate calendar blocks for all-day dates and timed ranges. For Reminders, include separate blocks for dates and exact times. Bind each block to the corresponding field and filter out empty values so both alternatives appear. Creating or opening objects never generates a view automatically.</p>}
-    <h2 class="section-heading">{calendar ? 'Saved calendars' : 'Saved views'}<Badge>{views.length}</Badge></h2>{views.length ? <ul class="view-list">{views.map(view => <li><span class="view-list-icon"><Icon name={view.spec.blocks.some(block => block.component === 'calendar') ? 'calendar' : 'views'} /></span><div><a href={`/views/${view.id}`}>{view.spec.title}</a><p class="muted">{view.spec.description}</p></div><Badge tone={view.status === 'draft' ? 'warning' : 'success'}>{view.status}</Badge><ButtonLink href={`/views/${view.id}`}>{view.status === 'draft' ? 'Preview' : 'Open'}</ButtonLink></li>)}</ul> : <EmptyState icon={calendar ? 'calendar' : 'views'} title={calendar ? 'No calendars yet' : 'A fresh perspective starts here'}><p>{calendar ? 'No saved view includes a calendar. Create one to bring your dated objects into focus.' : 'Create your first view from the objects and properties in your workspace.'}</p><a href={calendar ? '/calendar?ai=1' : '/views?ai=1'} data-ai-start="">{calendar ? 'Describe a calendar' : 'Describe a view'}</a></EmptyState>}</>;
+    <h2 class="section-heading">{calendar ? 'Saved calendars' : 'Saved views'}<Badge>{views.length}</Badge></h2>{views.length ? <ul class="view-list">{views.map(view => <li class="parch"><span class="view-list-icon"><Icon name={view.spec.blocks.some(block => block.component === 'calendar') ? 'calendar' : 'views'} /></span><div><a href={`/views/${view.id}`}>{view.spec.title}</a><p class="muted">{view.spec.description}</p></div><Badge tone={view.status === 'draft' ? 'warning' : 'success'}>{view.status}</Badge><ButtonLink href={`/views/${view.id}`}>{view.status === 'draft' ? 'Preview' : 'Open'}</ButtonLink></li>)}</ul> : <EmptyState icon={calendar ? 'calendar' : 'views'} title={calendar ? 'No calendars yet' : 'A fresh perspective starts here'}><p>{calendar ? 'No saved view includes a calendar. Create one to bring your dated objects into focus.' : 'Create your first view from the objects and properties in your workspace.'}</p><a href={calendar ? '/calendar?ai=1' : '/views?ai=1'} data-ai-start="">{calendar ? 'Describe a calendar' : 'Describe a view'}</a></EmptyState>}</>;
 }
 
 function InlineAction({ model, view, blockIndex, row, role }: { model: ObjectPageModel; view: SavedView; blockIndex: number; row: ViewRow; role: 'date' | 'group' }) {
@@ -618,11 +619,11 @@ function ViewBlockContent({ model, block, blockIndex, view }: { model: ObjectPag
   if (block.error) return <p role="alert">{block.error}</p>;
   const rows = block.rows;
   const component = block.definition.component;
-  if (component === 'table') return <div class="table-scroll" tabindex={0} role="region" aria-label={block.definition.title}><table><thead><tr><th scope="col">Object</th>{block.definition.columns?.map(column => {
+  if (component === 'table') return <div class="parch table-scroll" tabindex={0} role="region" aria-label={block.definition.title}><table><thead><tr><th scope="col">Object</th>{block.definition.columns?.map(column => {
     const labels = [...new Set(block.definition.sources.map(source => source.bindings[column.role]).filter((id): id is string => Boolean(id)).map(id => propertyOf(model, id)?.label).filter(Boolean))];
     return <th scope="col">{labels.length ? labels.join(' / ') : column.label}</th>;
   })}</tr></thead><tbody>{rows.map(row => <tr><th scope="row"><a href={objectUrl(row.object.id)}>{titleOf(row.object)}</a><small>{typeName(model, row.object.typeId)}</small></th>{block.definition.columns?.map(column => { const id = row.bindings[column.role]; return <td>{id ? <Value model={model} propertyId={id} value={row.object.properties[id]} /> : <span class="muted">Not bound</span>}</td>; })}</tr>)}</tbody></table>{!rows.length && <p class="empty">No matching objects.</p>}</div>;
-  if (component === 'list') return rows.length ? <ul class="generated-list">{rows.map(row => <li><a href={objectUrl(row.object.id)}>{titleOf(row.object)}</a><span class="muted">{typeName(model, row.object.typeId)}</span><BoundValues model={model} block={block} row={row} /></li>)}</ul> : <p class="empty">No matching objects.</p>;
+  if (component === 'list') return rows.length ? <ul class="parch generated-list">{rows.map(row => <li><a href={objectUrl(row.object.id)}>{titleOf(row.object)}</a><span class="muted">{typeName(model, row.object.typeId)}</span><BoundValues model={model} block={block} row={row} /></li>)}</ul> : <p class="empty">No matching objects.</p>;
   if (component === 'calendar') {
     const groups = new Map<string, ViewRow[]>();
     for (const row of rows) {
@@ -632,7 +633,7 @@ function ViewBlockContent({ model, block, blockIndex, view }: { model: ObjectPag
       const group = groups.get(date) ?? []; group.push(row); groups.set(date, group);
     }
     if (!groups.has('')) groups.set('', []);
-    return <div class="calendar-groups">{[...groups.entries()].sort(([a], [b]) => !a ? 1 : !b ? -1 : a.localeCompare(b)).map(([date, items]) => <section class="calendar-day"><h3>{date || 'Unscheduled'}</h3>{items.length ? <ul>{items.map(row => <li><a href={objectUrl(row.object.id)}>{titleOf(row.object)}</a><div class="calendar-date"><span class="muted">{propertyOf(model, row.bindings.date ?? '')?.label}: </span><Value model={model} propertyId={row.bindings.date ?? ''} value={row.object.properties[row.bindings.date ?? '']} /></div><BoundValues model={model} block={block} row={row} /><InlineAction model={model} view={view} blockIndex={blockIndex} row={row} role="date" /></li>)}</ul> : <p class="muted">No unscheduled objects.</p>}</section>)}</div>;
+    return <div class="calendar-groups">{[...groups.entries()].sort(([a], [b]) => !a ? 1 : !b ? -1 : a.localeCompare(b)).map(([date, items]) => <section class="calendar-day"><h3>{date || 'Unscheduled'}</h3>{items.length ? <ul>{items.map(row => <li class="parch"><a href={objectUrl(row.object.id)}>{titleOf(row.object)}</a><div class="calendar-date"><span class="muted">{propertyOf(model, row.bindings.date ?? '')?.label}: </span><Value model={model} propertyId={row.bindings.date ?? ''} value={row.object.properties[row.bindings.date ?? '']} /></div><BoundValues model={model} block={block} row={row} /><InlineAction model={model} view={view} blockIndex={blockIndex} row={row} role="date" /></li>)}</ul> : <p class="muted">No unscheduled objects.</p>}</section>)}</div>;
   }
   const properties = [...new Set(block.definition.sources.map(source => source.bindings.group).filter((id): id is string => Boolean(id)))];
   return <div class="board-groups">{properties.map(propertyId => {
@@ -646,7 +647,7 @@ function ViewBlockContent({ model, block, blockIndex, view }: { model: ObjectPag
       const group = groups.get(key) ?? { value, rows: [] }; group.rows.push(row); groups.set(key, group);
     }
     if (!groups.has('')) groups.set('', { value: undefined, rows: [] });
-    return <section><h3>{property?.label ?? 'Groups'}</h3><div class="board-scroll" tabindex={0} role="region" aria-label={`${block.definition.title}: ${property?.label ?? 'Groups'}`}>{[...groups.entries()].map(([key, group]) => <section class="board-column"><h4>{key ? <Value model={model} propertyId={propertyId} value={group.value} /> : 'Ungrouped'} <span class="muted">{group.rows.length}</span></h4>{group.rows.length ? <ul>{group.rows.map(row => <li><a href={objectUrl(row.object.id)}>{titleOf(row.object)}</a><small>{typeName(model, row.object.typeId)}</small><BoundValues model={model} block={block} row={row} /><InlineAction model={model} view={view} blockIndex={blockIndex} row={row} role="group" /></li>)}</ul> : <p class="muted">No objects.</p>}</section>)}</div></section>;
+    return <section><h3>{property?.label ?? 'Groups'}</h3><div class="board-scroll" tabindex={0} role="region" aria-label={`${block.definition.title}: ${property?.label ?? 'Groups'}`}>{[...groups.entries()].map(([key, group]) => <section class="parch board-column"><h4>{key ? <Value model={model} propertyId={propertyId} value={group.value} /> : 'Ungrouped'} <span class="muted">{group.rows.length}</span></h4>{group.rows.length ? <ul>{group.rows.map(row => <li><a href={objectUrl(row.object.id)}>{titleOf(row.object)}</a><small>{typeName(model, row.object.typeId)}</small><BoundValues model={model} block={block} row={row} /><InlineAction model={model} view={view} blockIndex={blockIndex} row={row} role="group" /></li>)}</ul> : <p class="muted">No objects.</p>}</section>)}</div></section>;
   })}</div>;
 }
 
@@ -660,13 +661,13 @@ function View({ model }: { model: ObjectPageModel }) {
     {input &&
       <form class="filter-bar" method="get" action={`/views/${view.id}`}>
         <div class="reference-control">
-          <label for="view-input-object">{input.label}</label>
-          <select id="view-input-object" name="input" required>
+          <Field for="view-input-object" label={input.label} />
+          <Select id="view-input-object" name="input" required>
             <option value="">Choose an object</option>
             {model.objects
               .filter(record => record.typeId === input.typeId && !record.trashed)
               .map(record => <option value={record.id} selected={record.id === evaluated.input?.id}>{titleOf(record)}</option>)}
-          </select>
+          </Select>
           <Button class="js-only reference-search-button" type="button" data-reference-search="" data-reference-target="view-input-object" data-reference-type={input.typeId} aria-label={`Find object for ${input.label}`}>Find object</Button>
         </div>
         <Button type="submit">Show view</Button>
@@ -675,6 +676,22 @@ function View({ model }: { model: ObjectPageModel }) {
     {input && !evaluated.input ? <p class="empty">Choose a {typeName(model, input.typeId)} above to show this view.</p> : evaluated.blocks.map((block, index) => <section class="view-block"><h2>{block.definition.title}</h2><ViewBlockContent model={model} block={block} blockIndex={index} view={view} />{block.truncated && <p class="muted">This section reached its result limit. Narrow the view by refining your prompt.</p>}</section>)}
     <p class="fine">Source: {view.model}. Draft actions are read-only; object links always open the object editor.</p>
   </>;
+}
+
+function WorkspaceScreen({ model }: { model: ObjectPageModel }) {
+  switch (model.screen) {
+    case 'home': return <ObjectHome model={model} />;
+    case 'objects': return <Objects model={model} />;
+    case 'types': return <Types model={model} />;
+    case 'type': return <TypeEditor model={model} />;
+    case 'new-object':
+    case 'object': return <ObjectEditor model={model} />;
+    case 'object-history': return <ObjectHistory model={model} />;
+    case 'journal': return <Journal model={model} />;
+    case 'calendar': return <DayWorkspace model={model} />;
+    case 'views': return <Views model={model} />;
+    case 'view': return <View model={model} />;
+  }
 }
 
 export function renderObjectWorkspace(model: ObjectPageModel): string {
@@ -692,9 +709,40 @@ export function renderObjectWorkspace(model: ObjectPageModel): string {
   const currentView = model.screen === 'view' ? model.evaluatedView?.view : undefined;
   const suggestedPrompt = model.screen === 'calendar' ? 'Create a calendar of my objects using their date properties.' : model.section === 'tasks' && model.selectedTypeId ? 'Create a view of my tasks using their existing properties.' : undefined;
   const objectEditor = model.screen === 'new-object' || model.screen === 'calendar' || (model.screen === 'object' && Boolean(model.object));
-  return '<!doctype html>' + (<html lang="en"><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><meta name="color-scheme" content="light" /><title>{title} · Taskdesk</title><link rel="stylesheet" href="/tokens.css" /><link rel="stylesheet" href="/objects.css" />{objectEditor && <link rel="stylesheet" href="/writing.css" />}</head><body class={`object-shell${model.aiOpen ? ' ai-open' : ''}`} data-ai-view-id={currentView?.id} data-ai-view-title={currentView?.spec.title} data-ai-context-title={model.aiContextTitle} data-ai-prompt={suggestedPrompt}>
-    <a class="skip-link" href="#main">Skip to content</a><div class="workspace-layout"><WorkspaceNav model={model} />
-    <div class="workspace-content"><header class="workspace-header"><div class="workspace-breadcrumb"><Button class="icon-button js-only nav-toggle" type="button" data-nav-toggle="" aria-label="Open navigation" aria-controls="workspace-nav" aria-expanded="false"><Icon name="menu" /></Button><a href="/">Workspace</a><span aria-hidden="true">/</span><span class="breadcrumb-title">{title}</span></div><ButtonLink class="ai-toggle" href="/views?ai=1" data-ai-toggle="" aria-controls="ai-panel" aria-expanded={model.aiOpen ? 'true' : 'false'}><Icon name="ai" /><span>View assistant</span></ButtonLink></header>
-    <main id="main" tabindex={-1}>{model.error && !objectEditor && <div class="notice error" role="alert">{model.error}</div>}{model.notice && !objectEditor && <div class="notice" role="status">{model.notice}</div>}{model.screen === 'calendar' ? <DayWorkspace model={model} /> : model.screen === 'journal' ? <Journal model={model} /> : model.screen === 'home' ? <ObjectHome model={model} /> : model.screen === 'objects' ? <Objects model={model} /> : model.screen === 'types' ? <Types model={model} /> : model.screen === 'type' ? <TypeEditor model={model} /> : model.screen === 'object-history' ? <ObjectHistory model={model} /> : model.screen === 'new-object' || model.screen === 'object' ? <ObjectEditor model={model} /> : model.screen === 'views' ? <Views model={model} /> : <View model={model} />}</main><footer class="workspace-footer">Objects are yours. Views are ways to see them.</footer></div>
-    <button class="panel-backdrop" data-panel-backdrop="" type="button" aria-label="Close open panel" hidden></button><AiPanel model={model} /></div><ObjectSearch /><script type="module" src="/objects-client.js"></script></body></html>).toString();
+  return '<!doctype html>' + (<Document title={title} writing={objectEditor} bodyAttributes={{
+    class: model.aiOpen ? 'ai-open' : '',
+    'data-ai-view-id': currentView?.id,
+    'data-ai-view-title': currentView?.spec.title,
+    'data-ai-context-title': model.aiContextTitle,
+    'data-ai-prompt': suggestedPrompt,
+  }}>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <div class="workspace-layout">
+      <WorkspaceNav model={model} />
+      <div class="workspace-content">
+        <header class="wood workspace-header">
+          <div class="workspace-breadcrumb">
+            <Button class="icon-button js-only nav-toggle" data-nav-toggle="" aria-label="Open navigation" aria-controls="workspace-nav" aria-expanded="false"><Icon name="menu" /></Button>
+            <a href="/">Workspace</a>
+            <span aria-hidden="true">/</span>
+            <span class="breadcrumb-title">{title}</span>
+          </div>
+          <ButtonLink class="ai-toggle" href="/views?ai=1" data-ai-toggle="" aria-controls="ai-panel" aria-expanded={model.aiOpen ? 'true' : 'false'}><Icon name="ai" /><span>View assistant</span></ButtonLink>
+        </header>
+        <main id="main" tabindex={-1}>
+          {model.error && !objectEditor && <Notice error>{model.error}</Notice>}
+          {model.notice && !objectEditor && <Notice>{model.notice}</Notice>}
+          <WorkspaceScreen model={model} />
+        </main>
+        <footer class="workspace-footer">
+          <span>Objects are yours. Views are ways to see them.</span>
+          <a href="/design-system">Design system</a>
+        </footer>
+      </div>
+      <Button class="panel-backdrop" data-panel-backdrop="" aria-label="Close open panel" hidden />
+      <AiPanel model={model} />
+    </div>
+    <ObjectSearch />
+    <script type="module" src="/objects-client.js"></script>
+  </Document>).toString();
 }

@@ -7,6 +7,7 @@ import { createApp } from '../src/server.js';
 import { openDatabase } from '../src/database.js';
 import { ObjectRuntime } from '../src/objects/runtime.js';
 import { PAGE_TYPE_ID } from '../src/objects/model.js';
+import { designAssets } from '../src/ui/assets.js';
 import type { ViewConversation, ViewGenerator } from '../src/objects/model.js';
 
 const generator: ViewGenerator = async prompt => ({
@@ -44,6 +45,7 @@ test('canonical pages and local assets retain strict browser protections', async
   assert.equal(a.home.headers.get('cache-control'), 'no-store');
   for (const [path, contentType] of [
     ['/tokens.css', 'text/css; charset=utf-8'],
+    ['/ui.css', 'text/css; charset=utf-8'],
     ['/objects.css', 'text/css; charset=utf-8'],
     ['/writing.css', 'text/css; charset=utf-8'],
     ['/writing-prose.css', 'text/css; charset=utf-8'],
@@ -59,6 +61,31 @@ test('canonical pages and local assets retain strict browser protections', async
     assert.equal(response.headers.get('x-content-type-options'), 'nosniff');
     await response.arrayBuffer();
   }
+});
+
+test('Hearthwood assets are local, explicitly allowlisted, and keep the same security boundary', async t => {
+  const a = await app(t);
+  const csp = a.home.headers.get('content-security-policy')!;
+  assert.ok(csp.includes("img-src 'self'"));
+  assert.ok(csp.includes("font-src 'self'"));
+  for (const [path, asset] of designAssets) {
+    const response = await a.get(path);
+    assert.equal(response.status, 200, path);
+    assert.equal(response.headers.get('content-type'), asset.type);
+    assert.equal(response.headers.get('content-security-policy'), csp);
+    assert.equal(response.headers.get('x-content-type-options'), 'nosniff');
+    assert.ok((await response.arrayBuffer()).byteLength > 0, path);
+    assert.equal((await a.get(path, { Host: 'evil.example' })).status, 403);
+  }
+  for (const path of ['/balaur/unknown.png', '/balaur/fonts/unknown.ttf', '/balaur/icons/%2e%2e%2f%2e%2e%2f.data/taskdesk.sqlite', '/balaur/../../package.json']) {
+    assert.equal((await a.get(path)).status, 404, path);
+  }
+  const before = a.objects.catalog();
+  const specimen = await a.get('/design-system');
+  assert.equal(specimen.status, 200);
+  assert.equal(specimen.headers.get('content-security-policy'), csp);
+  assert.match(await specimen.text(), /Taskdesk UI/);
+  assert.deepEqual(a.objects.catalog(), before);
 });
 
 test('canonical mutations reject missing ownership, CSRF, cross-origin and unexpected fields', async t => {

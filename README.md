@@ -94,8 +94,8 @@ Bun supplies the HTTP server, SQLite driver, browser bundler, saved-Markdown ren
 - `src/objects/conversations.ts`: visitor-owned view threads and atomic draft/turn persistence.
 - `src/objects/generator.ts`: isolated metadata-only Pi generation and validated submission.
 - `src/objects/http.ts`, `render.tsx`, `client.ts`: native forms, domain screens, trusted view components, and progressive enhancement.
-- `src/objects/ui.tsx`: shared UI atoms and small page compositions.
-- `public/tokens.css`, `public/objects.css`, `public/writing.css`: design primitives/semantic roles, responsive component styling, and formatted editing. The server also serves Milkdown's base prose/table styles as same-origin assets.
+- `src/ui/`: reusable native atoms, fields, surfaces, feedback, page compositions, and the `/design-system` reference.
+- `public/tokens.css`, `public/ui.css`, `public/objects.css`, `public/writing.css`: Hearthwood tokens, shared materials/components, responsive domain layouts, and formatted editing. Artwork and fonts live in `public/balaur/`. The server also serves Milkdown's base prose/table styles as same-origin assets.
 
 ```sh
 bun run check
@@ -105,9 +105,9 @@ bun run sqlite:runtime
 
 ## Design system
 
-The UI follows **primitives → semantic roles → components**. `public/tokens.css` defines the warm paper/forest palette and shared typography, spacing, radius, and motion scales, then maps colors to roles such as `--surface-panel`, `--action-primary`, and `--border-control`. Component styles consume those roles: control boundaries remain distinct from quiet decorative dividers. System sans-serif text uses a 15px body size at the default root size; source and code use the monospace role. Shared spacing, rounded surfaces, and short transitions keep the workspace cohesive.
+The UI implements **Balaur / Basm Hearthwood**: oak-and-wood chrome, parchment content, pixel-art icons, square beveled controls, and hard shadows. Locally hosted Jersey 15, Piazzolla, JetBrains Mono, and Silkscreen supply the type roles. The page follows the system color preference; wood and parchment keep their distinct materials in both schemes. Reduced motion disables press movement.
 
-`src/objects/ui.tsx` keeps the `Icon`, `Button`, `ButtonLink`, and `Badge` atoms together with the small `PageHeading` and `EmptyState` compositions. Domain screens stay in `src/objects/render.tsx`; fields and forms remain native HTML. This uses the existing Hono JSX renderer, with no additional component framework or dependencies. Buttons perform actions (`type="button"` by default); links navigate. A submit action must opt in explicitly:
+The architecture is **tokens → semantic material roles → native atoms → compositions → domain screens**. Import reusable controls from `src/ui/index.ts`; `public/ui.css` owns their styles and `public/objects.css` owns Taskdesk layouts. The existing Hono JSX renderer remains the only component framework. Forms work without JavaScript; buttons act and links navigate. Submit buttons opt in explicitly:
 
 ```tsx
 <>
@@ -116,7 +116,7 @@ The UI follows **primitives → semantic roles → components**. `public/tokens.
 </>
 ```
 
-For CSS extensions, use semantic color roles and the existing primitive scales for spacing, typography, radii, and motion; do not add arbitrary palette constants per component. Preserve visible keyboard focus, disabled and pressed states, and reduced-motion behavior when extending a control.
+Open **`/design-system`**, linked from the footer, to inspect the actual shared controls and states. See [the UI component guide](docs/design-system.md) for component APIs, file ownership, design-source provenance, and extension rules. Use material roles rather than per-screen palette constants, and preserve native validation, visible focus, disabled/pressed states, and draft/revision hooks. This is a visual and component-system integration, not an import of Balaur's companion-specific features.
 
 ## Current boundaries
 

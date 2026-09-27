@@ -7,9 +7,11 @@ import type { ObjectRuntime } from './objects/runtime.js';
 import { openWorkspace } from './objects/workspace.js';
 import { createObjectRoutes } from './objects/http.js';
 import type { ViewGenerator } from './objects/model.js';
+import { designAssets } from './ui/assets.js';
+import { renderDesignSystem, renderFailure } from './ui/specimen.js';
 
 const securityHeaders = {
-  'Content-Security-Policy': "default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'self'; font-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'; object-src 'none'",
+  'Content-Security-Policy': "default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'self'; font-src 'self'; img-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'; object-src 'none'",
   'X-Content-Type-Options': 'nosniff',
   'Referrer-Policy': 'same-origin',
   'Cache-Control': 'no-store',
@@ -51,8 +53,8 @@ function failure(error: unknown): Response {
   const known = error instanceof AppError;
   if (!known) console.error('Request failed:', error);
   const status = known ? error.status : 500;
-  const message = Bun.escapeHTML(known ? error.message : 'An unexpected error occurred. See the local server log.');
-  return new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${status} · Taskdesk</title></head><body><main><h1>${status}</h1><p>${message}</p><a href="/">Return to Taskdesk</a></main></body></html>`, { status, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+  const message = known ? error.message : 'An unexpected error occurred. See the local server log.';
+  return new Response(renderFailure(status, message), { status, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
 }
 function withHeaders(response: Response, headers: Headers): Response {
   for (const [name, value] of headers) if (!response.headers.has(name)) response.headers.set(name, value);
@@ -69,6 +71,7 @@ export function createApp(options: { objects?: ObjectRuntime; viewGenerator?: Vi
   const proseCss = Bun.file(new URL(import.meta.resolve('@milkdown/prose/view/style/prosemirror.css')));
   const tablesCss = Bun.file(new URL(import.meta.resolve('@milkdown/prose/tables/style/tables.css')));
   const tokensCss = Bun.file(new URL('../public/tokens.css', import.meta.url));
+  const uiCss = Bun.file(new URL('../public/ui.css', import.meta.url));
   const objectCss = Bun.file(new URL('../public/objects.css', import.meta.url));
   const handle = async (req: Request, server: Bun.Server<undefined>, headers: Headers): Promise<Response> => {
     // Bind to loopback and reject unrecognized hosts to reduce DNS-rebinding risk.
@@ -79,6 +82,12 @@ export function createApp(options: { objects?: ObjectRuntime; viewGenerator?: Vi
     if (!['GET', 'POST'].includes(req.method)) {
       headers.set('Allow', 'GET, POST');
       throw new AppError(405, 'Use a link or a form.');
+    }
+    if (req.method === 'GET') {
+      const asset = designAssets.get(url.pathname);
+      if (asset) return new Response(asset.file, { headers: { 'Content-Type': asset.type } });
+      if (url.pathname === '/design-system') return new Response(renderDesignSystem(), { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+      if (url.pathname === '/ui.css') return new Response(uiCss, { headers: { 'Content-Type': 'text/css; charset=utf-8' } });
     }
     if (req.method === 'GET' && url.pathname === '/tokens.css') return new Response(tokensCss, { headers: { 'Content-Type': 'text/css; charset=utf-8' } });
     if (req.method === 'GET' && url.pathname === '/objects.css') return new Response(objectCss, { headers: { 'Content-Type': 'text/css; charset=utf-8' } });

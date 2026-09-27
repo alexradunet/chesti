@@ -1,31 +1,71 @@
-/* Primitives: the palette and scales. Components consume semantic roles below. */
+/* Balaur / Basm — Hearthwood. Adapted from the supplied design tokens.
+   Palette → semantic material roles → native components. See docs/design-system.md. */
+@font-face {
+  font-family: 'Jersey 15';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/balaur/fonts/jersey-15.ttf') format('truetype');
+}
+@font-face {
+  font-family: 'Piazzolla';
+  font-style: normal;
+  font-weight: 300 700;
+  font-display: swap;
+  src: url('/balaur/fonts/piazzolla.ttf') format('truetype');
+}
+@font-face {
+  font-family: 'Silkscreen';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('/balaur/fonts/silkscreen.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('/balaur/fonts/jetbrains-mono.woff2') format('woff2');
+}
 :root {
-  --color-white: #ffffff;
-  --color-stone-50: #fcfbf8;
-  --color-stone-100: #f3f1eb;
-  --color-stone-200: #e7e5dc;
-  --color-stone-300: #cecec2;
-  --color-stone-500: #7e8577;
-  --color-stone-600: #656a5f;
-  --color-stone-700: #4c574e;
-  --color-stone-900: #25332b;
-  --color-forest-50: #f0f5ed;
-  --color-forest-100: #e4ecdf;
-  --color-forest-200: #bdcfb5;
-  --color-forest-600: #536e48;
-  --color-forest-700: #3e5b3d;
-  --color-forest-900: #29412c;
-  --color-ochre-50: #f7f0e1;
-  --color-ochre-700: #866126;
-  --color-clay-50: #f8ede6;
-  --color-clay-700: #985b3b;
-  --color-blue-50: #eaf1f5;
-  --color-blue-700: #476b83;
-  --color-plum-50: #f1edf7;
-  --color-plum-700: #795e95;
-  --color-red-50: #fff1ed;
-  --color-red-200: #e5b8ae;
-  --color-red-700: #a2382f;
+  color-scheme: dark light;
+  --bg: light-dark(#efe2bd, #140c06);
+  --chrome: light-dark(#3a2210, #2a1709);
+  --chrome-2: light-dark(#2c1a0c, #1d0f06);
+  --chrome-fg: #d6bb92;
+  --surface: light-dark(#f4e9c4, #e8d9ae);
+  --surface-2: light-dark(#e4d49e, #d6c188);
+  --surface-3: light-dark(#d2bf82, #c4ab74);
+  --parch-edge: light-dark(#9a7f4c, #8a6f3c);
+  --fg: light-dark(#3a2c18, #c9b894);
+  --fg-strong: light-dark(#241a0c, #ecdcb2);
+  /* Lift small text above the source's low-contrast decorative muted color. */
+  --muted: light-dark(#685331, #b59872);
+  --hair: light-dark(#c8b488, #3b2a16);
+  --outline-2: light-dark(#241708, #120a04);
+  --ink: #2c2012;
+  --ink-muted: #665434;
+  --gold: #f2c14e;
+  --gold-ink: #78530d;
+  --ember: #ff7a33;
+  --ember-deep: #7e3210;
+  --teal: #3ecfb8;
+  --teal-ink: #0d6e5c;
+  --indigo-ink: #3d54a0;
+  --good: #7fcf6a;
+  --good-ink: #3f6424;
+  --danger: #ffaba0;
+  --danger-ink: #9c2923;
+  --bevel-light: rgba(255,222,166,.24);
+  --bevel-dark: rgba(0,0,0,.55);
+  --grain-warm: repeating-conic-gradient(rgba(255,214,150,.022) 0% 25%, transparent 0% 50%);
+  --grain-ink: repeating-conic-gradient(rgba(64,44,18,.045) 0% 25%, transparent 0% 50%);
+  --wood-planks: repeating-linear-gradient(0deg, rgba(0,0,0,.16) 0 2px, transparent 2px 9px);
+  --bevel-up: inset 0 3px 0 var(--bevel-light), inset 3px 0 0 var(--bevel-light), inset 0 -3px 0 var(--bevel-dark), inset -3px 0 0 var(--bevel-dark);
+  --bevel-in: inset 0 3px 0 var(--bevel-dark), inset 3px 0 0 var(--bevel-dark), inset 0 -3px 0 var(--bevel-light), inset -3px 0 0 var(--bevel-light);
+  --parch-bevel: inset 0 2px 0 rgba(255,255,255,.45), inset 0 -3px 0 var(--surface-2), 0 3px 0 var(--bevel-dark);
+  --drop-hard: 0 3px 0 var(--bevel-dark);
 
   --space-1: .25rem;
   --space-2: .5rem;
@@ -37,74 +77,46 @@
   --space-10: 2.5rem;
   --space-12: 3rem;
   --space-16: 4rem;
-
-  --font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --font-mono: ui-monospace, SFMono-Regular, Consolas, monospace;
+  --font-display: 'Jersey 15', system-ui, sans-serif;
+  --font-pixel: 'Silkscreen', monospace;
+  --font-body: 'Piazzolla', Georgia, serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
   --text-xs: .75rem;
-  --text-sm: .8125rem;
-  --text-base: .9375rem;
-  --text-lg: 1.0625rem;
-  --text-xl: 1.25rem;
-  --text-2xl: 1.5rem;
-  --text-3xl: 2rem;
-  --text-4xl: 2.75rem;
+  --text-sm: .9375rem;
+  --text-base: 1.0625rem;
+  --text-lg: 1.25rem;
+  --text-xl: 1.75rem;
+  --text-2xl: 2rem;
+  --text-3xl: 2.5rem;
+  --text-4xl: 3.25rem;
   --weight-normal: 400;
   --weight-medium: 500;
   --weight-semibold: 600;
-  --weight-bold: 700;
-  --leading-tight: 1.2;
-  --leading-normal: 1.55;
+  --leading-tight: 1.15;
+  --leading-normal: 1.6;
   --leading-relaxed: 1.75;
+  --duration-fast: 80ms;
+  --ease-out: cubic-bezier(0, 0, .2, 1);
 
-  --radius-sm: .375rem;
-  --radius-md: .625rem;
-  --radius-lg: 1rem;
-  --radius-xl: 1.5rem;
-  --radius-pill: 999px;
-  --duration-fast: 140ms;
-  --duration-normal: 220ms;
-  --ease-out: cubic-bezier(.2, .7, .2, 1);
-
-  /* Semantic roles: change the visual direction here, not in individual controls. */
-  --surface-canvas: var(--color-stone-50);
-  --surface-panel: var(--color-white);
-  --surface-sidebar: var(--color-stone-100);
-  --surface-subtle: var(--color-stone-100);
-  --surface-hover: var(--color-forest-50);
-  --surface-selected: var(--color-forest-100);
-  --text-primary: var(--color-stone-900);
-  --text-secondary: var(--color-stone-700);
-  --text-muted: var(--color-stone-600);
-  --text-on-accent: var(--color-white);
-  --border-subtle: var(--color-stone-200);
-  --border-default: var(--color-stone-300);
-  --border-control: var(--color-stone-500);
-  --border-accent: var(--color-forest-200);
-  --action-primary: var(--color-forest-700);
-  --action-hover: var(--color-forest-900);
-  --focus-ring: var(--color-forest-600);
-  --status-success: var(--color-forest-700);
-  --status-success-surface: var(--color-forest-50);
-  --status-warning: var(--color-ochre-700);
-  --status-warning-surface: var(--color-ochre-50);
-  --status-danger: var(--color-red-700);
-  --status-danger-surface: var(--color-red-50);
-  --status-danger-border: var(--color-red-200);
-  --type-sage: var(--color-forest-700);
-  --type-sage-surface: var(--color-forest-100);
-  --type-ochre: var(--color-ochre-700);
-  --type-ochre-surface: var(--color-ochre-50);
-  --type-blue: var(--color-blue-700);
-  --type-blue-surface: var(--color-blue-50);
-  --type-clay: var(--color-clay-700);
-  --type-clay-surface: var(--color-clay-50);
-  --type-plum: var(--color-plum-700);
-  --type-plum-surface: var(--color-plum-50);
-  --overlay-scrim: color-mix(in srgb, var(--color-stone-900) 34%, transparent);
-  --shadow-sm: 0 1px 2px color-mix(in srgb, var(--color-stone-900) 5%, transparent);
-  --shadow-card: 0 5px 18px -8px color-mix(in srgb, var(--color-stone-900) 16%, transparent);
-  --shadow-overlay: 0 20px 70px -16px color-mix(in srgb, var(--color-stone-900) 30%, transparent);
+  /* Page context. Parchment and wood rebind these roles in ui.css. */
+  --surface-subtle: var(--surface-2);
+  --surface-hover: var(--surface-2);
+  --surface-selected: var(--surface-3);
+  --text-primary: var(--fg-strong);
+  --text-secondary: var(--fg);
+  --text-muted: var(--muted);
+  --border-subtle: var(--hair);
+  --border-default: var(--parch-edge);
+  --border-control: var(--parch-edge);
+  --border-accent: var(--parch-edge);
+  --action-primary: light-dark(var(--gold-ink), var(--gold));
+  --action-hover: light-dark(var(--ember-deep), var(--ember));
+  --focus-ring: light-dark(var(--teal-ink), var(--teal));
+  --status-danger: light-dark(var(--danger-ink), var(--danger));
+  --status-danger-border: var(--danger-ink);
+  --overlay-scrim: rgba(10,5,1,.72);
+  --shadow-overlay: 6px 6px 0 var(--bevel-dark);
   --control-height: 2.75rem;
-  --sidebar-width: 248px;
+  --sidebar-width: 260px;
   --content-width: 1200px;
 }
