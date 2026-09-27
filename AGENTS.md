@@ -16,7 +16,7 @@ For Orca-managed repository work, use the local `orca-development` skill. The le
 
 ## Project map
 
-Read `README.md` for setup and current boundaries. Read `docs/object-contract.md` when changing object, view, query, or persistence behavior. `docs/quickstart.md` documents usage and backups.
+Read `README.md` for setup and current boundaries. Read `docs/object-contract.md` when changing object, view, query, or persistence behavior. `docs/quickstart.md` documents usage and backups. When working with Hono features, reference the Hono LLM docs (`https://hono.dev/llms.txt`, `https://hono.dev/llms-small.txt`, and `https://hono.dev/llms-full.txt`) before implementation.
 
 - `src/server.ts`: Bun HTTP entrypoint, shared request security, assets, and route composition.
 - `src/visitors.ts`: persistent browser identity and CSRF state, separate from shared object data.
