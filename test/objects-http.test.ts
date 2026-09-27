@@ -1526,20 +1526,38 @@ test('JSON endpoints and successful redirects do not load saved views while HTML
   const spec: ViewSpec = { title: 'Pages', blocks: [{ title: 'Pages', component: 'list', sources: [{ typeId: PAGE_TYPE_ID, bindings: {} }] }] };
   const f = await setup(t, async () => ({ spec, model: 'test/model' }));
   const saved = f.views.create({ spec, model: 'test/model' }, 'Show pages');
+  for (let index = 0; index < 25; index++) f.views.create({ spec: { ...spec, title: `Saved view ${index}` }, model: 'test/model' }, `Saved view ${index}`);
+  const otherType = f.objects.createType('Lookup kind');
   const object = f.objects.createObject({ typeId: PAGE_TYPE_ID, title: 'Lookup target', properties: {}, body: 'Searchable body' });
+  const lookupObjects = [object];
+  for (let index = 1; index < 50; index++) lookupObjects.push(f.objects.createObject({ typeId: index % 2 === 0 ? PAGE_TYPE_ID : otherType.id, title: `Lookup target ${String(index).padStart(2, '0')}`, properties: {}, body: 'Searchable body' }));
 
   let listCalls = 0;
+  let getTypeCalls = 0;
   const original = ViewService.prototype.list;
+  const originalGetType = f.objects.getType.bind(f.objects);
   ViewService.prototype.list = function patchedList(this: ViewService) {
     listCalls += 1;
     return original.call(this);
   };
-  t.after(() => { ViewService.prototype.list = original; });
+  f.objects.getType = ((id: string) => {
+    getTypeCalls += 1;
+    return originalGetType(id);
+  }) as typeof f.objects.getType;
+  t.after(() => { ViewService.prototype.list = original; f.objects.getType = originalGetType as typeof f.objects.getType; });
 
   const lookup = await f.get('/objects/lookup?q=Lookup');
   assert.equal(lookup.status, 200);
-  assert.deepEqual(await lookup.json(), { items: [{ id: object.id, title: object.title, typeName: 'Page' }], truncated: false });
+  const lookupJson = await lookup.json() as ObjectLookupResult;
+  assert.equal(lookupJson.items.length, 50);
+  assert.equal(lookupJson.truncated, false);
+  assert.equal(new Set(lookupJson.items.map(item => item.typeName)).size, 2);
+  for (const item of lookupJson.items) {
+    const expected = lookupObjects.find(record => record.id === item.id)!;
+    assert.equal(item.typeName, expected.typeId === PAGE_TYPE_ID ? 'Page' : 'Lookup kind');
+  }
   assert.equal(listCalls, 0);
+  assert.equal(getTypeCalls, 0);
 
   const generated = await f.post('/views/generate', { prompt: 'Show pages' }, 'application/json');
   assert.equal(generated.status, 200);

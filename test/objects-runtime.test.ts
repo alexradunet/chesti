@@ -14,6 +14,7 @@ import {
 } from '../src/objects/model.js';
 import type { ObjectWrite, PropertyValue } from '../src/objects/model.js';
 import { ObjectRuntime } from '../src/objects/runtime.js';
+import { ViewService } from '../src/objects/views.js';
 import { valueError, validDate, validDateTime } from '../src/objects/values.js';
 
 function fixture(t: TestContext) {
@@ -423,10 +424,11 @@ test('reference validation uses target summaries and unchanged writing derivatio
   page = runtime.addProperty(page.id, page.revision, { label: 'Note', kind: 'text' });
   const references = page.propertyIds[0]!;
   const note = page.propertyIds[1]!;
-  const body = `[Large](/objects/${target.id})\n\n${'body '.repeat(200)}`;
+  const body = `[Large](/objects/${target.id})\n\n${'substantial writing '.repeat(2000)}`;
   const source = runtime.createObject(input(page.id, 'Source', { [references]: [target.id] }, body));
   const sourceBodyText = db.query<{ body_text: string }, [string]>('SELECT body_text FROM objects WHERE id = ?').get(source.id)!.body_text;
   const sourceWritingEdges = db.query('SELECT target_id FROM object_references WHERE source_id = ? AND property_id = \'\' ORDER BY target_id').all(source.id);
+  const sourceSnapshot = JSON.stringify(source);
 
   class SummaryOnlyRuntime extends ObjectRuntime {
     override getObject(id: string) {
@@ -435,6 +437,13 @@ test('reference validation uses target summaries and unchanged writing derivatio
     }
   }
   const checked = new SummaryOnlyRuntime(db);
+  const originalRender = Bun.markdown.render;
+  let sourceParses = 0;
+  Bun.markdown.render = ((markdown: string, ...args: unknown[]) => {
+    if (markdown === body) sourceParses += 1;
+    return originalRender.call(Bun.markdown, markdown, ...(args as [never, never]));
+  }) as typeof Bun.markdown.render;
+  t.after(() => { Bun.markdown.render = originalRender; });
   db.exec(`CREATE TEMP TRIGGER unchanged_body_text BEFORE UPDATE OF body_text ON objects WHEN OLD.id = '${source.id}' BEGIN SELECT RAISE(ABORT, 'body_text changed'); END`);
   db.exec(`CREATE TEMP TRIGGER unchanged_writing_edges BEFORE DELETE ON object_references WHEN OLD.source_id = '${source.id}' AND OLD.property_id = '' BEGIN SELECT RAISE(ABORT, 'writing edge rewritten'); END`);
 
@@ -443,9 +452,21 @@ test('reference validation uses target summaries and unchanged writing derivatio
   assert.equal(db.query<{ body_text: string }, [string]>('SELECT body_text FROM objects WHERE id = ?').get(source.id)!.body_text, sourceBodyText);
   assert.deepEqual(db.query('SELECT target_id FROM object_references WHERE source_id = ? AND property_id = \'\' ORDER BY target_id').all(source.id), sourceWritingEdges);
   assert.deepEqual(checked.backlinks(other.id).links.map(link => ({ id: link.object.id, propertyId: link.propertyId })), [{ id: source.id, propertyId: references }]);
+  assert.equal(sourceParses, 1);
+  assert.equal(db.query<{ snapshot_json: string }, [string, number]>('SELECT snapshot_json FROM object_revisions WHERE object_id = ? AND revision = ?').get(source.id, source.revision)!.snapshot_json, sourceSnapshot);
 
-  assert.throws(() => checked.patchProperties(edited.id, edited.revision, { [references]: [crypto.randomUUID()] }), status(404));
-  assert.deepEqual(checked.getObject(source.id), edited);
+  const views = new ViewService(checked);
+  const spec = { title: 'Editable notes', blocks: [{ title: 'Notes', component: 'board' as const, editable: true, sources: [{ typeId: page.id, bindings: { group: note } }] }] };
+  const draft = views.create({ spec, model: 'test/model' }, 'Edit notes');
+  const view = views.publish(draft.id, draft.revision);
+  const actionEdited = views.act(view.id, view.revision, 0, edited.id, edited.revision, 'group', 'via view');
+  assert.equal(actionEdited.body, body);
+  assert.equal(sourceParses, 2);
+  assert.equal(db.query<{ body_text: string }, [string]>('SELECT body_text FROM objects WHERE id = ?').get(source.id)!.body_text, sourceBodyText);
+  assert.deepEqual(db.query('SELECT target_id FROM object_references WHERE source_id = ? AND property_id = \'\' ORDER BY target_id').all(source.id), sourceWritingEdges);
+
+  assert.throws(() => checked.patchProperties(actionEdited.id, actionEdited.revision, { [references]: [crypto.randomUUID()] }), status(404));
+  assert.deepEqual(checked.getObject(source.id), actionEdited);
 });
 
 test('writing edits refresh search text and writing backlinks while failures roll back', t => {
@@ -458,8 +479,34 @@ test('writing edits refresh search text and writing backlinks while failures rol
   assert.deepEqual(runtime.backlinks(second.id).links.map(link => link.object.id), [source.id]);
   assert.equal(db.query<{ body_text: string }, [string]>('SELECT body_text FROM objects WHERE id = ?').get(source.id)!.body_text.includes('needle-text'), true);
 
+  const beforeFailedObject = runtime.getObject(source.id);
+  const beforeFailedHistory = db.query('SELECT * FROM object_revisions WHERE object_id = ? ORDER BY revision').all(source.id);
+  const beforeFailedEdges = db.query('SELECT * FROM object_references WHERE source_id = ? ORDER BY target_id, property_id').all(source.id);
   db.exec(`CREATE TEMP TRIGGER fail_changed_writing_edge BEFORE INSERT ON object_references WHEN NEW.source_id = '${source.id}' AND NEW.property_id = '' BEGIN SELECT RAISE(ABORT, 'edge failure'); END`);
   assert.throws(() => runtime.updateObject(edited.id, edited.revision, { ...edited, body: `[First](/objects/${first.id})` }), /edge failure/);
-  assert.deepEqual(runtime.getObject(source.id), edited);
+  assert.deepEqual(runtime.getObject(source.id), beforeFailedObject);
+  assert.deepEqual(db.query('SELECT * FROM object_revisions WHERE object_id = ? ORDER BY revision').all(source.id), beforeFailedHistory);
+  assert.deepEqual(db.query('SELECT * FROM object_references WHERE source_id = ? ORDER BY target_id, property_id').all(source.id), beforeFailedEdges);
   assert.deepEqual(runtime.backlinks(second.id).links.map(link => link.object.id), [source.id]);
+});
+
+test('self-reference type changes validate against the proposed type using summary reads', t => {
+  const { runtime } = fixture(t);
+  let originalType = runtime.createType('Original self type');
+  const nextType = runtime.createType('Next self type');
+  originalType = runtime.addProperty(originalType.id, originalType.revision, { label: 'Self', kind: 'reference', targetTypeId: originalType.id });
+  const selfProperty = originalType.propertyIds[0]!;
+  let object = runtime.createObject(input(originalType.id, 'Self holder'));
+  object = runtime.patchProperties(object.id, object.revision, { [selfProperty]: object.id });
+
+  let sourceReads = 0;
+  class SummaryOnlyRuntime extends ObjectRuntime {
+    override getObject(id: string) {
+      if (id.toLowerCase() === object.id.toLowerCase() && sourceReads++ > 0) throw new Error('full self target read');
+      return super.getObject(id);
+    }
+  }
+  const checked = new SummaryOnlyRuntime(runtime.db);
+  assert.throws(() => checked.updateObject(object.id, object.revision, { ...object, typeId: nextType.id }), /wrong object type/);
+  assert.deepEqual(runtime.getObject(object.id), object);
 });

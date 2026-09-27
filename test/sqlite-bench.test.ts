@@ -150,7 +150,8 @@ test('reference semantics retain live uppercase provenance mutations trashed tar
     assert.equal(result.view.truncated, true);
     assert.equal(f.runtime.getObject(target.id).trashed, true);
     assert.deepEqual(result.targetFirst.ids, result.ids);
-    assert.equal(typeof result.targetFirst.usesExistingTargetIndex, 'boolean');
+    assert.equal(result.targetFirstCount, result.matchCount);
+    assert.equal(result.targetFirst.usesExistingTargetIndex, true);
     assert.deepEqual(result.composite.ids, result.ids);
     assert.equal(writeComparison(f, 'reference', 0, 1).candidate.update.observed, '2026-11-28');
   } finally { f.cleanup(); }

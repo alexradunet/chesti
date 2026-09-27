@@ -60,7 +60,7 @@ All values below are **median milliseconds**, two warmups and **nine measured sa
 | `title-only-needle` / FTS + exact LIKE | 1 / 1 | 0.759 → 0.049 | 32.202 → 0.373 |
 | `body-only-needle` / FTS + exact LIKE | 1 / 1 | 0.557 → 0.041 | 22.703 → 0.361 |
 
-A 2026-09-27 default rerun of the adopted target-first/no-added-index query reported these warm medians using the same options: sparse common target 0.484 ms JSON membership to 0.281 ms target-first, sparse rare target 0.281 ms to 0.027 ms, dense common target 36.535 ms to 26.043 ms, and dense rare target 13.804 ms to 0.106 ms. Each target-first plan used the existing `object_references_target` index, with zero incremental DDL/storage.
+A 2026-09-27 review-1 default rerun saved at `/tmp/taskdesk-hot-paths-review1-sqlite-bench.json` reported these warm medians using the same options: sparse common target 1.534 ms JSON membership to 0.797 ms target-first, sparse rare target 0.919 ms to 0.091 ms, dense common target 40.700 ms to 29.463 ms, and dense rare target 15.979 ms to 0.141 ms. Each target-first case matched the JSON baseline uncapped count, used the existing `object_references_target` index, and added zero incremental DDL/storage.
 
 The composite phase remeasures its own JSON baseline; do not compare its timing against the earlier existing-index phase as if execution conditions were identical.
 

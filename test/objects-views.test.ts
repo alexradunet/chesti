@@ -303,11 +303,15 @@ test('multiple-reference contains uses target-first derived edges for reads and 
   const projects = f.objects.createType('Projects');
   const tasks = f.objects.createType('Tasks');
   const related = f.property(tasks, 'Related projects', 'reference', { targetTypeId: projects.id, multiple: true });
+  const alternate = f.property(tasks, 'Alternate projects', 'reference', { targetTypeId: projects.id, multiple: true });
   const done = f.property(tasks, 'Done', 'boolean');
   const a = f.object(projects, 'A');
   const b = f.object(projects, 'B');
+  const c = f.object(projects, 'C');
   const match = f.object(tasks, 'Match', { [related.id]: [a.id.toUpperCase(), b.id], [done.id]: false });
-  f.object(tasks, 'Other property only', { [done.id]: false });
+  const wrongInputEligible = f.object(tasks, 'Only A', { [related.id]: [a.id], [done.id]: false });
+  const otherPropertyOnly = f.object(tasks, 'Other property only', { [alternate.id]: [a.id], [done.id]: false });
+  const writingOnly = f.objects.createObject({ typeId: tasks.id, title: 'Writing only', properties: { [done.id]: false }, body: `[A](/objects/${a.id})` });
   const empty = f.object(tasks, 'Empty refs', { [related.id]: [], [done.id]: false });
   f.objects.setTrashed(empty.id, empty.revision, true);
   const spec: ViewSpec = { title: 'Related', input: { label: 'Project', typeId: projects.id }, blocks: [
@@ -323,7 +327,7 @@ test('multiple-reference contains uses target-first derived edges for reads and 
   }) as typeof f.db.query;
   t.after(() => { f.db.query = originalQuery as typeof f.db.query; });
 
-  assert.deepEqual(f.views.evaluate(view.id, a.id).blocks[0]!.rows.map(row => row.object.id), [match.id]);
+  assert.deepEqual(f.views.evaluate(view.id, a.id).blocks[0]!.rows.map(row => row.object.id), [match.id, wrongInputEligible.id]);
   assert.ok(statements.some(sql => sql.includes('object_references') && sql.includes('target_id = ?')));
   assert.equal(statements.some(sql => sql.includes('json_each')), false);
   statements.length = 0;
@@ -332,5 +336,57 @@ test('multiple-reference contains uses target-first derived edges for reads and 
   assert.equal(changed.properties[done.id], true);
   assert.ok(statements.some(sql => sql.includes('object_references') && sql.includes('target_id = ?')));
   assert.equal(statements.some(sql => sql.includes('json_each')), false);
-  assert.throws(() => f.views.act(view.id, view.revision, 0, match.id, changed.revision, 'group', false, b.id), status(403));
+
+  const beforeWrongInput = f.objects.getObject(wrongInputEligible.id);
+  const historyBeforeWrongInput = f.db.query('SELECT * FROM object_revisions WHERE object_id = ?').all(wrongInputEligible.id);
+  const edgesBeforeWrongInput = f.db.query('SELECT * FROM object_references WHERE source_id = ? ORDER BY target_id, property_id').all(wrongInputEligible.id);
+  assert.throws(() => f.views.act(view.id, view.revision, 0, wrongInputEligible.id, wrongInputEligible.revision, 'group', true, c.id), status(403));
+  assert.deepEqual(f.objects.getObject(wrongInputEligible.id), beforeWrongInput);
+  assert.deepEqual(f.db.query('SELECT * FROM object_revisions WHERE object_id = ?').all(wrongInputEligible.id), historyBeforeWrongInput);
+  assert.deepEqual(f.db.query('SELECT * FROM object_references WHERE source_id = ? ORDER BY target_id, property_id').all(wrongInputEligible.id), edgesBeforeWrongInput);
+
+  const removedMembership = f.objects.patchProperties(wrongInputEligible.id, wrongInputEligible.revision, { [related.id]: null });
+  assert.throws(() => f.views.act(view.id, view.revision, 0, wrongInputEligible.id, removedMembership.revision, 'group', true, a.id), status(403));
+  assert.throws(() => f.views.act(view.id, view.revision, 0, otherPropertyOnly.id, otherPropertyOnly.revision, 'group', true, a.id), status(403));
+  assert.throws(() => f.views.act(view.id, view.revision, 0, writingOnly.id, writingOnly.revision, 'group', true, a.id), status(403));
+});
+
+test('multiple-reference contains binds property target pairs across scalar filters inputs and sources', t => {
+  const f = fixture(t);
+  const projects = f.objects.createType('Projects');
+  const tasks = f.objects.createType('Tasks');
+  const bugs = f.objects.createType('Bugs');
+  const taskRefs = f.property(tasks, 'Task refs', 'reference', { targetTypeId: projects.id, multiple: true });
+  const bugRefs = f.property(bugs, 'Bug refs', 'reference', { targetTypeId: projects.id, multiple: true });
+  const due = f.property(tasks, 'Due', 'date');
+  const severity = f.property(bugs, 'Severity', 'number');
+  const a = f.object(projects, 'A');
+  const b = f.object(projects, 'B');
+  const c = f.object(projects, 'C');
+  const d = f.object(projects, 'D');
+  const taskMatch = f.object(tasks, 'Task match', { [taskRefs.id]: [a.id, b.id.toUpperCase()], [due.id]: '2026-10-02' });
+  const taskWrongLiteral = f.object(tasks, 'Task wrong literal', { [taskRefs.id]: [b.id], [due.id]: '2026-10-02' });
+  const taskWrongDate = f.object(tasks, 'Task wrong date', { [taskRefs.id]: [a.id, b.id], [due.id]: '2026-09-30' });
+  const taskWrongInput = f.object(tasks, 'Task wrong input', { [taskRefs.id]: [a.id, c.id], [due.id]: '2026-10-02' });
+  const bugMatch = f.object(bugs, 'Bug match', { [bugRefs.id]: [b.id, a.id], [severity.id]: 5 });
+  const bugWrongLiteral = f.object(bugs, 'Bug wrong literal', { [bugRefs.id]: [b.id], [severity.id]: 5 });
+  const bugWrongScalar = f.object(bugs, 'Bug wrong scalar', { [bugRefs.id]: [a.id, b.id], [severity.id]: 1 });
+  const spec: ViewSpec = { title: 'Complex refs', input: { label: 'Project', typeId: projects.id }, blocks: [{ title: 'Both refs', component: 'list', sources: [
+    { typeId: tasks.id, bindings: {}, where: [
+      { propertyId: taskRefs.id, operator: 'contains', value: a.id },
+      { propertyId: due.id, operator: 'after', value: '2026-10-01' },
+      { propertyId: taskRefs.id, operator: 'contains', value: { input: true } },
+    ] },
+    { typeId: bugs.id, bindings: {}, where: [
+      { propertyId: bugRefs.id, operator: 'contains', value: { input: true } },
+      { propertyId: severity.id, operator: 'equals', value: 5 },
+      { propertyId: bugRefs.id, operator: 'contains', value: a.id },
+    ] },
+  ] }] };
+  const view = f.views.create({ spec, model: 'test/model' }, 'Complex reference filters');
+  const bRows = f.views.evaluate(view.id, b.id).blocks[0]!.rows.map(row => row.object.id);
+  assert.deepEqual(bRows, [taskMatch.id, bugMatch.id]);
+  for (const negative of [taskWrongLiteral, taskWrongDate, taskWrongInput, bugWrongLiteral, bugWrongScalar]) assert.equal(bRows.includes(negative.id), false);
+  assert.deepEqual(f.views.evaluate(view.id, c.id).blocks[0]!.rows.map(row => row.object.id), [taskWrongInput.id]);
+  assert.deepEqual(f.views.evaluate(view.id, d.id).blocks[0]!.rows.map(row => row.object.id), []);
 });
