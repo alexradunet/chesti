@@ -13,7 +13,7 @@ Example output excerpt from the second command:
 
 ```json
 {
-  "fixture": { "objects": 20, "bodyBytes": 256, "revisions": 1, "referenceEvery": 5 },
+  "fixture": { "objects": 20, "bodyBytes": 256, "revisions": 1, "referenceEvery": 5, "benchmarkProperties": false },
   "page": { "pageSize": 4096, "pageCount": 44, "freelistCount": 0, "allocatedBytes": 180224, "dbstatBytes": 180224 },
   "dbstat": [
     { "name": "sqlite_schema", "bytes": 32768, "pages": 8 },

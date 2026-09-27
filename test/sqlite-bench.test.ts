@@ -4,7 +4,7 @@ import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { buildSyntheticFixture } from '../scripts/sqlite-fixture.js';
-import { collectBenchmarkReport, parseArgs, propertyIndexScenario, referenceScenario, searchScenario } from '../scripts/sqlite-bench.js';
+import { collectBenchmarkReport, parseArgs, propertyIndexScenario, referenceScenario, searchCases, searchScenario } from '../scripts/sqlite-bench.js';
 import { PAGE_TYPE_ID } from '../src/objects/model.js';
 
 test('sqlite benchmark CLI parsing is bounded and rejects database paths', () => {
@@ -23,21 +23,21 @@ test('sqlite benchmark CLI parsing is bounded and rejects database paths', () =>
 });
 
 test('property index benchmark keeps result identity and order equal to view evaluation', () => {
-  const fixture = buildSyntheticFixture({ objects: 36, bodyBytes: 48, revisions: 0, referenceEvery: 2 });
+  const fixture = buildSyntheticFixture({ objects: 36, bodyBytes: 48, revisions: 0, referenceEvery: 2, benchmarkProperties: true });
   try {
     const result = propertyIndexScenario(fixture, 0, 1);
     assert.equal(result.equivalent, true);
     assert.ok(result.baseline.ids.length > 0);
     assert.deepEqual(result.baseline.ids, result.candidate.ids);
     assert.ok((result.storage.databaseBytesAfter ?? 0) >= (result.storage.databaseBytesBefore ?? 0));
-    assert.ok((result.write.insertAfterIndexMs ?? -1) >= 0);
+    assert.ok((result.write.insertFiveAfterIndexMs ?? -1) >= 0);
   } finally {
     fixture.cleanup();
   }
 });
 
 test('reference benchmark excludes writing edges and matches multiple-reference contains semantics', () => {
-  const fixture = buildSyntheticFixture({ objects: 48, bodyBytes: 96, revisions: 0, referenceEvery: 2 });
+  const fixture = buildSyntheticFixture({ objects: 48, bodyBytes: 96, revisions: 0, referenceEvery: 2, benchmarkProperties: true });
   try {
     const target = fixture.db.query<{ target_id: string }, [string]>('SELECT target_id FROM object_references WHERE property_id = ? LIMIT 1').get(fixture.multiReferencePropertyId)!.target_id;
     const unrelated = fixture.runtime.getObject(fixture.ids.find(id => fixture.runtime.getObject(id).typeId === PAGE_TYPE_ID && id !== target)!);
@@ -53,13 +53,18 @@ test('reference benchmark excludes writing edges and matches multiple-reference 
 });
 
 test('search benchmark keeps literal LIKE as authority and synchronizes fixture updates', () => {
-  const fixture = buildSyntheticFixture({ objects: 24, bodyBytes: 80, revisions: 0, referenceEvery: 2 });
+  const fixture = buildSyntheticFixture({ objects: 24, bodyBytes: 80, revisions: 0, referenceEvery: 2, benchmarkProperties: true });
   try {
     const result = searchScenario(fixture, 0, 1);
     assert.equal(result.equivalent, true);
     assert.deepEqual(result.baseline.ids, result.candidate.ids);
     assert.equal(result.metadata.mutationSynchronized, true);
     assert.ok((result.storage.ftsBytes ?? 0) > 0);
+    const cases = result.metadata.cases as ReturnType<typeof searchCases>;
+    assert.equal(cases.every(row => row.equivalent), true);
+    assert.equal(cases.find(row => row.query === 'OR ')?.fallback, true);
+    assert.equal(cases.find(row => row.query === '100%')?.fallback, true);
+    assert.equal(cases.find(row => row.query === 'ab')?.fallback, true);
   } finally {
     fixture.cleanup();
   }
