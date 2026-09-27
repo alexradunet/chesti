@@ -67,7 +67,7 @@ Save feedback stays beside the save button instead of appearing in duplicate pag
 
 The object workspace is the only supported application. Startup seeds the demo transactionally when first initializing an object database, or opens an existing workspace unchanged. It never reseeds an existing workspace, even after its objects are trashed or its views deleted. Demo dates are relative to the server's local initialization day and stay fixed afterward; timed examples use explicit UTC times. Startup does not import or migrate historical issue/vault data. Existing object data and visitor-owned view conversations remain usable. Unrelated tables and files are left untouched, not converted or deleted. Back up SQLite before upgrading; see the quick start.
 
-Object schema version 3 adds protected built-in definitions and storage-enforced daily-journal dates. Version-2 databases upgrade transactionally without rewriting existing objects, revisions, creation receipts, custom labels, or user-created types—even types already named Task or Journal. Version-1 databases first convert supported structured writing to Markdown, preserving identities, links, history, and original creation receipts. Unknown schemas or incompatible reserved definitions abort the transaction. Back up SQLite before upgrading.
+Object schema version 4 keeps one application schema owner and adds conservative structural checks for current JSON shapes, metadata, and saved-view history. Version-3 databases upgrade transactionally without rewriting objects, views, conversations, visitors, histories, receipts, labels, or unrelated tables. Version-2 databases first add protected built-in definitions and storage-enforced daily-journal dates while preserving customizations; version-1 databases first convert supported structured writing to Markdown. Unknown schemas, incompatible reserved definitions, or existing data that violates the structural checks abort the transaction. Back up SQLite before upgrading.
 
 ## Implementation
 
@@ -75,6 +75,7 @@ Bun supplies the HTTP server, SQLite driver, browser bundler, saved-Markdown ren
 
 - `src/server.ts`, `src/visitors.ts`: secured local HTTP and persistent visitor identity/CSRF state.
 - `src/objects/model.ts`: shared types and closed declarative view schema.
+- `src/schema.ts`: the single application SQLite schema owner, version upgrade coordinator, structural storage guards, and built-in protection triggers.
 - `src/objects/workspace.ts`, `demo.ts`: atomic first-initialization demo using canonical object and view commands, with no model calls or separate sample store.
 - `src/objects/runtime.ts`: canonical objects, property validation, revisions, commands, and backlinks.
 - `src/objects/values.ts`: dependency-light scalar and temporal validation.

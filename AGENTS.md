@@ -21,6 +21,7 @@ Read `README.md` for setup and current boundaries. Read `docs/object-contract.md
 - `src/server.ts`: Bun HTTP entrypoint, shared request security, assets, and route composition.
 - `src/visitors.ts`: persistent browser identity and CSRF state, separate from shared object data.
 - `src/database.ts`: SQLite connection setup and durability.
+- `src/schema.ts`: single application SQLite schema owner, upgrades, structural guards, and built-in protection triggers.
 - `src/objects/model.ts`: active object/view types and declarative schemas.
 - `src/objects/runtime.ts`: canonical object/type/property commands, revisions, and backlinks.
 - `src/objects/views.ts`: view validation, lifecycle, bounded SQL queries, and scoped commands.

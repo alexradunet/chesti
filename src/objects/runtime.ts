@@ -1,13 +1,15 @@
 import type { Database } from 'bun:sqlite';
 import { AppError } from '../core.js';
+import { initializeApplicationSchema } from '../schema.js';
+import { fingerprint } from './fingerprint.js';
 import { validDate, valueError } from './values.js';
 import { markdownReferences, markdownText, validateMarkdown } from './markdown.js';
-import { upgradeObjectMarkdown } from './upgrade-markdown.js';
-import { BUILTIN_PROPERTIES, BUILTIN_TYPES, EVENT_DATES_PROPERTY_ID, EVENT_TIME_PROPERTY_ID, EVENT_TYPE_ID, JOURNAL_DATE_PROPERTY_ID, JOURNAL_TYPE_ID, REMINDER_DATE_PROPERTY_ID, REMINDER_TIME_PROPERTY_ID, REMINDER_TYPE_ID, TASK_DONE_PROPERTY_ID, TASK_TYPE_ID } from './model.js';
+import { EVENT_DATES_PROPERTY_ID, EVENT_TIME_PROPERTY_ID, EVENT_TYPE_ID, JOURNAL_DATE_PROPERTY_ID, JOURNAL_TYPE_ID, REMINDER_DATE_PROPERTY_ID, REMINDER_TIME_PROPERTY_ID, REMINDER_TYPE_ID, TASK_DONE_PROPERTY_ID, TASK_TYPE_ID } from './model.js';
 import type { Backlink, Catalog, ObjectListOptions, ObjectRecord, ObjectRevisionSummary, ObjectType, ObjectWrite, PropertyDefinition, PropertyKind, PropertyValue } from './model.js';
 
 const ID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 const KINDS: Record<PropertyKind, true> = { text: true, number: true, boolean: true, date: true, datetime: true, select: true, reference: true, 'date-range': true, 'time-range': true };
+const JOURNAL_DATE_PATH = `$."${JOURNAL_DATE_PROPERTY_ID}"`;
 interface TypeRow { id: string; name: string; property_ids_json: string; revision: number }
 interface PropertyRow { id: string; label: string; kind: PropertyKind; options_json: string | null; target_type_id: string | null; multiple: number; revision: number }
 interface ObjectRow { id: string; type_id: string; title: string; properties_json: string; body: string; revision: number; created_at: string; updated_at: string; trashed: number }
@@ -41,132 +43,9 @@ function revisionIs(current: number, supplied: number): void {
 function plainObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value) && (Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null);
 }
-function canonical(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
-  if (plainObject(value)) return `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${canonical(value[key])}`).join(',')}}`;
-  return JSON.stringify(value);
-}
-function fingerprint(input: ObjectWrite): string {
-  return new Bun.CryptoHasher('sha256').update(canonical({ typeId: input.typeId, title: input.title, properties: input.properties, body: input.body })).digest('hex');
-}
-
-const JOURNAL_DATE_PATH = `$."${JOURNAL_DATE_PROPERTY_ID}"`;
-
-function installBuiltins(db: Database): void {
-  for (const [index, type] of BUILTIN_TYPES.entries()) {
-    const existing = db.query<TypeRow, [string]>('SELECT * FROM object_types WHERE id = ?').get(type.id);
-    if (existing) {
-      const ids: unknown = JSON.parse(existing.property_ids_json);
-      if (!Array.isArray(ids) || ids.some(id => typeof id !== 'string' || !ID.test(id)) ||
-          new Set(ids).size !== ids.length || type.propertyIds.some(id => !ids.includes(id))) {
-        throw new Error(`Reserved built-in type ${type.id} has an incompatible structure.`);
-      }
-    } else {
-      db.query('INSERT INTO object_types(id, name, property_ids_json, revision) VALUES (?, ?, ?, 1)')
-        .run(type.id, type.name, JSON.stringify(type.propertyIds));
-    }
-    const invalid = [
-      "json_type(NEW.property_ids_json) IS NOT 'array'",
-      ...type.propertyIds.map(id => `(SELECT COUNT(*) FROM json_each(NEW.property_ids_json) WHERE type = 'text' AND value = '${id}') != 1`),
-    ].join(' OR ');
-    db.exec(`
-      CREATE TRIGGER IF NOT EXISTS object_builtin_type_${index}_insert BEFORE INSERT ON object_types
-      WHEN NEW.id = '${type.id}' AND (${invalid})
-      BEGIN SELECT RAISE(ABORT, 'Built-in type core fields are protected.'); END;
-      CREATE TRIGGER IF NOT EXISTS object_builtin_type_${index}_update BEFORE UPDATE ON object_types
-      WHEN (OLD.id = '${type.id}' OR NEW.id = '${type.id}') AND (OLD.id != NEW.id OR ${invalid})
-      BEGIN SELECT RAISE(ABORT, 'Built-in type identity and core fields are protected.'); END;
-      CREATE TRIGGER IF NOT EXISTS object_builtin_type_${index}_delete BEFORE DELETE ON object_types
-      WHEN OLD.id = '${type.id}'
-      BEGIN SELECT RAISE(ABORT, 'Built-in types cannot be deleted.'); END;
-    `);
-  }
-  for (const [index, property] of BUILTIN_PROPERTIES.entries()) {
-    const existing = db.query<PropertyRow, [string]>('SELECT * FROM object_properties WHERE id = ?').get(property.id);
-    if (existing) {
-      if (existing.kind !== property.kind || existing.options_json !== null || existing.target_type_id !== null || existing.multiple !== 0) {
-        throw new Error(`Reserved built-in property ${property.id} has an incompatible structure.`);
-      }
-    } else {
-      db.query('INSERT INTO object_properties(id, label, kind, options_json, target_type_id, multiple, revision) VALUES (?, ?, ?, NULL, NULL, 0, 1)')
-        .run(property.id, property.label, property.kind);
-    }
-    const invalid = `NEW.kind != '${property.kind}' OR NEW.options_json IS NOT NULL OR NEW.target_type_id IS NOT NULL OR NEW.multiple != 0`;
-    db.exec(`
-      CREATE TRIGGER IF NOT EXISTS object_builtin_property_${index}_insert BEFORE INSERT ON object_properties
-      WHEN NEW.id = '${property.id}' AND (${invalid})
-      BEGIN SELECT RAISE(ABORT, 'Built-in property structure is protected.'); END;
-      CREATE TRIGGER IF NOT EXISTS object_builtin_property_${index}_update BEFORE UPDATE ON object_properties
-      WHEN (OLD.id = '${property.id}' OR NEW.id = '${property.id}') AND (OLD.id != NEW.id OR ${invalid})
-      BEGIN SELECT RAISE(ABORT, 'Built-in property identity and structure are protected.'); END;
-      CREATE TRIGGER IF NOT EXISTS object_builtin_property_${index}_delete BEFORE DELETE ON object_properties
-      WHEN OLD.id = '${property.id}'
-      BEGIN SELECT RAISE(ABORT, 'Built-in properties cannot be deleted.'); END;
-    `);
-  }
-  const date = `json_extract(NEW.properties_json, '${JOURNAL_DATE_PATH}')`;
-  const invalidDate = `json_type(NEW.properties_json) IS NOT 'object'
-    OR (SELECT COUNT(*) FROM json_each(NEW.properties_json) WHERE key = '${JOURNAL_DATE_PROPERTY_ID}') != 1
-    OR json_type(NEW.properties_json, '${JOURNAL_DATE_PATH}') IS NOT 'text'
-    OR ${date} NOT GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'
-    OR substr(${date}, 1, 4) = '0000' OR date(${date}, '+0 days') IS NOT ${date}`;
-  // The partial index deliberately includes Trash. These guards work on every
-  // SQLite connection without depending on connection-local JavaScript functions.
-  db.exec(`
-    CREATE UNIQUE INDEX IF NOT EXISTS objects_journal_date
-    ON objects(json_extract(properties_json, '${JOURNAL_DATE_PATH}')) WHERE type_id = '${JOURNAL_TYPE_ID}';
-    CREATE TRIGGER IF NOT EXISTS objects_journal_date_insert BEFORE INSERT ON objects
-    WHEN NEW.type_id = '${JOURNAL_TYPE_ID}' AND (${invalidDate})
-    BEGIN SELECT RAISE(ABORT, 'Journal requires a real calendar date.'); END;
-    CREATE TRIGGER IF NOT EXISTS objects_journal_date_update BEFORE UPDATE ON objects
-    WHEN NEW.type_id = '${JOURNAL_TYPE_ID}' AND (${invalidDate})
-    BEGIN SELECT RAISE(ABORT, 'Journal requires a real calendar date.'); END;
-  `);
-  const invalidJournal = db.query<{ invalid: number }, [string]>(`
-    SELECT 1 AS invalid FROM objects AS NEW WHERE NEW.type_id = ? AND (${invalidDate}) LIMIT 1
-  `).get(JOURNAL_TYPE_ID);
-  if (invalidJournal) throw new Error('Existing Journal has an invalid or missing date.');
-}
-
 export class ObjectRuntime {
   constructor(readonly db: Database) {
-    db.transaction(() => {
-      db.exec('CREATE TABLE IF NOT EXISTS object_metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT');
-      const version = db.query<{ value: string }, []>("SELECT value FROM object_metadata WHERE key = 'schema_version'").get();
-      if (version && !['1', '2', '3'].includes(version.value)) throw new Error('Unsupported object database schema.');
-      if (version?.value === '1') upgradeObjectMarkdown(db, fingerprint);
-      db.exec(`
-        CREATE TABLE IF NOT EXISTS object_types (
-          id TEXT PRIMARY KEY, name TEXT NOT NULL, property_ids_json TEXT NOT NULL CHECK(json_valid(property_ids_json)), revision INTEGER NOT NULL CHECK(revision > 0)
-        ) STRICT;
-        CREATE TABLE IF NOT EXISTS object_properties (
-          id TEXT PRIMARY KEY, label TEXT NOT NULL, kind TEXT NOT NULL, options_json TEXT CHECK(options_json IS NULL OR json_valid(options_json)),
-          target_type_id TEXT REFERENCES object_types(id), multiple INTEGER NOT NULL DEFAULT 0 CHECK(multiple IN (0, 1)), revision INTEGER NOT NULL CHECK(revision > 0)
-        ) STRICT;
-        CREATE TABLE IF NOT EXISTS objects (
-          id TEXT PRIMARY KEY COLLATE NOCASE, type_id TEXT NOT NULL REFERENCES object_types(id), title TEXT NOT NULL,
-          properties_json TEXT NOT NULL CHECK(json_valid(properties_json)), body TEXT NOT NULL DEFAULT '',
-          revision INTEGER NOT NULL CHECK(revision > 0), created_at TEXT NOT NULL, updated_at TEXT NOT NULL, trashed INTEGER NOT NULL CHECK(trashed IN (0, 1)),
-          body_text TEXT NOT NULL
-        ) STRICT;
-        CREATE INDEX IF NOT EXISTS objects_browse ON objects(trashed, updated_at DESC, id);
-        CREATE INDEX IF NOT EXISTS objects_type_browse ON objects(type_id, trashed, updated_at DESC, id);
-        CREATE TABLE IF NOT EXISTS object_references (
-          source_id TEXT NOT NULL COLLATE NOCASE REFERENCES objects(id), target_id TEXT NOT NULL COLLATE NOCASE REFERENCES objects(id),
-          property_id TEXT NOT NULL DEFAULT '', PRIMARY KEY(source_id, target_id, property_id)
-        ) STRICT;
-        CREATE INDEX IF NOT EXISTS object_references_target ON object_references(target_id);
-        CREATE TABLE IF NOT EXISTS object_revisions (
-          object_id TEXT NOT NULL COLLATE NOCASE REFERENCES objects(id), revision INTEGER NOT NULL, snapshot_json TEXT NOT NULL CHECK(json_valid(snapshot_json)),
-          recorded_at TEXT NOT NULL, PRIMARY KEY(object_id, revision)
-        ) STRICT;
-        CREATE TABLE IF NOT EXISTS object_create_requests (
-          request_id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, object_id TEXT NOT NULL COLLATE NOCASE REFERENCES objects(id)
-        ) STRICT;
-      `);
-      installBuiltins(db);
-      db.query("INSERT INTO object_metadata(key, value) VALUES ('schema_version', '3') ON CONFLICT(key) DO UPDATE SET value = excluded.value").run();
-    }).immediate();
+    initializeApplicationSchema(db);
   }
 
   catalog(): Catalog {

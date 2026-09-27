@@ -1,0 +1,182 @@
+import { test } from 'node:test';
+import type { TestContext } from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { openDatabase } from '../src/database.js';
+import { BUILTIN_PROPERTIES, BUILTIN_TYPES, PAGE_TYPE_ID, TASK_DONE_PROPERTY_ID, TASK_DUE_PROPERTY_ID, TASK_TYPE_ID } from '../src/objects/model.js';
+import { ObjectRuntime } from '../src/objects/runtime.js';
+import { ViewService } from '../src/objects/views.js';
+
+const customType = '11111111-1111-4111-8111-111111111111';
+const textProperty = '22222222-2222-4222-8222-222222222222';
+const selectProperty = '33333333-3333-4333-8333-333333333333';
+const page = '44444444-4444-4444-8444-444444444444';
+const task = '55555555-5555-4555-8555-555555555555';
+const trashed = '66666666-6666-4666-8666-666666666666';
+const viewId = '77777777-7777-4777-8777-777777777777';
+const deletedViewId = '88888888-8888-4888-8888-888888888888';
+const conversationId = '99999999-9999-4999-8999-999999999999';
+const timestamp = '2026-09-27T12:34:56.000Z';
+
+function temporaryWorkspace(t: TestContext): string {
+  const directory = mkdtempSync(join(tmpdir(), 'taskdesk-schema-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  return join(directory, 'workspace.sqlite');
+}
+
+function oldViewSpec(): string {
+  return JSON.stringify({
+    title: 'Legacy task board',
+    blocks: [{
+      title: 'Tasks', component: 'board', editable: true,
+      sources: [{ typeId: TASK_TYPE_ID, bindings: { group: TASK_DONE_PROPERTY_ID } }],
+    }],
+  });
+}
+
+function oldSchemaSignature(): string {
+  return JSON.stringify([[TASK_DONE_PROPERTY_ID, 'boolean', false, null]]);
+}
+
+function installV3Fixture(file: string): { schema: unknown[]; rows: Record<string, unknown[]> } {
+  const db = openDatabase(file);
+  db.exec(`
+    CREATE TABLE object_metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT;
+    INSERT INTO object_metadata VALUES ('schema_version', '3');
+    CREATE TABLE object_types (id TEXT PRIMARY KEY, name TEXT NOT NULL, property_ids_json TEXT NOT NULL CHECK(json_valid(property_ids_json)), revision INTEGER NOT NULL CHECK(revision > 0)) STRICT;
+    CREATE TABLE object_properties (id TEXT PRIMARY KEY, label TEXT NOT NULL, kind TEXT NOT NULL, options_json TEXT CHECK(options_json IS NULL OR json_valid(options_json)), target_type_id TEXT REFERENCES object_types(id), multiple INTEGER NOT NULL DEFAULT 0 CHECK(multiple IN (0,1)), revision INTEGER NOT NULL CHECK(revision > 0)) STRICT;
+    CREATE TABLE objects (
+      id TEXT PRIMARY KEY COLLATE NOCASE, type_id TEXT NOT NULL REFERENCES object_types(id), title TEXT NOT NULL,
+      properties_json TEXT NOT NULL CHECK(json_valid(properties_json)), body TEXT NOT NULL DEFAULT '',
+      revision INTEGER NOT NULL CHECK(revision > 0), created_at TEXT NOT NULL, updated_at TEXT NOT NULL, trashed INTEGER NOT NULL CHECK(trashed IN (0,1)), body_text TEXT NOT NULL
+    ) STRICT;
+    CREATE INDEX objects_browse ON objects(trashed, updated_at DESC, id);
+    CREATE INDEX objects_type_browse ON objects(type_id, trashed, updated_at DESC, id);
+    CREATE TABLE object_references (source_id TEXT NOT NULL COLLATE NOCASE REFERENCES objects(id), target_id TEXT NOT NULL COLLATE NOCASE REFERENCES objects(id), property_id TEXT NOT NULL DEFAULT '', PRIMARY KEY(source_id,target_id,property_id)) STRICT;
+    CREATE INDEX object_references_target ON object_references(target_id);
+    CREATE TABLE object_revisions (object_id TEXT NOT NULL COLLATE NOCASE REFERENCES objects(id), revision INTEGER NOT NULL, snapshot_json TEXT NOT NULL CHECK(json_valid(snapshot_json)), recorded_at TEXT NOT NULL, PRIMARY KEY(object_id,revision)) STRICT;
+    CREATE TABLE object_create_requests (request_id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, object_id TEXT NOT NULL COLLATE NOCASE REFERENCES objects(id)) STRICT;
+    CREATE TABLE object_views (id TEXT PRIMARY KEY, revision INTEGER NOT NULL, status TEXT NOT NULL CHECK(status IN ('draft','published')), spec_json TEXT NOT NULL, prompt TEXT NOT NULL, model TEXT NOT NULL, schema_json TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, deleted INTEGER NOT NULL DEFAULT 0 CHECK(deleted IN (0,1)));
+    CREATE TABLE object_view_revisions (id TEXT NOT NULL, revision INTEGER NOT NULL, status TEXT NOT NULL, spec_json TEXT NOT NULL, prompt TEXT NOT NULL, model TEXT NOT NULL, schema_json TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, deleted INTEGER NOT NULL, PRIMARY KEY(id,revision));
+    CREATE TRIGGER object_view_history_no_update BEFORE UPDATE ON object_view_revisions BEGIN SELECT RAISE(ABORT, 'View revision history is immutable'); END;
+    CREATE TRIGGER object_view_history_no_delete BEFORE DELETE ON object_view_revisions BEGIN SELECT RAISE(ABORT, 'View revision history is immutable'); END;
+    CREATE TABLE object_view_conversations (id TEXT PRIMARY KEY, visitor_id TEXT NOT NULL, previous_id TEXT REFERENCES object_views(id), context_title TEXT NOT NULL) STRICT;
+    CREATE TABLE object_view_conversation_turns (conversation_id TEXT NOT NULL REFERENCES object_view_conversations(id), position INTEGER NOT NULL CHECK(position >= 0), prompt TEXT NOT NULL, view_id TEXT NOT NULL REFERENCES object_views(id), title TEXT NOT NULL, description TEXT, model TEXT NOT NULL, PRIMARY KEY(conversation_id, position)) STRICT;
+    CREATE TABLE browser_visitors (id TEXT PRIMARY KEY, csrf TEXT NOT NULL);
+    CREATE TABLE unrelated (value TEXT) STRICT;
+  `);
+  for (const property of BUILTIN_PROPERTIES) {
+    db.query('INSERT INTO object_properties VALUES (?, ?, ?, NULL, NULL, 0, 1)').run(property.id, property.label, property.kind);
+  }
+  for (const type of BUILTIN_TYPES) {
+    const name = type.id === PAGE_TYPE_ID ? 'Renamed Page' : type.id === TASK_TYPE_ID ? 'Renamed Task' : type.name;
+    const ids = type.id === PAGE_TYPE_ID ? [textProperty, selectProperty] : type.id === TASK_TYPE_ID ? [...type.propertyIds, textProperty] : type.propertyIds;
+    db.query('INSERT INTO object_types VALUES (?, ?, ?, ?)').run(type.id, name, JSON.stringify(ids), type.id === PAGE_TYPE_ID ? 7 : type.id === TASK_TYPE_ID ? 5 : 1);
+  }
+  db.query('INSERT INTO object_types VALUES (?, ?, ?, 1)').run(customType, 'Custom 🧪', JSON.stringify([selectProperty]));
+  db.query('INSERT INTO object_properties VALUES (?, ?, ?, NULL, NULL, 0, 2)').run(textProperty, 'Notes', 'text');
+  db.query('INSERT INTO object_properties VALUES (?, ?, ?, ?, NULL, 0, 1)').run(selectProperty, 'Choice', 'select', JSON.stringify([{ id: 'option-a', label: 'A' }]));
+  const live = { id: page, typeId: PAGE_TYPE_ID, title: 'Unicode 🚀', properties: { [textProperty]: 'snowman ☃' }, body: 'Exact **Markdown**\n\nEmoji 🚀', revision: 2, createdAt: timestamp, updatedAt: timestamp, trashed: false };
+  db.query('INSERT INTO objects VALUES (?, ?, ?, ?, ?, 2, ?, ?, 0, ?)').run(page, PAGE_TYPE_ID, live.title, JSON.stringify(live.properties), live.body, timestamp, timestamp, 'Exact Markdown Emoji');
+  db.query('INSERT INTO objects VALUES (?, ?, ?, ?, ?, 1, ?, ?, 0, ?)').run(task, TASK_TYPE_ID, 'Task row', JSON.stringify({ [TASK_DONE_PROPERTY_ID]: false }), '', timestamp, timestamp, 'Task row');
+  db.query('INSERT INTO objects VALUES (?, ?, ?, ?, ?, 1, ?, ?, 1, ?)').run(trashed, customType, 'Trashed row', JSON.stringify({ [selectProperty]: 'option-a' }), 'Trash', timestamp, timestamp, 'Trash');
+  db.query('INSERT INTO object_revisions VALUES (?, 1, ?, ?)').run(page, JSON.stringify({ ...live, title: 'Before', revision: 1 }), timestamp);
+  db.query('INSERT INTO object_create_requests VALUES (?, ?, ?)').run('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'legacy-digest', page);
+  db.query('INSERT INTO object_references VALUES (?, ?, ?)').run(page, task, '');
+  db.query('INSERT INTO object_views VALUES (?, 2, ?, ?, ?, ?, ?, ?, ?, 0)').run(viewId, 'published', oldViewSpec(), 'prompt', 'model', oldSchemaSignature(), timestamp, timestamp);
+  db.query('INSERT INTO object_views VALUES (?, 3, ?, ?, ?, ?, ?, ?, ?, 1)').run(deletedViewId, 'draft', oldViewSpec(), 'deleted prompt', 'model', oldSchemaSignature(), timestamp, timestamp);
+  db.query('INSERT INTO object_view_revisions VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, 0)').run(viewId, 'draft', oldViewSpec(), 'prompt', 'model', oldSchemaSignature(), timestamp, timestamp);
+  db.query('INSERT INTO object_view_revisions VALUES (?, 2, ?, ?, ?, ?, ?, ?, ?, 0)').run(viewId, 'published', oldViewSpec(), 'prompt', 'model', oldSchemaSignature(), timestamp, timestamp);
+  db.query('INSERT INTO object_view_conversations VALUES (?, ?, ?, ?)').run(conversationId, 'visitor', viewId, 'Legacy task board');
+  db.query('INSERT INTO object_view_conversation_turns VALUES (?, 0, ?, ?, ?, NULL, ?)').run(conversationId, 'prompt', viewId, 'Legacy task board', 'model');
+  db.query('INSERT INTO browser_visitors VALUES (?, ?)').run('visitor', 'csrf');
+  db.query("INSERT INTO unrelated VALUES ('preserve')").run();
+  const schema = db.query('SELECT type, name, tbl_name, sql FROM sqlite_schema ORDER BY type, name').all();
+  const rows = captureRows(db);
+  db.close();
+  return { schema, rows };
+}
+
+function captureRows(db: ReturnType<typeof openDatabase>): Record<string, unknown[]> {
+  const tables = ['object_metadata', 'object_types', 'object_properties', 'objects', 'object_references', 'object_revisions', 'object_create_requests', 'object_views', 'object_view_revisions', 'object_view_conversations', 'object_view_conversation_turns', 'browser_visitors', 'unrelated'];
+  return Object.fromEntries(tables.filter(table => db.query<{ present: number }, [string]>("SELECT 1 AS present FROM sqlite_schema WHERE type = 'table' AND name = ?").get(table))
+    .map(table => [table, db.query(`SELECT * FROM ${table} ORDER BY 1`).all()]));
+}
+
+test('version-3 application schema upgrades to version 4 without changing logical data', t => {
+  const file = temporaryWorkspace(t);
+  const before = installV3Fixture(file);
+  let db = openDatabase(file);
+  const runtime = new ObjectRuntime(db);
+  assert.equal(db.query<{ value: string }, []>("SELECT value FROM object_metadata WHERE key = 'schema_version'").get()!.value, '4');
+  assert.equal(runtime.getObject(page).body, 'Exact **Markdown**\n\nEmoji 🚀');
+  assert.deepEqual(captureRows(db), { ...before.rows, object_metadata: [{ key: 'schema_version', value: '4' }] });
+  assert.deepEqual(db.query<Record<string, string>, []>('PRAGMA integrity_check').all(), [{ integrity_check: 'ok' }]);
+  assert.deepEqual(db.query('PRAGMA foreign_key_check').all(), []);
+  const upgradedPage = runtime.getObject(page);
+  db.close();
+
+  db = openDatabase(file);
+  const reopened = new ObjectRuntime(db);
+  assert.deepEqual(reopened.getObject(page), upgradedPage);
+  db.close();
+});
+
+test('version-3 workspaces without optional service tables gain them during upgrade', t => {
+  const file = temporaryWorkspace(t);
+  const db = openDatabase(file);
+  db.exec(`
+    CREATE TABLE object_metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT;
+    INSERT INTO object_metadata VALUES ('schema_version', '3');
+    CREATE TABLE object_types (id TEXT PRIMARY KEY, name TEXT NOT NULL, property_ids_json TEXT NOT NULL CHECK(json_valid(property_ids_json)), revision INTEGER NOT NULL CHECK(revision > 0)) STRICT;
+    CREATE TABLE object_properties (id TEXT PRIMARY KEY, label TEXT NOT NULL, kind TEXT NOT NULL, options_json TEXT CHECK(options_json IS NULL OR json_valid(options_json)), target_type_id TEXT REFERENCES object_types(id), multiple INTEGER NOT NULL DEFAULT 0 CHECK(multiple IN (0,1)), revision INTEGER NOT NULL CHECK(revision > 0)) STRICT;
+    CREATE TABLE objects (id TEXT PRIMARY KEY COLLATE NOCASE, type_id TEXT NOT NULL REFERENCES object_types(id), title TEXT NOT NULL, properties_json TEXT NOT NULL CHECK(json_valid(properties_json)), body TEXT NOT NULL DEFAULT '', revision INTEGER NOT NULL CHECK(revision > 0), created_at TEXT NOT NULL, updated_at TEXT NOT NULL, trashed INTEGER NOT NULL CHECK(trashed IN (0,1)), body_text TEXT NOT NULL) STRICT;
+    CREATE TABLE object_references (source_id TEXT NOT NULL COLLATE NOCASE REFERENCES objects(id), target_id TEXT NOT NULL COLLATE NOCASE REFERENCES objects(id), property_id TEXT NOT NULL DEFAULT '', PRIMARY KEY(source_id,target_id,property_id)) STRICT;
+    CREATE TABLE object_revisions (object_id TEXT NOT NULL COLLATE NOCASE REFERENCES objects(id), revision INTEGER NOT NULL, snapshot_json TEXT NOT NULL CHECK(json_valid(snapshot_json)), recorded_at TEXT NOT NULL, PRIMARY KEY(object_id,revision)) STRICT;
+    CREATE TABLE object_create_requests (request_id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, object_id TEXT NOT NULL COLLATE NOCASE REFERENCES objects(id)) STRICT;
+  `);
+  db.close();
+  const runtime = new ObjectRuntime(openDatabase(file));
+  t.after(() => runtime.db.close());
+  for (const table of ['object_views', 'object_view_revisions', 'object_view_conversations', 'object_view_conversation_turns', 'browser_visitors']) {
+    assert.ok(runtime.db.query("SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = ?").get(table));
+  }
+});
+
+test('version-4 structural checks reject invalid direct SQL on every connection', t => {
+  const file = temporaryWorkspace(t);
+  const first = new ObjectRuntime(openDatabase(file));
+  const second = openDatabase(file);
+  t.after(() => { first.db.close(); second.close(); });
+  assert.throws(() => second.query('INSERT INTO object_types VALUES (?, ?, ?, 1)').run(customType, 'Bad', '{}'), /object_types_property_ids_array/);
+  assert.throws(() => second.query('INSERT INTO object_properties VALUES (?, ?, ?, NULL, NULL, 0, 1)').run(textProperty, 'Bad', 'bogus'), /object_properties_kind_supported/);
+  assert.throws(() => second.query('INSERT INTO object_properties VALUES (?, ?, ?, NULL, NULL, 0, 1)').run(selectProperty, 'Bad', 'select'), /object_properties_select_options/);
+  assert.throws(() => second.query('INSERT INTO object_properties VALUES (?, ?, ?, NULL, NULL, 1, 1)').run(selectProperty, 'Bad', 'text'), /object_properties_reference_multiple/);
+  assert.throws(() => second.query('INSERT INTO objects VALUES (?, ?, ?, ?, ?, 1, ?, ?, 0, ?)').run(page, PAGE_TYPE_ID, 'Bad', '[]', '', timestamp, timestamp, ''), /objects_properties_object/);
+  assert.throws(() => second.query('INSERT INTO object_revisions VALUES (?, 0, ?, ?)').run(page, '{}', timestamp), /object_revisions_revision_positive/);
+  assert.throws(() => second.query('INSERT INTO object_views VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, 0)').run(viewId, 'draft', '[]', 'prompt', 'model', '[]', timestamp, timestamp), /object_views_spec_object/);
+  assert.throws(() => second.query('INSERT INTO object_view_revisions VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, 0)').run(viewId, 'deleted', '{}', 'prompt', 'model', '[]', timestamp, timestamp), /object_view_revisions_status_closed/);
+
+  const type = first.createType('Boundary');
+  const withReference = first.addProperty(type.id, type.revision, { label: 'Related', kind: 'reference', targetTypeId: PAGE_TYPE_ID, multiple: true });
+  assert.equal(first.getProperty(withReference.propertyIds[0]!).multiple, true);
+  const views = new ViewService(first);
+  assert.equal(views.list().length, 0);
+});
+
+test('invalid existing structural data rolls back the version-4 upgrade completely', t => {
+  const file = temporaryWorkspace(t);
+  const before = installV3Fixture(file);
+  let db = openDatabase(file);
+  db.query('UPDATE object_views SET spec_json = ? WHERE id = ?').run('[]', viewId);
+  const rows = captureRows(db);
+  db.close();
+  assert.throws(() => new ObjectRuntime(openDatabase(file)), /object_views_spec_object/);
+  db = openDatabase(file);
+  assert.deepEqual(db.query('SELECT type, name, tbl_name, sql FROM sqlite_schema ORDER BY type, name').all(), before.schema);
+  assert.deepEqual(captureRows(db), rows);
+  assert.equal(db.query<{ value: string }, []>("SELECT value FROM object_metadata WHERE key = 'schema_version'").get()!.value, '3');
+  db.close();
+});

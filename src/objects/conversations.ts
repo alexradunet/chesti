@@ -9,18 +9,7 @@ interface TurnRow { prompt: string; view_id: string; title: string; description:
 
 /** Conversations own successful generation history, never workspace objects. */
 export class ViewConversationService {
-  constructor(private readonly db: Database, private readonly views: ViewService) {
-    db.exec(`
-      CREATE TABLE IF NOT EXISTS object_view_conversations (
-        id TEXT PRIMARY KEY, visitor_id TEXT NOT NULL, previous_id TEXT REFERENCES object_views(id), context_title TEXT NOT NULL
-      ) STRICT;
-      CREATE TABLE IF NOT EXISTS object_view_conversation_turns (
-        conversation_id TEXT NOT NULL REFERENCES object_view_conversations(id), position INTEGER NOT NULL CHECK(position >= 0),
-        prompt TEXT NOT NULL, view_id TEXT NOT NULL REFERENCES object_views(id), title TEXT NOT NULL, description TEXT, model TEXT NOT NULL,
-        PRIMARY KEY(conversation_id, position)
-      ) STRICT;
-    `);
-  }
+  constructor(private readonly db: Database, private readonly views: ViewService) {}
 
   get(visitorId: string, id: string): ViewConversation {
     if (!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(id)) throw new AppError(422, 'Invalid view conversation ID.');

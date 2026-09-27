@@ -167,24 +167,7 @@ function sourcePredicate(source: ViewSource, properties: Map<string, PropertyDef
 }
 
 export class ViewService {
-  constructor(private readonly objects: ObjectRuntime) {
-    objects.db.exec(`
-      CREATE TABLE IF NOT EXISTS object_views (
-        id TEXT PRIMARY KEY, revision INTEGER NOT NULL, status TEXT NOT NULL CHECK(status IN ('draft','published')),
-        spec_json TEXT NOT NULL, prompt TEXT NOT NULL, model TEXT NOT NULL, schema_json TEXT NOT NULL,
-        created_at TEXT NOT NULL, updated_at TEXT NOT NULL, deleted INTEGER NOT NULL DEFAULT 0 CHECK(deleted IN (0,1))
-      );
-      CREATE TABLE IF NOT EXISTS object_view_revisions (
-        id TEXT NOT NULL, revision INTEGER NOT NULL, status TEXT NOT NULL, spec_json TEXT NOT NULL,
-        prompt TEXT NOT NULL, model TEXT NOT NULL, schema_json TEXT NOT NULL, created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL, deleted INTEGER NOT NULL, PRIMARY KEY(id,revision)
-      );
-      CREATE TRIGGER IF NOT EXISTS object_view_history_no_update BEFORE UPDATE ON object_view_revisions
-        BEGIN SELECT RAISE(ABORT, 'View revision history is immutable'); END;
-      CREATE TRIGGER IF NOT EXISTS object_view_history_no_delete BEFORE DELETE ON object_view_revisions
-        BEGIN SELECT RAISE(ABORT, 'View revision history is immutable'); END;
-    `);
-  }
+  constructor(private readonly objects: ObjectRuntime) {}
 
   validate(input: unknown): ViewSpec { return validateViewSpec(input, this.objects.catalog()); }
 
@@ -315,6 +298,9 @@ export class ViewService {
     return object;
   }
   private archive(id: string): void {
-    this.objects.db.query('INSERT INTO object_view_revisions SELECT * FROM object_views WHERE id = ?').run(id);
+    this.objects.db.query(`INSERT INTO object_view_revisions
+      (id, revision, status, spec_json, prompt, model, schema_json, created_at, updated_at, deleted)
+      SELECT id, revision, status, spec_json, prompt, model, schema_json, created_at, updated_at, deleted
+      FROM object_views WHERE id = ?`).run(id);
   }
 }

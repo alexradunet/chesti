@@ -11,7 +11,6 @@ export class VisitorStore {
   private readonly insert: Statement<unknown, [string, string]>;
 
   constructor(readonly db: Database) {
-    db.exec('CREATE TABLE IF NOT EXISTS browser_visitors (id TEXT PRIMARY KEY, csrf TEXT NOT NULL)');
     this.lookup = db.query<Visitor, [string]>('SELECT id, csrf FROM browser_visitors WHERE id = ?');
     this.insert = db.query<unknown, [string, string]>('INSERT INTO browser_visitors(id, csrf) VALUES (?, ?)');
   }

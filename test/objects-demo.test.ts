@@ -38,9 +38,11 @@ function assertHealthy(db: Database): void {
 
 test('openWorkspace runs bounded planner optimization only after successful initialization', t => {
   const executed: string[] = [];
+  const optimizeTransactions: boolean[] = [];
   const exec = Database.prototype.exec;
   Database.prototype.exec = function(sql: string) {
     executed.push(sql);
+    if (sql === 'PRAGMA optimize=0x10002') optimizeTransactions.push(this.inTransaction);
     return exec.call(this, sql);
   };
   t.after(() => { Database.prototype.exec = exec; });
@@ -50,12 +52,15 @@ test('openWorkspace runs bounded planner optimization only after successful init
   let objects = openWorkspace(file);
   t.after(() => { objects.db.close(); rmSync(directory, { recursive: true, force: true }); });
   assert.ok(executed.some(sql => sql === 'PRAGMA optimize=0x10002'));
+  assert.deepEqual(optimizeTransactions, [false]);
   assertHealthy(objects.db);
 
   executed.length = 0;
+  optimizeTransactions.length = 0;
   objects.db.close();
   objects = openWorkspace(file);
   assert.ok(executed.some(sql => sql === 'PRAGMA optimize=0x10002'));
+  assert.deepEqual(optimizeTransactions, [false]);
   assertHealthy(objects.db);
 });
 
