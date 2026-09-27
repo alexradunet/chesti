@@ -14,13 +14,13 @@ Example output excerpt from the second command:
 ```json
 {
   "fixture": { "objects": 20, "bodyBytes": 256, "revisions": 1, "referenceEvery": 5 },
-  "page": { "pageSize": 4096, "pageCount": 33, "freelistCount": 0, "allocatedBytes": 135168, "dbstatBytes": 135168 },
+  "page": { "pageSize": 4096, "pageCount": 44, "freelistCount": 0, "allocatedBytes": 180224, "dbstatBytes": 180224 },
   "dbstat": [
-    { "name": "sqlite_schema", "bytes": 28672, "pages": 7 },
+    { "name": "sqlite_schema", "bytes": 32768, "pages": 8 },
     { "name": "object_revisions", "bytes": 20480, "pages": 5 },
     { "name": "objects", "bytes": 20480, "pages": 5 }
   ],
-  "files": { "databaseBytes": 135168, "walBytes": 0, "shmBytes": 32768 },
+  "files": { "databaseBytes": 180224, "walBytes": 0, "shmBytes": 32768 },
   "checkpoint": { "requested": true, "result": { "busy": 0, "log": 0, "checkpointed": 0 } }
 }
 ```
