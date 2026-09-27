@@ -66,8 +66,6 @@ export function createApp(options: { objects?: ObjectRuntime; viewGenerator?: Vi
   let objectClient: Promise<Bun.BuildOutput> | undefined;
   let writingClient: Promise<Bun.BuildOutput> | undefined;
   const writingCss = Bun.file(new URL('../public/writing.css', import.meta.url));
-  const proseCss = Bun.file(new URL(import.meta.resolve('@milkdown/prose/view/style/prosemirror.css')));
-  const tablesCss = Bun.file(new URL(import.meta.resolve('@milkdown/prose/tables/style/tables.css')));
   const tokensCss = Bun.file(new URL('../public/tokens.css', import.meta.url));
   const objectCss = Bun.file(new URL('../public/objects.css', import.meta.url));
   const handle = async (req: Request, server: Bun.Server<undefined>, headers: Headers): Promise<Response> => {
@@ -83,16 +81,14 @@ export function createApp(options: { objects?: ObjectRuntime; viewGenerator?: Vi
     if (req.method === 'GET' && url.pathname === '/tokens.css') return new Response(tokensCss, { headers: { 'Content-Type': 'text/css; charset=utf-8' } });
     if (req.method === 'GET' && url.pathname === '/objects.css') return new Response(objectCss, { headers: { 'Content-Type': 'text/css; charset=utf-8' } });
     if (req.method === 'GET' && url.pathname === '/writing.css') return new Response(writingCss, { headers: { 'Content-Type': 'text/css; charset=utf-8' } });
-    if (req.method === 'GET' && url.pathname === '/writing-prose.css') return new Response(proseCss, { headers: { 'Content-Type': 'text/css; charset=utf-8' } });
-    if (req.method === 'GET' && url.pathname === '/writing-tables.css') return new Response(tablesCss, { headers: { 'Content-Type': 'text/css; charset=utf-8' } });
     if (req.method === 'GET' && url.pathname === '/writing-client.js') {
       writingClient ??= Bun.build({ entrypoints: [fileURLToPath(new URL('./objects/writing.ts', import.meta.url))], target: 'browser', minify: true });
       const build = await writingClient;
       const script = build.outputs.find(output => output.kind === 'entry-point');
       if (!build.success || !script) {
         writingClient = undefined;
-        console.error('Formatted editor bundle failed:', build.logs);
-        throw new AppError(500, 'The formatted editor could not load. Markdown source remains available.');
+        console.error('Writing tools bundle failed:', build.logs);
+        throw new AppError(500, 'Writing tools could not load. Markdown source remains available.');
       }
       return new Response(script, { headers: { 'Content-Type': 'text/javascript; charset=utf-8' } });
     }
@@ -140,7 +136,7 @@ export function createApp(options: { objects?: ObjectRuntime; viewGenerator?: Vi
       try { return withHeaders(await handle(req, server, headers), headers); }
       catch (error) {
         const path = new URL(req.url).pathname;
-        if (path === '/objects/lookup' || (req.headers.get('accept')?.includes('application/json') && (path === '/views/generate' || path.startsWith('/views/conversations/')))) {
+        if (path === '/objects/lookup' || path === '/objects/preview' || (req.headers.get('accept')?.includes('application/json') && (path === '/views/generate' || path.startsWith('/views/conversations/')))) {
           const known = error instanceof AppError;
           if (!known) console.error('Request failed:', error);
           return withHeaders(Response.json({ error: known ? error.message : 'An unexpected error occurred. See the local server log.' }, { status: known ? error.status : 500 }), headers);

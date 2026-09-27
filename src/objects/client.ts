@@ -2,7 +2,9 @@ import { Value } from 'typebox/value';
 import { restoreAiState, type AiState } from './ai-state.js';
 import { JOURNAL_TYPE_ID, ObjectLookupSchema } from './model.js';
 import type { ObjectLookupResult, ViewConversation } from './model.js';
-import type { WritingEditor, WritingSelection } from './writing.js';
+import type { WritingEditor } from './writing.js';
+import { writingSelection, writingSource as sourceOf } from './writing-commands.js';
+import type { WritingSelection } from './writing-commands.js';
 import type * as WritingModule from './writing.js';
 
 const dirtyForms = new Set<HTMLFormElement>();
@@ -20,7 +22,7 @@ if (writingForm) void (async () => {
     const status = writingForm.querySelector<HTMLElement>('[data-writing-status]');
     if (status) {
       status.hidden = false;
-      status.textContent = `Formatted editing is unavailable; your Markdown source is unchanged. ${error instanceof Error ? error.message : 'You can keep editing and saving below.'}`;
+      status.textContent = `Writing tools are unavailable; your Markdown source is unchanged. ${error instanceof Error ? error.message : 'You can keep editing and saving below.'}`;
     }
   }
 })();
@@ -409,8 +411,10 @@ if (objectSearch) {
               return;
             }
             const target = insertion;
-            if (!target || !target.insert(item.title || 'Untitled', `/objects/${item.id}`)) return;
+            if (!target) return;
+            // A native modal makes the textarea inert; close before the undoable edit.
             objectSearch.close();
+            target.insert(item.title || 'Untitled', `/objects/${item.id}`);
           });
         }
         const title = document.createElement('strong');
@@ -454,19 +458,13 @@ if (objectSearch) {
       openSearch(writingEditor.selection());
       return;
     }
-    let start = textarea.selectionStart;
-    let end = textarea.selectionEnd;
-    openSearch({
-      insert(title, href) {
-        if (!textarea.isConnected || textarea.disabled || textarea.readOnly || textarea.form?.dataset.busy === 'true') return false;
-        const label = title.replace(/[\r\n]+/g, ' ').replace(/[\\[\]`*_{}()<>!#+\-.|~&]/g, '\\$&');
-        textarea.setRangeText(`[${label}](${href})`, start, end, 'end');
-        start = end = textarea.selectionEnd;
-        textarea.dispatchEvent(new Event('input', { bubbles: true }));
-        return true;
-      },
-      restore() { textarea.focus(); textarea.setSelectionRange(start, end); },
-    });
+    openSearch(writingSelection(textarea, message => {
+      const status = textarea.form?.querySelector<HTMLElement>('[data-writing-status]');
+      if (status) {
+        status.textContent = message;
+        status.hidden = !message;
+      }
+    }));
   });
   for (const trigger of document.querySelectorAll<HTMLButtonElement>('[data-reference-search]')) trigger.addEventListener('click', () => {
     const targetId = trigger.dataset.referenceTarget;
@@ -543,10 +541,10 @@ for (const form of forms) {
     if (state && revision && state.getAttribute('role') !== 'alert') state.textContent = `Saved · revision ${revision.value}`;
   }
   form.addEventListener('input', event => {
-    if (!(event.target instanceof Element && event.target.closest('[data-writing-mount], [data-writing-toolbar], [data-writing-link-dialog]'))) markDirty(form);
+    if (!(event.target instanceof Element && event.target.closest('[data-writing-toolbar], [data-writing-link-dialog]'))) markDirty(form);
   });
   form.addEventListener('change', event => {
-    if (!(event.target instanceof Element && event.target.closest('[data-writing-mount], [data-writing-toolbar], [data-writing-link-dialog]'))) markDirty(form);
+    if (!(event.target instanceof Element && event.target.closest('[data-writing-toolbar], [data-writing-link-dialog]'))) markDirty(form);
   });
   form.addEventListener('submit', async event => {
     event.preventDefault();
@@ -555,7 +553,7 @@ for (const form of forms) {
     if (form === writingForm) {
       try {
         const textarea = form.querySelector<HTMLTextAreaElement>('textarea[name="body"]')!;
-        writingSource = writingEditor ? writingEditor.flush() : textarea.value === textarea.defaultValue ? JSON.parse(textarea.dataset.writingSource!) as string : textarea.value;
+        writingSource = writingEditor ? writingEditor.flush() : sourceOf(textarea);
       }
       catch (error) {
         const status = form.querySelector<HTMLElement>('[data-form-state]');
@@ -625,8 +623,8 @@ for (const form of forms) {
     } finally {
       form.dataset.busy = 'false';
       form.removeAttribute('aria-busy');
-      if (form === writingForm) writingEditor?.setBusy(false);
       controls.forEach((control, index) => { control.disabled = previouslyDisabled[index] ?? false; });
+      if (form === writingForm) writingEditor?.setBusy(false);
     }
   });
 }
