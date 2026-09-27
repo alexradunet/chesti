@@ -378,6 +378,8 @@ function ObjectEditor({ model }: { model: ObjectPageModel }) {
   if (draft) state = draft.historyRevision ? `Unsaved draft from revision ${draft.historyRevision}` : 'Unsaved changes';
   if (model.error) state = model.error;
   const conflict = Boolean(record && draft?.revision && Number(draft.revision) !== record.revision);
+  const backlinkLinks = model.backlinksPage?.links ?? [];
+  const emptyBacklinks = model.backlinksPage?.offset ? 'No links on this page.' : 'No other objects link here yet.';
   return <><h1 class="sr-only">{record ? 'Edit object' : 'New object'}</h1><a class="back-link" data-object-back="" href={`/?type=${type.id}`}>← {type.name} objects</a>{record?.trashed && <Badge tone="warning">In trash</Badge>}
     {record && <nav class="object-sections" aria-label="Object sections"><a href="#writing-area">Writing</a><a href="#object-backlinks">Linked from</a><a href={`/objects/${record.id}/history`}>History</a></nav>}
     <div class={`object-editing${conflict ? ' has-conflict' : ''}`}>
@@ -450,7 +452,7 @@ function ObjectEditor({ model }: { model: ObjectPageModel }) {
       </details>}
       <section id="object-backlinks" class="backlinks" tabindex={-1}>
         <h2>Linked from</h2>
-        {model.backlinks?.length ? <ul>{model.backlinks.map(link => <li><a href={objectUrl(link.object.id)}>{titleOf(link.object)}</a>{link.object.trashed && <span class="muted"> · in trash</span>}{link.propertyId && <span class="muted"> via {propertyOf(model, link.propertyId)?.label ?? 'property'}</span>}</li>)}</ul> : model.backlinksPage ? <p class="muted">No other objects link here yet.</p> : <p class="muted">Linked objects are unavailable while reviewing this draft.</p>}
+        {backlinkLinks.length ? <ul>{backlinkLinks.map(link => <li><a href={objectUrl(link.object.id)}>{titleOf(link.object)}</a>{link.object.trashed && <span class="muted"> · in trash</span>}{link.propertyId && <span class="muted"> via {propertyOf(model, link.propertyId)?.label ?? 'property'}</span>}</li>)}</ul> : model.backlinksPage ? <p class="muted">{emptyBacklinks}</p> : <p class="muted">Linked objects are unavailable while reviewing this draft.</p>}
         {model.backlinksPage && <nav class="pagination" aria-label="Backlink pages">
           {model.backlinksPage.offset > 0 && <a href={`${objectUrl(record.id)}?backlinksOffset=${Math.max(0, model.backlinksPage.offset - 50)}#object-backlinks`}>Previous</a>}
           {model.backlinksPage.hasMore && <a href={`${objectUrl(record.id)}?backlinksOffset=${model.backlinksPage.offset + 50}#object-backlinks`}>Next</a>}

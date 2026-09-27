@@ -331,14 +331,39 @@ test('typed browse summaries match full browse without loading bodies and use ty
   }
   for (let index = 0; index < 40; index++) runtime.createObject(input(other.id, `Other ${index}`, {}, 'needle'));
   const full = runtime.listObjects({ typeId: PAGE_TYPE_ID, search: '100%_\\ needle' });
+  let capturedSql = '';
+  let capturedValues: (string | number)[] = [];
+  const originalQuery = db.query.bind(db);
+  db.query = ((sql: string) => {
+    const statement = originalQuery(sql);
+    if (sql.includes('SELECT id, type_id, title, revision, created_at, updated_at, trashed FROM objects WHERE')) {
+      capturedSql = sql;
+      const originalAll = statement.all.bind(statement);
+      statement.all = ((...values: (string | number)[]) => {
+        capturedValues = values;
+        return originalAll(...values);
+      }) as typeof statement.all;
+    }
+    return statement;
+  }) as typeof db.query;
+  t.after(() => { db.query = originalQuery as typeof db.query; });
   const summaries = runtime.listObjectSummaries({ typeId: PAGE_TYPE_ID, search: '100%_\\ needle' });
   assert.deepEqual(summaries.map(object => object.id), full.map(object => object.id));
   assert.equal(full[0]?.body, 'literal 100%_\\ needle');
   assert.equal(Object.hasOwn(summaries[0] as object, 'body'), false);
   assert.equal(Object.hasOwn(summaries[0] as object, 'properties'), false);
-  const plan = db.query<{ detail: string }, [number, string]>('EXPLAIN QUERY PLAN SELECT id, type_id, title, revision, created_at, updated_at, trashed FROM objects WHERE trashed = ? AND type_id = ? ORDER BY updated_at DESC, id LIMIT 51 OFFSET 0').all(0, PAGE_TYPE_ID).map(row => row.detail).join('\n');
+  assert.ok(capturedSql);
+  assert.deepEqual(capturedValues, [0, PAGE_TYPE_ID, '%100\\%\\_\\\\ needle%', '%100\\%\\_\\\\ needle%', 50, 0]);
+  const plan = originalQuery<{ detail: string }, (string | number)[]>(`EXPLAIN QUERY PLAN ${capturedSql}`).all(...capturedValues).map(row => row.detail).join('\n');
   assert.match(plan, /objects_type_browse/);
   assert.deepEqual(runtime.listObjectSummaries({ typeId: PAGE_TYPE_ID, limit: 3, offset: 2 }).map(object => object.id), runtime.listObjects({ typeId: PAGE_TYPE_ID, limit: 3, offset: 2 }).map(object => object.id));
+  assert.equal(runtime.listObjectSummaries({ search: 'needle' }).some(object => object.typeId === PAGE_TYPE_ID), true);
+  assert.equal(runtime.listObjectSummaries({ search: 'needle' }).some(object => object.typeId === other.id), true);
+  assert.deepEqual(runtime.listObjects({ trashed: false, limit: 3 }).map(object => Object.hasOwn(object, 'body')), [true, true, true]);
+  assert.throws(() => runtime.listObjects({ typeId: '' }), status(422));
+  assert.throws(() => runtime.listObjectSummaries({ typeId: '' }), status(422));
+  assert.throws(() => runtime.listObjects({ typeId: 'not-a-uuid' }), status(422));
+  assert.throws(() => runtime.listObjectSummaries({ typeId: 'not-a-uuid' }), status(422));
   assert.ok(typedIds.length);
 });
 

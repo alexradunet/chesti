@@ -101,9 +101,7 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
       return Number(value);
     };
     const loadBacklinks = (id: string, offset = backlinksOffset()) => {
-      const page = objects.backlinks(id, offset);
-      model.backlinks = page.links;
-      model.backlinksPage = page;
+      model.backlinksPage = objects.backlinks(id, offset);
     };
     const pickerObjects = (propertySets: (Record<string, PropertyValue> | undefined)[] = [model.object?.properties, model.objectDraft?.properties]) => {
       // ObjectEditor renders all type fields for enhanced switching, plus retained
@@ -262,8 +260,11 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
           }
           model.search = url.searchParams.get('q') ?? '';
           if (model.search.length > 200) throw new AppError(422, 'Search must be at most 200 characters.');
-          model.selectedTypeId = model.section === 'tasks' ? model.objectType?.id : url.searchParams.get('type') || undefined;
-          if (model.selectedTypeId) objects.getType(model.selectedTypeId);
+          model.selectedTypeId = model.section === 'tasks' ? model.objectType?.id : url.searchParams.has('type') ? url.searchParams.get('type') ?? undefined : undefined;
+          if (model.selectedTypeId !== undefined) {
+            if (!Value.Check(IdSchema, model.selectedTypeId)) throw new AppError(422, 'Invalid type filter.');
+            objects.getType(model.selectedTypeId);
+          }
           model.trashed = url.searchParams.get('trash') === '1';
           const offset = url.searchParams.get('offset') ?? '0';
           if (!/^\d{1,7}$/.test(offset) || Number(offset) > 1_000_000) throw new AppError(422, 'Invalid page.');
@@ -411,9 +412,9 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
         model.screen = 'object';
         model.object = objects.getObject(objectMatch[1]!);
         model.objectType = objects.getType(model.object.typeId);
-        loadBacklinks(model.object.id);
         if (objectMatch[2] === 'update') {
           model.objectDraft = { title: fields.get('title') ?? '', body: fields.get('body') ?? model.object.body, revision: fields.get('reviewedRevision') ?? fields.get('revision') ?? '', typeId: fields.get('typeId') ?? model.object.typeId, fields: draftFields(fields), historyRevision: fields.has('historyRevision') ? fields.get('historyRevision') ?? '' : undefined };
+          loadBacklinks(model.object.id, 0);
           model.objects = pickerObjects();
           requireFields(fields, ['csrf', 'revision', 'reviewedRevision', 'typeId', 'title', 'body', 'intent', 'historyRevision'], true);
           if (model.objectDraft.historyRevision !== undefined) {
@@ -433,6 +434,7 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
           objects.updateObject(objectMatch[1]!, expectedRevision, write);
           return go(`/objects/${objectMatch[1]}?saved=1`);
         }
+        loadBacklinks(model.object.id);
         model.objects = pickerObjects();
         requireFields(fields, ['csrf', 'revision']);
         objects.setTrashed(objectMatch[1]!, revision(fields), objectMatch[2] === 'trash');

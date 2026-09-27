@@ -54,7 +54,7 @@ function browseShape(options: ObjectListOptions): BrowseShape {
   if (options.trashed !== undefined && typeof options.trashed !== 'boolean') throw new AppError(422, 'Invalid trash filter.');
   const values: (string | number)[] = [options.trashed ? 1 : 0];
   const predicates = ['trashed = ?'];
-  if (options.typeId) {
+  if (options.typeId !== undefined) {
     if (typeof options.typeId !== 'string' || !ID.test(options.typeId)) throw new AppError(422, 'Invalid type filter.');
     predicates.push('type_id = ?');
     values.push(options.typeId);
@@ -204,15 +204,15 @@ export class ObjectRuntime {
   }
   listObjects(options: ObjectListOptions = {}): ObjectRecord[] {
     const { limit, offset } = browseBounds(options);
-    if (options.typeId) this.getType(options.typeId);
     const shape = browseShape(options);
+    if (options.typeId !== undefined) this.getType(options.typeId);
     return this.db.query<ObjectRow, (string | number)[]>(`SELECT * FROM objects WHERE ${shape.where} ORDER BY updated_at DESC, id LIMIT ? OFFSET ?`)
       .all(...shape.values, limit, offset).map(objectRecord);
   }
   listObjectSummaries(options: ObjectListOptions = {}): ObjectSummary[] {
     const { limit, offset } = browseBounds(options);
-    if (options.typeId) this.getType(options.typeId);
     const shape = browseShape(options);
+    if (options.typeId !== undefined) this.getType(options.typeId);
     return this.db.query<ObjectSummaryRow, (string | number)[]>(`SELECT id, type_id, title, revision, created_at, updated_at, trashed FROM objects WHERE ${shape.where} ORDER BY updated_at DESC, id LIMIT ? OFFSET ?`)
       .all(...shape.values, limit, offset).map(objectSummary);
   }
@@ -305,7 +305,9 @@ export class ObjectRuntime {
     }).immediate();
   }
   backlinks(id: string, offset = 0): BacklinkPage {
-    this.getObject(id);
+    if (typeof id !== 'string' || !ID.test(id)) throw new AppError(422, 'Invalid object ID.');
+    const target = this.db.query<{ id: string }, [string]>('SELECT id FROM objects WHERE id = ?').get(id);
+    if (!target) throw new AppError(404, 'Object not found.');
     if (!Number.isInteger(offset) || offset < 0 || offset > 1_000_000) throw new AppError(422, 'Invalid backlinks page.');
     const limit = 50;
     const rows = this.db.query<ObjectSummaryRow & { property_id: string }, [string, number, number]>(`SELECT o.id, o.type_id, o.title, o.revision, o.created_at, o.updated_at, o.trashed, r.property_id

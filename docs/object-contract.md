@@ -76,7 +76,7 @@ Filters support equals, notEquals, contains, before, after, empty, and notEmpty 
 
 A parameterized input has a label and object type. Every source must contain an input-bound reference filter. Missing input returns no records. Invalid, trashed, or wrong-type input rejects. This contract is also checked on every command.
 
-Prepared SQL binds comparison values and uses only validated property IDs in generated paths. Browse, picker, lookup, and view display paths use explicit read projections instead of canonical full objects; they do not include Markdown bodies unless that path renders writing or a gallery excerpt. Each block reads at most 101 body-free rows, displaying 100 plus a truncation notice. Ordering is source-major, then the optional source property, then title/ID; missing sort values are last. Datetime comparisons use instants, not offset-string ordering. Reference UUID comparisons are case-insensitive.
+Prepared SQL binds comparison values and uses only validated property IDs in generated paths. Browse, picker, lookup, and view display paths use explicit read projections instead of canonical full objects; they do not include Markdown bodies unless that path renders writing, and gallery excerpts read bounded derived body_text instead of full Markdown. Each block reads at most 101 body-free rows, displaying 100 plus a truncation notice. Ordering is source-major, then the optional source property, then title/ID; missing sort values are last. Datetime comparisons use instants, not offset-string ordering. Reference UUID comparisons are case-insensitive.
 
 ## Commands are not compatibility
 

@@ -209,6 +209,8 @@ test('native type browsing keeps search and trash scope when switching layouts a
   assert.deepEqual(trash.ids, [removedTask.id]);
   assert.deepEqual((await browse(trash.layouts.list!)).ids, [removedTask.id]);
   assert.equal((await f.get(`/?type=${task.id}&layout=board`)).status, 422);
+  assert.equal((await f.get('/?type=')).status, 422);
+  assert.equal((await f.get('/?type=not-a-uuid')).status, 422);
 });
 
 test('HTTP saves exact Markdown source and omitted updates preserve writing', async t => {
@@ -1484,16 +1486,38 @@ test('object backlinks use bounded native pages and reject invalid offsets witho
   assert.equal(invalid.status, 422);
   const repeated = await f.get(`/objects/${target.id}?backlinksOffset=0&backlinksOffset=50`);
   assert.equal(repeated.status, 422);
+  const emptyPage = await f.get(`/objects/${target.id}?backlinksOffset=100#object-backlinks`);
+  assert.equal(emptyPage.status, 200);
+  const emptyMarkup = await emptyPage.text();
+  assert.ok(emptyMarkup.includes('No links on this page.'));
+  assert.ok(emptyMarkup.includes('>Previous</a>'));
+  assert.ok(!emptyMarkup.includes('No other objects link here yet.'));
   const concurrent = f.objects.updateObject(target.id, target.revision, { ...target, title: 'Target changed' });
-  const stale = await f.post(`/objects/${target.id}/update?backlinksOffset=50`, {
-    revision: String(target.revision),
+  for (const suffix of ['?backlinksOffset=50', '?backlinksOffset=-1', '?backlinksOffset=0&backlinksOffset=50']) {
+    const stale = await f.post(`/objects/${target.id}/update${suffix}`, {
+      revision: String(target.revision),
+      typeId: PAGE_TYPE_ID,
+      title: `Unsaved target draft ${suffix}`,
+      body: `Unsaved body ${suffix}`,
+    });
+    assert.equal(stale.status, 409, suffix);
+    const staleDraft = nativeObjectFields(await stale.text());
+    assert.equal(staleDraft.title, `Unsaved target draft ${suffix}`);
+    assert.equal(staleDraft.body, `Unsaved body ${suffix}`);
+    assert.equal(staleDraft.revision, String(target.revision));
+  }
+  const rejected = await f.post(`/objects/${target.id}/update?backlinksOffset=-1`, {
+    revision: String(concurrent.revision),
+    historyRevision: '0',
     typeId: PAGE_TYPE_ID,
-    title: 'Unsaved target draft',
-    body: 'Unsaved body',
+    title: 'Invalid retained title',
+    body: 'Invalid retained body',
   });
-  assert.equal(stale.status, 409);
-  const staleMarkup = await stale.text();
-  assert.ok(staleMarkup.includes('Unsaved target draft'));
-  assert.ok(staleMarkup.includes(`backlinksOffset=0#object-backlinks`));
+  assert.equal(rejected.status, 422);
+  const rejectedDraft = nativeObjectFields(await rejected.text());
+  assert.equal(rejectedDraft.title, 'Invalid retained title');
+  assert.equal(rejectedDraft.body, 'Invalid retained body');
+  assert.equal(rejectedDraft.revision, String(concurrent.revision));
+  assert.equal(rejectedDraft.historyRevision, '0');
   assert.equal(f.objects.getObject(target.id).title, concurrent.title);
 });

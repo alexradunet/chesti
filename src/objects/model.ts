@@ -174,7 +174,6 @@ export interface ObjectPageModel {
   typeDraft?: { name: string; basedOnTypeId?: string };
   newPropertyDraft?: NewPropertyDraft;
   evaluatedView?: EvaluatedView;
-  backlinks?: Backlink[];
   backlinksPage?: BacklinkPage;
   search?: string;
   selectedTypeId?: string;
