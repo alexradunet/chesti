@@ -126,16 +126,23 @@ Use SQLite's backup operation for a running database:
 sqlite3 .data/taskdesk.sqlite ".backup '/absolute/path/to/backup.sqlite'"
 ```
 
-To verify and trial-restore a backup, copy from an existing backup into a new private temporary directory—never overwrite the live database or an existing restore target—and start Taskdesk on that same restored file only after the checks pass. `-readonly` makes a missing backup fail instead of creating an empty database; `integrity_check` should print `ok`, and `foreign_key_check` should print no rows.
+To verify and trial-restore a backup, copy from an existing backup into a new private temporary directory—never overwrite the live database or an existing restore target—and start Taskdesk on that same restored file only after every command and check passes. `-readonly` makes a missing backup fail instead of creating an empty database; `integrity_check` must return exactly `ok`, and `foreign_key_check` must return no rows. Keep the restored database private to this check and replace `/absolute/path/to/backup.sqlite` with the backup you intend to test; if copying or verification fails, the shell block stops before launch.
 
 ```sh
-backup=/absolute/path/to/backup.sqlite
-tmpdir=$(mktemp -d -t taskdesk-restore-check-XXXXXX)
-restored="$tmpdir/restored.sqlite"
-[ -e "$backup" ] && [ ! -e "$restored" ]
-sqlite3 -readonly "$backup" ".backup '$restored'"
-sqlite3 -readonly "$restored" "PRAGMA integrity_check; PRAGMA foreign_key_check;"
-DATABASE_PATH="$restored" bun start
+(
+  set -eu
+  backup=/absolute/path/to/backup.sqlite
+  tmpdir=$(mktemp -d -t taskdesk-restore-check-XXXXXX)
+  restored="$tmpdir/restored.sqlite"
+  test -f "$backup"
+  test ! -e "$restored"
+  sqlite3 -readonly "$backup" ".backup '$restored'"
+  integrity=$(sqlite3 -readonly "$restored" "PRAGMA integrity_check;")
+  test "$integrity" = ok
+  foreign_keys=$(sqlite3 -readonly "$restored" "PRAGMA foreign_key_check;")
+  test -z "$foreign_keys"
+  DATABASE_PATH="$restored" bun start
+)
 ```
 
 For a compact non-incremental snapshot from SQLite itself, `VACUUM INTO '/absolute/path/to/snapshot.sqlite'` writes a new database file. Use a new destination filename; treat interruption or errors as a failed snapshot and keep the original database untouched. `VACUUM INTO` is a snapshot operation, not backup rotation or a continuous export system.

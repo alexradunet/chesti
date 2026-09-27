@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import type { Database } from 'bun:sqlite';
 import { buildSyntheticFixture, syntheticWriting } from '../scripts/sqlite-fixture.js';
 import { ObjectRuntime } from '../src/objects/runtime.js';
@@ -13,7 +13,8 @@ function count(db: Database, table: string): number {
 }
 
 test('synthetic writing produces exact UTF-8 byte lengths without splitting characters', () => {
-  for (const bytes of [0, 1, 2, 3, 4, 5, 64, 96, 256, 1024]) {
+  const unicodeBoundary = Buffer.byteLength('# Synthetic note 0\n\nRevision 0. Caf', 'utf8') + 1;
+  for (const bytes of [0, 1, 2, 3, 4, 5, unicodeBoundary, unicodeBoundary + 1, 64, 96, 256, 1024, 262_144]) {
     const writing = syntheticWriting(0, bytes);
     assert.equal(Buffer.byteLength(writing, 'utf8'), bytes);
     assert.equal(new TextDecoder('utf-8', { fatal: true }).decode(Buffer.from(writing, 'utf8')), writing);
@@ -52,10 +53,17 @@ test('synthetic fixture validates limits before opening a database', () => {
 });
 
 test('synthetic fixture cleans its owned temp database if generation fails', () => {
-  const before = new Set(readdirSync(tmpdir()).filter(name => name.startsWith('taskdesk-sqlite-fixture-')));
   const original = ObjectRuntime.prototype.createObject;
+  let failedDirectory: string | undefined;
+  let failedDb: Database | undefined;
   ObjectRuntime.prototype.createObject = function failCreateObject(...args: Parameters<ObjectRuntime['createObject']>) {
-    if (args[0]?.title === 'Synthetic object 00000') throw new Error('forced fixture failure');
+    if (args[0]?.title === 'Synthetic object 00000') {
+      failedDb = this.db;
+      const main = this.db.query<{ file: string }, []>('PRAGMA database_list').all().find(row => row.file.endsWith('workspace.sqlite'));
+      assert.ok(main);
+      failedDirectory = dirname(main.file);
+      throw new Error('forced fixture failure');
+    }
     return original.apply(this, args);
   };
   try {
@@ -63,8 +71,10 @@ test('synthetic fixture cleans its owned temp database if generation fails', () 
   } finally {
     ObjectRuntime.prototype.createObject = original;
   }
-  const after = readdirSync(tmpdir()).filter(name => name.startsWith('taskdesk-sqlite-fixture-'));
-  assert.deepEqual(after.filter(name => !before.has(name)), []);
+  assert.ok(failedDirectory);
+  assert.equal(existsSync(failedDirectory), false);
+  assert.ok(failedDb);
+  assert.throws(() => failedDb!.query('SELECT 1').get(), /closed/i);
 });
 
 test('storage report exposes nonnegative dbstat, page, and file measurements without user database paths', () => {
