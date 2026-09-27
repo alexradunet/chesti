@@ -126,7 +126,18 @@ Use SQLite's backup operation for a running database:
 sqlite3 .data/taskdesk.sqlite ".backup '/absolute/path/to/backup.sqlite'"
 ```
 
-Alternatively stop the server and back up the database together with any `-wal`/`-shm` files. Do not copy only the main file while a writer is active.
+To verify a backup, open a separate copy or snapshot file—never overwrite the live database in place—and run SQLite checks before starting Taskdesk on it:
+
+```sh
+sqlite3 /absolute/path/to/backup.sqlite "PRAGMA integrity_check; PRAGMA foreign_key_check;"
+DATABASE_PATH=/absolute/path/to/restored-check.sqlite bun start
+```
+
+For a compact non-incremental snapshot from SQLite itself, `VACUUM INTO '/absolute/path/to/snapshot.sqlite'` writes a new database file. Use a new destination filename; treat interruption or errors as a failed snapshot and keep the original database untouched. `VACUUM INTO` is a snapshot operation, not backup rotation or a continuous export system.
+
+Alternatively stop the server and back up the database together with any `-wal`/`-shm` files. Do not copy only the main file while a writer is active, and do not casually copy a live WAL sidecar beside a separately copied main file. These instructions cover the current single SQLite database only; they do not claim cross-file atomic backups for future workspace files.
+
+Synthetic storage measurements are documented in [SQLite storage measurements](sqlite-measurements.md).
 
 Back up before upgrading to object schema version 4. Startup transactionally centralizes the current application schema and adds conservative structural checks for object JSON, property metadata, revisions, and saved-view history without changing existing objects, views, conversations, visitor identities, labels, revisions, creation receipts, or unrelated tables. Existing version-3 databases are preserved; version-2 databases first add built-in types, core fields, and journal date constraints; version-1 structured writing and history first convert to Markdown in the same transaction, preserving identities and links. Incompatible reserved definitions or existing rows that violate the new structural checks abort rather than overwrite data.
 
