@@ -254,7 +254,7 @@ test('Markdown object links create document-level backlinks and unsafe content s
   assert.equal(sourceResponse.status, 303);
   const sourcePath = sourceResponse.headers.get('location')!.split('?')[0]!;
   const sourceId = sourcePath.split('/').at(-1)!;
-  assert.deepEqual(f.objects.backlinks(targetId), [{ object: f.objects.getObject(sourceId) }]);
+  assert.deepEqual(f.objects.backlinks(targetId).links, [{ object: f.objects.getObjectSummary(sourceId) }]);
   const sourceMarkup = await (await f.get(sourcePath)).text();
   const renderedLinks: string[] = [];
   let executableElements = 0;
@@ -579,8 +579,8 @@ test('view reference candidate lookup rethrows unexpected selected-link failures
     blocks: [{ title: 'Assignments', component: 'board', editable: true, sources: [{ typeId: workType.id, bindings: { group: assigneeProperty } }] }],
   } }, 'Show assignments');
   const view = f.views.publish(draft.id, draft.revision);
-  const original = f.objects.getObject.bind(f.objects);
-  f.objects.getObject = (id: string) => {
+  const original = f.objects.getObjectSummary.bind(f.objects);
+  f.objects.getObjectSummary = (id: string) => {
     if (id === retained.id) throw new AppError(503, 'Selected reference lookup failed.');
     return original(id);
   };
@@ -1200,7 +1200,7 @@ test('history recovery uses current reference and journal validation with atomic
   const referenceId = withReference.propertyIds.at(-1)!;
   const before = f.objects.createObject({ typeId: PAGE_TYPE_ID, title: 'Referenced past', properties: { [referenceId]: [ada.id] }, body: '' });
   const current = f.objects.updateObject(before.id, before.revision, { ...before, properties: {} });
-  assert.equal(f.objects.backlinks(ada.id).length, 0);
+  assert.equal(f.objects.backlinks(ada.id).links.length, 0);
   f.objects.setTrashed(grace.id, grace.revision, true);
   const invalid = await f.post(`/objects/${before.id}/update`, {
     revision: String(current.revision),
@@ -1212,7 +1212,7 @@ test('history recovery uses current reference and journal validation with atomic
   });
   assert.equal(invalid.status, 422);
   assert.equal(f.objects.getObject(before.id).revision, current.revision);
-  assert.equal(f.objects.backlinks(grace.id).length, 0);
+  assert.equal(f.objects.backlinks(grace.id).links.length, 0);
   const valid = await f.post(`/objects/${before.id}/update`, {
     revision: String(current.revision),
     historyRevision: String(before.revision),
@@ -1224,7 +1224,7 @@ test('history recovery uses current reference and journal validation with atomic
   assert.equal(valid.status, 303);
   const recovered = f.objects.getObject(before.id);
   assert.deepEqual(recovered.properties[referenceId], [ada.id]);
-  assert.equal(f.objects.backlinks(ada.id).length, 1);
+  assert.equal(f.objects.backlinks(ada.id).links.length, 1);
 
   const first = f.objects.openJournal('2026-09-25');
   const second = f.objects.openJournal('2026-09-26');
@@ -1460,4 +1460,40 @@ test('historical extra reference selections survive draft open, type switch and 
   assert.ok(/<option[^>]*selected[^>]*>Grace Modified/.test(rejectedMarkup));
   assert.ok(rejectedMarkup.includes('value="not-a-number"'));
   assert.deepEqual(f.objects.getObject(before.id), current);
+});
+
+test('object backlinks use bounded native pages and reject invalid offsets without losing drafts', async t => {
+  const f = await setup(t, async () => { throw new Error('Not used'); });
+  const target = f.objects.createObject({ typeId: PAGE_TYPE_ID, title: 'Target', properties: {}, body: '' });
+  for (let index = 0; index < 54; index++) {
+    f.objects.createObject({ typeId: PAGE_TYPE_ID, title: `Source ${String(index).padStart(2, '0')}`, properties: {}, body: `[Target](/objects/${target.id})` });
+  }
+  const first = await f.get(`/objects/${target.id}`);
+  assert.equal(first.status, 200);
+  const firstMarkup = await first.text();
+  assert.ok(firstMarkup.includes('aria-label="Backlink pages"'));
+  assert.ok(firstMarkup.includes(`backlinksOffset=50#object-backlinks`));
+  assert.ok(!firstMarkup.includes('No other objects link here yet.'));
+  const second = await f.get(`/objects/${target.id}?backlinksOffset=50#object-backlinks`);
+  assert.equal(second.status, 200);
+  const secondMarkup = await second.text();
+  assert.ok(secondMarkup.includes('>Previous</a>'));
+  assert.ok(!secondMarkup.includes('>Next</a>'));
+  assert.equal((secondMarkup.match(/Source /g) ?? []).length, 4);
+  const invalid = await f.get(`/objects/${target.id}?backlinksOffset=-1`);
+  assert.equal(invalid.status, 422);
+  const repeated = await f.get(`/objects/${target.id}?backlinksOffset=0&backlinksOffset=50`);
+  assert.equal(repeated.status, 422);
+  const concurrent = f.objects.updateObject(target.id, target.revision, { ...target, title: 'Target changed' });
+  const stale = await f.post(`/objects/${target.id}/update?backlinksOffset=50`, {
+    revision: String(target.revision),
+    typeId: PAGE_TYPE_ID,
+    title: 'Unsaved target draft',
+    body: 'Unsaved body',
+  });
+  assert.equal(stale.status, 409);
+  const staleMarkup = await stale.text();
+  assert.ok(staleMarkup.includes('Unsaved target draft'));
+  assert.ok(staleMarkup.includes(`backlinksOffset=0#object-backlinks`));
+  assert.equal(f.objects.getObject(target.id).title, concurrent.title);
 });

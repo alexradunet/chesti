@@ -52,16 +52,20 @@ export interface ObjectType {
   revision: number;
 }
 export type PropertyValue = string | number | boolean | string[] | { start: string; end: string; timeZone?: string };
-export interface ObjectRecord {
+export interface ObjectSummary {
   id: string;
   typeId: string;
   title: string;
-  properties: Record<string, PropertyValue>;
-  body: string;
   revision: number;
   createdAt: string;
   updatedAt: string;
   trashed: boolean;
+}
+export interface ViewObjectRecord extends ObjectSummary {
+  properties: Record<string, PropertyValue>;
+}
+export interface ObjectRecord extends ViewObjectRecord {
+  body: string;
 }
 export interface Catalog { types: ObjectType[]; properties: PropertyDefinition[] }
 export interface NewPropertyDraft {
@@ -127,9 +131,9 @@ export interface SavedView {
   createdAt: string;
   updatedAt: string;
 }
-export interface ViewRow { object: ObjectRecord; bindings: Record<string, string> }
+export interface ViewRow { object: ViewObjectRecord; bindings: Record<string, string> }
 export interface EvaluatedBlock { definition: ViewBlock; rows: ViewRow[]; truncated: boolean; error?: string }
-export interface EvaluatedView { view: SavedView; blocks: EvaluatedBlock[]; input?: ObjectRecord }
+export interface EvaluatedView { view: SavedView; blocks: EvaluatedBlock[]; input?: ObjectSummary }
 export interface GeneratedView { spec: ViewSpec; model: string }
 export type ViewGenerator = (prompt: string, catalog: Catalog, options?: { signal?: AbortSignal; previous?: ViewSpec; history?: string[] }) => Promise<GeneratedView>;
 export interface ViewConversationTurn {
@@ -146,7 +150,8 @@ export interface ViewConversation {
   turns: ViewConversationTurn[];
 }
 
-export interface Backlink { object: ObjectRecord; propertyId?: string }
+export interface Backlink { object: ObjectSummary; propertyId?: string }
+export interface BacklinkPage { links: Backlink[]; offset: number; hasMore: boolean }
 export interface ObjectPageModel {
   csrf: string;
   path: string;
@@ -154,7 +159,7 @@ export interface ObjectPageModel {
   section?: 'calendar' | 'tasks';
   catalog: Catalog;
   views: SavedView[];
-  objects: ObjectRecord[];
+  objects: ObjectSummary[];
   typeCounts?: Record<string, number>;
   browseLayout?: 'list' | 'gallery';
   objectExcerpts?: Record<string, string>;
@@ -170,6 +175,7 @@ export interface ObjectPageModel {
   newPropertyDraft?: NewPropertyDraft;
   evaluatedView?: EvaluatedView;
   backlinks?: Backlink[];
+  backlinksPage?: BacklinkPage;
   search?: string;
   selectedTypeId?: string;
   notice?: string;

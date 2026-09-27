@@ -2,7 +2,7 @@ import { Value } from 'typebox/value';
 import { AppError } from '../core.js';
 import { validDate, validDateTime } from './values.js';
 import { ViewSpecSchema } from './model.js';
-import type { Catalog, EvaluatedBlock, EvaluatedView, ObjectRecord, PropertyDefinition, PropertyValue, SavedView, ViewSource, ViewSpec } from './model.js';
+import type { Catalog, EvaluatedBlock, EvaluatedView, ObjectRecord, ObjectSummary, PropertyDefinition, PropertyValue, SavedView, ViewObjectRecord, ViewSource, ViewSpec } from './model.js';
 import type { ObjectRuntime } from './runtime.js';
 
 type Filter = NonNullable<ViewSource['where']>[number];
@@ -12,7 +12,7 @@ interface ViewRowData {
   prompt: string; model: string; schema_json: string; created_at: string; updated_at: string; deleted: number;
 }
 interface ObjectRowData {
-  id: string; type_id: string; title: string; properties_json: string; body: string;
+  id: string; type_id: string; title: string; properties_json: string;
   revision: number; created_at: string; updated_at: string; trashed: number; source_index: number;
 }
 const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
@@ -123,8 +123,8 @@ function saved(row: ViewRowData): SavedView {
   return { id: row.id, revision: row.revision, status: row.status, spec: JSON.parse(row.spec_json) as ViewSpec,
     prompt: row.prompt, model: row.model, createdAt: row.created_at, updatedAt: row.updated_at };
 }
-function objectRecord(row: ObjectRowData): ObjectRecord {
-  return { id: row.id, typeId: row.type_id, title: row.title, properties: JSON.parse(row.properties_json), body: row.body,
+function viewObject(row: ObjectRowData): ViewObjectRecord {
+  return { id: row.id, typeId: row.type_id, title: row.title, properties: JSON.parse(row.properties_json),
     revision: row.revision, createdAt: row.created_at, updatedAt: row.updated_at, trashed: Boolean(row.trashed) };
 }
 // Only validated UUIDs enter these JSON paths; all comparison values are bound parameters.
@@ -231,14 +231,14 @@ export class ViewService {
           const order = source.orderBy;
           const property = order ? properties.get(order.propertyId)! : undefined;
           const sort = property ? comparable(property) : 'NULL';
-          return `SELECT o.id, o.type_id, o.title, o.properties_json, o.body, o.revision, o.created_at, o.updated_at, o.trashed,
+          return `SELECT o.id, o.type_id, o.title, o.properties_json, o.revision, o.created_at, o.updated_at, o.trashed,
             ${index} AS source_index, ${property ? `CASE WHEN ${emptyExpression(property)} THEN 1 ELSE 0 END` : '0'} AS sort_missing,
             ${order?.direction === 'ascending' ? sort : 'NULL'} AS sort_ascending,
             ${order?.direction === 'descending' ? sort : 'NULL'} AS sort_descending
             FROM objects AS o WHERE ${predicate.sql}`;
         });
         const rows = this.objects.db.query<ObjectRowData, SqlValue[]>(`${sources.join(' UNION ALL ')} ORDER BY source_index ASC, sort_missing ASC, sort_ascending ASC, sort_descending DESC, title COLLATE NOCASE ASC, id ASC LIMIT 101`).all(...values);
-        return { definition, truncated: rows.length > 100, rows: rows.slice(0, 100).map(result => ({ object: objectRecord(result), bindings: definition.sources[result.source_index]!.bindings })) };
+        return { definition, truncated: rows.length > 100, rows: rows.slice(0, 100).map(result => ({ object: viewObject(result), bindings: definition.sources[result.source_index]!.bindings })) };
       });
       return { view, blocks, ...(input ? { input } : {}) };
     })();
@@ -285,11 +285,11 @@ export class ViewService {
       throw new AppError(409, 'This saved view is incompatible with the current schema. Generate a revised view; the objects are unchanged.');
     }
   }
-  private input(spec: ViewSpec, id?: string): ObjectRecord | undefined {
+  private input(spec: ViewSpec, id?: string): ObjectSummary | undefined {
     if (!id) return undefined;
     if (!spec.input) invalid('This view does not accept an input object.');
-    let object: ObjectRecord;
-    try { object = this.objects.getObject(id); }
+    let object: ObjectSummary;
+    try { object = this.objects.getObjectSummary(id); }
     catch (error) {
       if (error instanceof AppError && error.status === 404) return invalid('Choose an existing object of the input type.');
       throw error;

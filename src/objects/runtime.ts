@@ -5,19 +5,23 @@ import { fingerprint } from './fingerprint.js';
 import { validDate, valueError } from './values.js';
 import { markdownReferences, markdownText, validateMarkdown } from './markdown.js';
 import { EVENT_DATES_PROPERTY_ID, EVENT_TIME_PROPERTY_ID, EVENT_TYPE_ID, JOURNAL_DATE_PROPERTY_ID, JOURNAL_TYPE_ID, REMINDER_DATE_PROPERTY_ID, REMINDER_TIME_PROPERTY_ID, REMINDER_TYPE_ID, TASK_DONE_PROPERTY_ID, TASK_TYPE_ID } from './model.js';
-import type { Backlink, Catalog, ObjectListOptions, ObjectRecord, ObjectRevisionSummary, ObjectType, ObjectWrite, PropertyDefinition, PropertyKind, PropertyValue } from './model.js';
+import type { BacklinkPage, Catalog, ObjectListOptions, ObjectRecord, ObjectRevisionSummary, ObjectSummary, ObjectType, ObjectWrite, PropertyDefinition, PropertyKind, PropertyValue } from './model.js';
 
 const ID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 const KINDS: Record<PropertyKind, true> = { text: true, number: true, boolean: true, date: true, datetime: true, select: true, reference: true, 'date-range': true, 'time-range': true };
 const JOURNAL_DATE_PATH = `$."${JOURNAL_DATE_PROPERTY_ID}"`;
 interface TypeRow { id: string; name: string; property_ids_json: string; revision: number }
 interface PropertyRow { id: string; label: string; kind: PropertyKind; options_json: string | null; target_type_id: string | null; multiple: number; revision: number }
-interface ObjectRow { id: string; type_id: string; title: string; properties_json: string; body: string; revision: number; created_at: string; updated_at: string; trashed: number }
+interface ObjectSummaryRow { id: string; type_id: string; title: string; revision: number; created_at: string; updated_at: string; trashed: number }
+interface ObjectRow extends ObjectSummaryRow { properties_json: string; body: string }
 interface RevisionRow { revision: number; snapshot_json: string; recorded_at: string }
 interface RevisionSummaryRow { revision: number; recorded_at: string; title: string; type_id: string; trashed: number }
 
+function objectSummary(row: ObjectSummaryRow): ObjectSummary {
+  return { id: row.id, typeId: row.type_id, title: row.title, revision: row.revision, createdAt: row.created_at, updatedAt: row.updated_at, trashed: row.trashed === 1 };
+}
 function objectRecord(row: ObjectRow): ObjectRecord {
-  return { id: row.id, typeId: row.type_id, title: row.title, properties: JSON.parse(row.properties_json), body: row.body, revision: row.revision, createdAt: row.created_at, updatedAt: row.updated_at, trashed: row.trashed === 1 };
+  return { ...objectSummary(row), properties: JSON.parse(row.properties_json), body: row.body };
 }
 function snapshotRecord(value: string): ObjectRecord {
   const record = JSON.parse(value) as ObjectRecord;
@@ -43,6 +47,32 @@ function revisionIs(current: number, supplied: number): void {
 function plainObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value) && (Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null);
 }
+
+type BrowseShape = { where: string; values: (string | number)[] };
+function browseShape(options: ObjectListOptions): BrowseShape {
+  if (options.search !== undefined && (typeof options.search !== 'string' || options.search.length > 200)) throw new AppError(422, 'Search must be at most 200 characters.');
+  if (options.trashed !== undefined && typeof options.trashed !== 'boolean') throw new AppError(422, 'Invalid trash filter.');
+  const values: (string | number)[] = [options.trashed ? 1 : 0];
+  const predicates = ['trashed = ?'];
+  if (options.typeId) {
+    if (typeof options.typeId !== 'string' || !ID.test(options.typeId)) throw new AppError(422, 'Invalid type filter.');
+    predicates.push('type_id = ?');
+    values.push(options.typeId);
+  }
+  if (options.search?.length) {
+    const pattern = `%${options.search.replace(/[\\%_]/g, '\\$&')}%`;
+    predicates.push("(title LIKE ? ESCAPE '\\' OR body_text LIKE ? ESCAPE '\\')");
+    values.push(pattern, pattern);
+  }
+  return { where: predicates.join(' AND '), values };
+}
+function browseBounds(options: ObjectListOptions): { limit: number; offset: number } {
+  const limit = options.limit ?? 50;
+  const offset = options.offset ?? 0;
+  if (!Number.isInteger(limit) || limit < 1 || limit > 200 || !Number.isInteger(offset) || offset < 0 || offset > 1_000_000) throw new AppError(422, 'Invalid browse limit or offset.');
+  return { limit, offset };
+}
+
 export class ObjectRuntime {
   constructor(readonly db: Database) {
     initializeApplicationSchema(db);
@@ -127,6 +157,11 @@ export class ObjectRuntime {
     if (!row) throw new AppError(404, 'Object not found.');
     return objectRecord(row);
   }
+  getObjectSummary(id: string): ObjectSummary {
+    const row = this.db.query<ObjectSummaryRow, [string]>('SELECT id, type_id, title, revision, created_at, updated_at, trashed FROM objects WHERE id = ?').get(id);
+    if (!row) throw new AppError(404, 'Object not found.');
+    return objectSummary(row);
+  }
   listObjectHistory(id: string, offset = 0): { revisions: ObjectRevisionSummary[]; hasMore: boolean } {
     if (typeof id !== 'string' || !ID.test(id)) throw new AppError(422, 'Invalid object ID.');
     this.getObject(id);
@@ -168,15 +203,18 @@ export class ObjectRuntime {
     }).immediate();
   }
   listObjects(options: ObjectListOptions = {}): ObjectRecord[] {
-    const limit = options.limit ?? 50;
-    const offset = options.offset ?? 0;
-    if (!Number.isInteger(limit) || limit < 1 || limit > 200 || !Number.isInteger(offset) || offset < 0 || offset > 1_000_000) throw new AppError(422, 'Invalid browse limit or offset.');
-    if (options.search !== undefined && (typeof options.search !== 'string' || options.search.length > 200)) throw new AppError(422, 'Search must be at most 200 characters.');
-    if (options.trashed !== undefined && typeof options.trashed !== 'boolean') throw new AppError(422, 'Invalid trash filter.');
+    const { limit, offset } = browseBounds(options);
     if (options.typeId) this.getType(options.typeId);
-    const pattern = `%${(options.search ?? '').replace(/[\\%_]/g, '\\$&')}%`;
-    return this.db.query<ObjectRow, [number, string | null, string | null, string, string, number, number]>(`SELECT * FROM objects WHERE trashed = ? AND (? IS NULL OR type_id = ?)
-      AND (title LIKE ? ESCAPE '\\' OR body_text LIKE ? ESCAPE '\\') ORDER BY updated_at DESC, id LIMIT ? OFFSET ?`).all(options.trashed ? 1 : 0, options.typeId ?? null, options.typeId ?? null, pattern, pattern, limit, offset).map(objectRecord);
+    const shape = browseShape(options);
+    return this.db.query<ObjectRow, (string | number)[]>(`SELECT * FROM objects WHERE ${shape.where} ORDER BY updated_at DESC, id LIMIT ? OFFSET ?`)
+      .all(...shape.values, limit, offset).map(objectRecord);
+  }
+  listObjectSummaries(options: ObjectListOptions = {}): ObjectSummary[] {
+    const { limit, offset } = browseBounds(options);
+    if (options.typeId) this.getType(options.typeId);
+    const shape = browseShape(options);
+    return this.db.query<ObjectSummaryRow, (string | number)[]>(`SELECT id, type_id, title, revision, created_at, updated_at, trashed FROM objects WHERE ${shape.where} ORDER BY updated_at DESC, id LIMIT ? OFFSET ?`)
+      .all(...shape.values, limit, offset).map(objectSummary);
   }
   countObjectsByType(trashed = false): Record<string, number> {
     const rows = this.db.query<{ type_id: string; count: number }, [number]>(
@@ -266,10 +304,18 @@ export class ObjectRuntime {
       return this.getObject(id);
     }).immediate();
   }
-  backlinks(id: string): Backlink[] {
+  backlinks(id: string, offset = 0): BacklinkPage {
     this.getObject(id);
-    const rows = this.db.query<ObjectRow & { property_id: string }, [string]>(`SELECT o.*, r.property_id FROM object_references r JOIN objects o ON o.id = r.source_id WHERE r.target_id = ? ORDER BY o.updated_at DESC, o.id, r.property_id`).all(id);
-    return rows.map(row => ({ object: objectRecord(row), ...(row.property_id ? { propertyId: row.property_id } : {}) }));
+    if (!Number.isInteger(offset) || offset < 0 || offset > 1_000_000) throw new AppError(422, 'Invalid backlinks page.');
+    const limit = 50;
+    const rows = this.db.query<ObjectSummaryRow & { property_id: string }, [string, number, number]>(`SELECT o.id, o.type_id, o.title, o.revision, o.created_at, o.updated_at, o.trashed, r.property_id
+      FROM object_references r JOIN objects o ON o.id = r.source_id
+      WHERE r.target_id = ? ORDER BY o.updated_at DESC, o.id, r.property_id LIMIT ? OFFSET ?`).all(id, limit + 1, offset);
+    return {
+      links: rows.slice(0, limit).map(row => ({ object: objectSummary(row), ...(row.property_id ? { propertyId: row.property_id } : {}) })),
+      offset,
+      hasMore: rows.length > limit,
+    };
   }
 
   private validateShape(input: ObjectWrite): ObjectWrite {

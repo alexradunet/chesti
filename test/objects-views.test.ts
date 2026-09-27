@@ -281,3 +281,19 @@ test('new built-in tasks appear as incomplete and creation retries cannot reset 
   assert.deepEqual(f.objects.createObject(input, requestId), completed);
   assert.throws(() => f.objects.createObject({ ...input, properties: { [TASK_DONE_PROPERTY_ID]: false } }, requestId), status(409));
 });
+
+test('view evaluation uses body-free object projections while commands reload canonical bodies', t => {
+  const f = fixture(t);
+  const tasks = f.objects.createType('Body-free tasks');
+  const done = f.property(tasks, 'Done', 'boolean');
+  const task = f.objects.createObject({ typeId: tasks.id, title: 'Keep body', properties: { [done.id]: false }, body: 'Exact **Markdown** body.' });
+  const spec: ViewSpec = { title: 'Board', blocks: [{ title: 'Tasks', component: 'board', editable: true, sources: [{ typeId: tasks.id, bindings: { group: done.id } }] }] };
+  const draft = f.views.create({ spec, model: 'test/model' }, 'Show body-free rows');
+  const view = f.views.publish(draft.id, draft.revision);
+  const row = f.views.evaluate(view.id).blocks[0]!.rows[0]!;
+  assert.equal(row.object.id, task.id);
+  assert.equal(Object.hasOwn(row.object as object, 'body'), false);
+  const changed = f.views.act(view.id, view.revision, 0, task.id, row.object.revision, 'group', true);
+  assert.equal(changed.body, 'Exact **Markdown** body.');
+  assert.equal(f.objects.getObject(task.id).body, 'Exact **Markdown** body.');
+});

@@ -104,7 +104,7 @@ test('version-1 upgrade preserves writing formats, UUID links, revisions and unr
   assert.match(html, /src="https:\/\/example.com\/a\(b\).png\?a=1&amp;b=2" alt="Picture \[one\]" title="Caption &quot;quoted&quot;"/);
   assert.match(html, /href="https:\/\/example.com\/a\(b\)\?a=1&amp;b=2" title="A title"/);
   assert.deepEqual(markdownReferences(converted.body), [targetId]);
-  assert.deepEqual(runtime.backlinks(targetId).map(link => link.propertyId ?? 'writing').sort(), [propertyId, 'writing'].sort());
+  assert.deepEqual(runtime.backlinks(targetId).links.map(link => link.propertyId ?? 'writing').sort(), [propertyId, 'writing'].sort());
   assert.ok(runtime.listObjects({ search: 'Second quoted paragraph' }).some(object => object.id === sourceId));
   assert.ok(markdownText(converted.body).includes('A [person]'));
   const history = db.query<{ snapshot_json: string; recorded_at: string }, []>('SELECT snapshot_json, recorded_at FROM object_revisions').get()!;
@@ -192,7 +192,7 @@ test('emphasis survives punctuation, whitespace and changing marks in live and h
   const { document: _originalDocument, ...originalMetadata } = original;
   assert.deepEqual(converted, { ...metadata, body: converted.body });
   assert.deepEqual(history, { ...originalMetadata, body: converted.body });
-  assert.deepEqual(runtime.backlinks(targetId).map(link => link.propertyId ?? 'writing').sort(), [propertyId, 'writing'].sort());
+  assert.deepEqual(runtime.backlinks(targetId).links.map(link => link.propertyId ?? 'writing').sort(), [propertyId, 'writing'].sort());
   assert.deepEqual(runtime.createObject({ ...originalMetadata, body: history.body }, requestId), converted);
 });
 
@@ -241,7 +241,7 @@ test('blank paragraphs preserve source boundaries without merging nested items o
   assert.match(html, /<\/ul>\s*<ul>\s*<li>Independent<\/li>\s*<\/ul>/);
   assert.equal(markdownText(converted.body).replace(/\s+/g, ' ').trim(), 'Before Quoted Quote end First Nested Nested sibling First end Second Independent Person');
   assert.deepEqual(markdownReferences(converted.body), [targetId]);
-  assert.deepEqual(runtime.backlinks(targetId).map(link => link.object.id), [sourceId]);
+  assert.deepEqual(runtime.backlinks(targetId).links.map(link => link.object.id), [sourceId]);
   const { document: _currentDocument, ...metadata } = current;
   assert.deepEqual(converted, { ...metadata, body: converted.body });
   const { document: _originalDocument, ...originalMetadata } = original;

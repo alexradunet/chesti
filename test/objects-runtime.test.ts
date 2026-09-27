@@ -82,7 +82,7 @@ test('typed references and mentions retain provenance through trash and restore 
   const comment = page.propertyIds[1]!;
   const mention = `People: [${person.title}](/objects/${person.id})\n\n[Again](/objects/${person.id})`;
   const note = runtime.createObject({ ...input(page.id, 'Meeting', { [references]: [person.id, another.id] }), body: mention });
-  const backlinks = runtime.backlinks(person.id);
+  const backlinks = runtime.backlinks(person.id).links;
   assert.equal(backlinks.length, 2);
   assert.ok(backlinks.some(link => link.object.id === note.id && link.propertyId === references));
   assert.ok(backlinks.some(link => link.object.id === note.id && link.propertyId === undefined));
@@ -93,7 +93,7 @@ test('typed references and mentions retain provenance through trash and restore 
   const trashed = runtime.setTrashed(person.id, person.revision, true);
   const edited = runtime.patchProperties(note.id, note.revision, { [comment]: 'Still editable' });
   assert.deepEqual(edited.properties[references], [person.id, another.id]);
-  assert.equal(runtime.backlinks(person.id).length, 2);
+  assert.equal(runtime.backlinks(person.id).links.length, 2);
   assert.throws(() => runtime.createObject(input(page.id, 'New forbidden reference', { [references]: [person.id] })), status(422));
   assert.throws(() => runtime.createObject({ ...input(page.id, 'New forbidden mention'), body: mention }), status(422));
   assert.equal(runtime.listObjects().some(object => object.id === person.id), false);
@@ -101,10 +101,10 @@ test('typed references and mentions retain provenance through trash and restore 
   const restored = runtime.setTrashed(person.id, trashed.revision, false);
   assert.equal(restored.id, person.id);
   assert.equal(restored.typeId, people.id);
-  assert.equal(runtime.backlinks(person.id).length, 2);
+  assert.equal(runtime.backlinks(person.id).links.length, 2);
   const removed = runtime.patchProperties(edited.id, edited.revision, { [references]: null });
   assert.equal(removed.properties[references], undefined);
-  assert.equal(runtime.backlinks(person.id).length, 1);
+  assert.equal(runtime.backlinks(person.id).links.length, 1);
 });
 
 test('idempotent creation fingerprints exact Markdown source and rejects mismatched requests', t => {
@@ -319,4 +319,71 @@ test('object history browsing is bounded, object-scoped and nonmutating', t => {
   assert.throws(() => runtime.getObjectRevision(first.id, 0), status(422));
   assert.throws(() => runtime.getObjectRevision(first.id, 999), status(404));
   assert.throws(() => runtime.getObjectRevision(other.id, first.revision), status(404));
+});
+
+test('typed browse summaries match full browse without loading bodies and use type index', t => {
+  const { db, runtime } = fixture(t);
+  const other = runtime.createType('Other');
+  const typedIds: string[] = [];
+  for (let index = 0; index < 12; index++) {
+    const record = runtime.createObject(input(PAGE_TYPE_ID, `Typed ${index}`, {}, index === 3 ? 'literal 100%_\\ needle' : 'body'));
+    typedIds.push(record.id);
+  }
+  for (let index = 0; index < 40; index++) runtime.createObject(input(other.id, `Other ${index}`, {}, 'needle'));
+  const full = runtime.listObjects({ typeId: PAGE_TYPE_ID, search: '100%_\\ needle' });
+  const summaries = runtime.listObjectSummaries({ typeId: PAGE_TYPE_ID, search: '100%_\\ needle' });
+  assert.deepEqual(summaries.map(object => object.id), full.map(object => object.id));
+  assert.equal(full[0]?.body, 'literal 100%_\\ needle');
+  assert.equal(Object.hasOwn(summaries[0] as object, 'body'), false);
+  assert.equal(Object.hasOwn(summaries[0] as object, 'properties'), false);
+  const plan = db.query<{ detail: string }, [number, string]>('EXPLAIN QUERY PLAN SELECT id, type_id, title, revision, created_at, updated_at, trashed FROM objects WHERE trashed = ? AND type_id = ? ORDER BY updated_at DESC, id LIMIT 51 OFFSET 0').all(0, PAGE_TYPE_ID).map(row => row.detail).join('\n');
+  assert.match(plan, /objects_type_browse/);
+  assert.deepEqual(runtime.listObjectSummaries({ typeId: PAGE_TYPE_ID, limit: 3, offset: 2 }).map(object => object.id), runtime.listObjects({ typeId: PAGE_TYPE_ID, limit: 3, offset: 2 }).map(object => object.id));
+  assert.ok(typedIds.length);
+});
+
+test('backlinks are paginated deterministically without dropping edges or loading bodies', t => {
+  const { db, runtime } = fixture(t);
+  const people = runtime.createType('Person');
+  const target = runtime.createObject(input(people.id, 'Ada'));
+  let page = runtime.getType(PAGE_TYPE_ID);
+  page = runtime.addProperty(page.id, page.revision, { label: 'Person', kind: 'reference', targetTypeId: people.id, multiple: false });
+  const reference = page.propertyIds[0]!;
+  const ids: string[] = [];
+  for (let index = 0; index < 104; index++) {
+    const source = runtime.createObject(input(page.id, `Source ${String(index).padStart(3, '0')}`, { [reference]: target.id }, `[Ada](/objects/${index === 0 ? target.id.toUpperCase() : target.id})`));
+    ids.push(source.id);
+  }
+  const trashed = runtime.setTrashed(ids[1]!, runtime.getObject(ids[1]!).revision, true);
+  assert.equal(trashed.trashed, true);
+  db.query('UPDATE objects SET updated_at = ? WHERE id IN (SELECT source_id FROM object_references WHERE target_id = ?)').run('2026-01-01T00:00:00.000Z', target.id);
+  const beforeHistory = db.query<{ count: number }, []>('SELECT COUNT(*) AS count FROM object_revisions').get()!.count;
+  const beforeEdges = db.query<{ count: number }, []>('SELECT COUNT(*) AS count FROM object_references').get()!.count;
+  const first = runtime.backlinks(target.id);
+  const second = runtime.backlinks(target.id, 50);
+  const third = runtime.backlinks(target.id, 100);
+  const fourth = runtime.backlinks(target.id, 150);
+  const fifth = runtime.backlinks(target.id, 200);
+  assert.equal(first.links.length, 50);
+  assert.equal(first.offset, 0);
+  assert.equal(first.hasMore, true);
+  assert.equal(second.links.length, 50);
+  assert.equal(second.hasMore, true);
+  assert.equal(third.links.length, 50);
+  assert.equal(third.hasMore, true);
+  assert.equal(fourth.links.length, 50);
+  assert.equal(fourth.hasMore, true);
+  assert.equal(fifth.links.length, 8);
+  assert.equal(fifth.hasMore, false);
+  assert.equal(runtime.backlinks(target.id, 250).links.length, 0);
+  const allLinks = [...first.links, ...second.links, ...third.links, ...fourth.links, ...fifth.links];
+  assert.ok(allLinks.some(link => link.object.trashed));
+  assert.ok(allLinks.some(link => link.object.id === ids[0] && link.propertyId === reference));
+  assert.ok(allLinks.some(link => link.object.id === ids[0] && link.propertyId === undefined));
+  assert.deepEqual(allLinks.map(link => `${link.object.id}:${link.propertyId ?? ''}`), allLinks.map(link => `${link.object.id}:${link.propertyId ?? ''}`).sort());
+  assert.equal(Object.hasOwn(first.links[0]!.object as object, 'body'), false);
+  assert.throws(() => runtime.backlinks(target.id, -1), status(422));
+  assert.throws(() => runtime.backlinks(target.id, 1_000_001), status(422));
+  assert.equal(db.query<{ count: number }, []>('SELECT COUNT(*) AS count FROM object_revisions').get()!.count, beforeHistory);
+  assert.equal(db.query<{ count: number }, []>('SELECT COUNT(*) AS count FROM object_references').get()!.count, beforeEdges);
 });

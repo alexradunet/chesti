@@ -3,12 +3,12 @@ import { raw } from 'hono/html';
 import { renderMarkdown } from './markdown.js';
 import { Badge, Button, ButtonLink, EmptyState, Icon, PageHeading, type IconName } from './ui.js';
 import { BUILTIN_PROPERTIES, BUILTIN_TYPES, EVENT_DATES_PROPERTY_ID, EVENT_TIME_PROPERTY_ID, EVENT_TYPE_ID, JOURNAL_DATE_PROPERTY_ID, JOURNAL_TYPE_ID, PAGE_TYPE_ID, REMINDER_DATE_PROPERTY_ID, REMINDER_TIME_PROPERTY_ID, REMINDER_TYPE_ID, TASK_DONE_PROPERTY_ID, TASK_DUE_PROPERTY_ID, TASK_TYPE_ID } from './model.js';
-import type { EvaluatedBlock, ObjectPageModel, ObjectRecord, PropertyDefinition, PropertyValue, SavedView, ViewRow } from './model.js';
+import type { EvaluatedBlock, ObjectPageModel, ObjectSummary, PropertyDefinition, PropertyValue, SavedView, ViewRow } from './model.js';
 
 const Hidden = ({ name, value }: { name: string; value: string | number }) => <input type="hidden" name={name} value={value} />;
 const Token = ({ model }: { model: ObjectPageModel }) => <Hidden name="csrf" value={model.csrf} />;
 const State = ({ message, error = false }: { message?: string; error?: boolean }) => <p class={`form-state${error ? ' error' : ''}`} data-form-state="" role={error ? 'alert' : 'status'} aria-live={error ? 'assertive' : 'polite'}>{message}</p>;
-const titleOf = (record: ObjectRecord) => record.title || 'Untitled';
+const titleOf = (record: ObjectSummary) => record.title || 'Untitled';
 const objectIdentity = (id: string) => id.toLowerCase();
 const sameObjectIdentity = (left: string, right: string) => objectIdentity(left) === objectIdentity(right);
 const objectUrl = (id: string) => `/objects/${encodeURIComponent(objectIdentity(id))}`;
@@ -450,7 +450,11 @@ function ObjectEditor({ model }: { model: ObjectPageModel }) {
       </details>}
       <section id="object-backlinks" class="backlinks" tabindex={-1}>
         <h2>Linked from</h2>
-        {model.backlinks?.length ? <ul>{model.backlinks.map(link => <li><a href={objectUrl(link.object.id)}>{titleOf(link.object)}</a>{link.propertyId && <span class="muted"> via {propertyOf(model, link.propertyId)?.label ?? 'property'}</span>}</li>)}</ul> : <p class="muted">No other objects link here yet.</p>}
+        {model.backlinks?.length ? <ul>{model.backlinks.map(link => <li><a href={objectUrl(link.object.id)}>{titleOf(link.object)}</a>{link.object.trashed && <span class="muted"> · in trash</span>}{link.propertyId && <span class="muted"> via {propertyOf(model, link.propertyId)?.label ?? 'property'}</span>}</li>)}</ul> : model.backlinksPage ? <p class="muted">No other objects link here yet.</p> : <p class="muted">Linked objects are unavailable while reviewing this draft.</p>}
+        {model.backlinksPage && <nav class="pagination" aria-label="Backlink pages">
+          {model.backlinksPage.offset > 0 && <a href={`${objectUrl(record.id)}?backlinksOffset=${Math.max(0, model.backlinksPage.offset - 50)}#object-backlinks`}>Previous</a>}
+          {model.backlinksPage.hasMore && <a href={`${objectUrl(record.id)}?backlinksOffset=${model.backlinksPage.offset + 50}#object-backlinks`}>Next</a>}
+        </nav>}
       </section>
       <form class="trash-form" method="post" action={`/objects/${record.id}/${record.trashed ? 'restore' : 'trash'}`} data-enhance="">
         <Token model={model} /><Hidden name="revision" value={record.revision} />

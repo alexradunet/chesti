@@ -4,7 +4,7 @@ import type { Visitor } from '../visitors.js';
 import { validateMarkdown } from './markdown.js';
 import { valueError } from './values.js';
 import { IdSchema, JOURNAL_DATE_PROPERTY_ID, JOURNAL_TYPE_ID, PAGE_TYPE_ID, TASK_TYPE_ID } from './model.js';
-import type { EvaluatedView, ObjectLookupResult, ObjectPageModel, ObjectRecord, ObjectWrite, PropertyDefinition, PropertyKind, PropertyValue, SavedView, ViewConversation, ViewGenerator } from './model.js';
+import type { EvaluatedView, ObjectLookupResult, ObjectPageModel, ObjectRecord, ObjectSummary, ObjectWrite, PropertyDefinition, PropertyKind, PropertyValue, SavedView, ViewConversation, ViewGenerator } from './model.js';
 import type { ObjectRuntime } from './runtime.js';
 import { ViewService } from './views.js';
 import { generateView } from './generator.js';
@@ -94,6 +94,17 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
     };
     const page = (status = 200) => new Response(renderObjectWorkspace(model), { status, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
     const go = (path: string) => new Response(null, { status: 303, headers: { Location: path } });
+    const backlinksOffset = () => {
+      if (url.searchParams.getAll('backlinksOffset').length > 1) throw new AppError(422, 'Invalid backlinks page.');
+      const value = url.searchParams.get('backlinksOffset') ?? '0';
+      if (!/^\d{1,7}$/.test(value) || Number(value) > 1_000_000) throw new AppError(422, 'Invalid backlinks page.');
+      return Number(value);
+    };
+    const loadBacklinks = (id: string, offset = backlinksOffset()) => {
+      const page = objects.backlinks(id, offset);
+      model.backlinks = page.links;
+      model.backlinksPage = page;
+    };
     const pickerObjects = (propertySets: (Record<string, PropertyValue> | undefined)[] = [model.object?.properties, model.objectDraft?.properties]) => {
       // ObjectEditor renders all type fields for enhanced switching, plus retained
       // properties on existing objects and historical drafts. Match that set,
@@ -123,13 +134,13 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
       for (const property of catalog.properties) {
         if (propertyIds.has(property.id) && property.kind === 'reference' && property.targetTypeId) targetTypes.add(property.targetTypeId);
       }
-      const byId = new Map<string, ObjectRecord>();
-      const add = (record: ObjectRecord) => byId.set(record.id.toLowerCase(), record);
-      for (const typeId of targetTypes) for (const record of objects.listObjects({ typeId, limit: 200 })) add(record);
+      const byId = new Map<string, ObjectSummary>();
+      const add = (record: ObjectSummary) => byId.set(record.id.toLowerCase(), record);
+      for (const typeId of targetTypes) for (const record of objects.listObjectSummaries({ typeId, limit: 200 })) add(record);
       for (const [key, id] of selectedIds) {
         if (byId.has(key)) continue;
         try {
-          add(objects.getObject(id));
+          add(objects.getObjectSummary(id));
         } catch (error) {
           if (error instanceof AppError && error.status === 404) continue;
           throw error;
@@ -138,10 +149,10 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
       return [...byId.values()];
     };
     const viewObjects = (evaluated: EvaluatedView) => {
-      const byId = new Map<string, ObjectRecord>();
+      const byId = new Map<string, ObjectSummary>();
       const targetTypes = new Set<string>();
       const selectedIds = new Set<string>();
-      const add = (record?: ObjectRecord) => {
+      const add = (record?: ObjectSummary) => {
         if (!record || byId.has(record.id)) return;
         byId.set(record.id, record);
       };
@@ -161,13 +172,13 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
         }
       }
       for (const typeId of targetTypes) {
-        for (const record of objects.listObjects({ typeId, limit: 200 })) add(record);
+        for (const record of objects.listObjectSummaries({ typeId, limit: 200 })) add(record);
       }
       add(evaluated.input);
       for (const id of selectedIds) {
         if (byId.has(id)) continue;
         try {
-          add(objects.getObject(id));
+          add(objects.getObjectSummary(id));
         } catch (error) {
           if (error instanceof AppError && error.status === 404) continue;
           throw error;
@@ -227,7 +238,7 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
           if (search.length > 200) throw new AppError(422, 'Search must be at most 200 characters.');
           if (typeId !== null && !Value.Check(IdSchema, typeId)) throw new AppError(422, 'Invalid type filter.');
           if (typeId !== null) objects.getType(typeId);
-          const rows = objects.listObjects({ search, typeId: typeId ?? undefined, limit: 51 });
+          const rows = objects.listObjectSummaries({ search, typeId: typeId ?? undefined, limit: 51 });
           const result: ObjectLookupResult = {
             items: rows.slice(0, 50).map(record => ({ id: record.id, title: record.title, typeName: objects.getType(record.typeId).name })),
             truncated: rows.length > 50,
@@ -265,7 +276,7 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
             model.screen = 'home';
             model.typeCounts = objects.countObjectsByType(model.trashed);
           } else if (model.selectedTypeId || (!model.section && model.search.trim())) {
-            const rows = objects.listObjects({ typeId: model.selectedTypeId, search: model.search, trashed: model.trashed, offset: model.offset, limit: 51 });
+            const rows = objects.listObjectSummaries({ typeId: model.selectedTypeId, search: model.search, trashed: model.trashed, offset: model.offset, limit: 51 });
             model.hasMore = rows.length > 50;
             model.objects = rows.slice(0, 50);
             if (layout === 'gallery') model.objectExcerpts = objects.objectExcerpts(model.objects.map(record => record.id));
@@ -315,7 +326,7 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
             model.screen = 'object'; model.object = objects.getObject(match[2]!);
             model.objectType = objects.getType(model.object.typeId);
             model.objects = pickerObjects();
-            model.backlinks = objects.backlinks(model.object.id);
+            loadBacklinks(model.object.id);
           } else {
             model.screen = 'view';
             model.evaluatedView = views.evaluate(match[2]!, url.searchParams.get('input') || undefined);
@@ -392,12 +403,15 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
         const currentRevision = revision(fields, 'currentRevision');
         model.objectDraft = { title: snapshot.title, body: snapshot.body, revision: String(currentRevision), typeId: snapshot.typeId, properties: { ...snapshot.properties }, historyRevision: String(snapshot.revision) };
         model.objects = pickerObjects([model.object.properties, model.objectDraft.properties]);
-        model.backlinks = objects.backlinks(model.object.id);
+        loadBacklinks(model.object.id, 0);
         return page();
       }
       const objectMatch = /^\/objects\/([a-f0-9-]{36})\/(update|trash|restore)$/.exec(url.pathname);
       if (objectMatch) {
-        model.screen = 'object'; model.object = objects.getObject(objectMatch[1]!); model.objectType = objects.getType(model.object.typeId);
+        model.screen = 'object';
+        model.object = objects.getObject(objectMatch[1]!);
+        model.objectType = objects.getType(model.object.typeId);
+        loadBacklinks(model.object.id);
         if (objectMatch[2] === 'update') {
           model.objectDraft = { title: fields.get('title') ?? '', body: fields.get('body') ?? model.object.body, revision: fields.get('reviewedRevision') ?? fields.get('revision') ?? '', typeId: fields.get('typeId') ?? model.object.typeId, fields: draftFields(fields), historyRevision: fields.has('historyRevision') ? fields.get('historyRevision') ?? '' : undefined };
           model.objects = pickerObjects();

@@ -217,7 +217,9 @@ test('demo views expose the same objects, avoid temporal duplicates, and enforce
     !object.properties[TASK_DONE_PROPERTY_ID] && object.properties[TASK_DUE_PROPERTY_ID])!;
   const completed = views.act(overview.id, overview.revision, board, task.id, task.revision, 'group', true);
   const table = views.evaluate(overview.id).blocks.find(block => block.definition.component === 'table')!;
-  assert.deepEqual(table.rows.find(row => row.object.id === task.id)?.object, completed);
+  const tableObject = table.rows.find(row => row.object.id === task.id)?.object;
+  assert.equal(Object.hasOwn(tableObject as object, 'body'), false);
+  assert.deepEqual(tableObject, (({ body: _body, ...summary }) => summary)(completed));
   assert.equal(objects.getObject(task.id).properties[TASK_DONE_PROPERTY_ID], true);
   assert.throws(() => views.act(overview.id, overview.revision, board, task.id, task.revision, 'group', false), status(409));
 
@@ -240,4 +242,5 @@ test('demo views expose the same objects, avoid temporal duplicates, and enforce
   assert.ok(views.evaluate(scoped.id, inputId).blocks[scopedBoard]!.rows.some(row => row.object.id === inside.id));
   views.delete(overview.id, overview.revision);
   assert.deepEqual(objects.getObject(completed.id), completed);
+  assert.equal(objects.getObject(completed.id).body, completed.body);
 });
