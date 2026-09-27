@@ -21,7 +21,7 @@ export function openDatabase(file = ':memory:'): Database {
   }
   const db = new Database(file, { strict: true });
   try {
-    db.exec('PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000; PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL;');
+    db.exec('PRAGMA trusted_schema = OFF; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000; PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL;');
     return db;
   } catch (error) {
     db.close();

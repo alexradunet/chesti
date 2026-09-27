@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import type { TestContext } from 'node:test';
 import assert from 'node:assert/strict';
+import { Database } from 'bun:sqlite';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -29,6 +30,91 @@ function workspace(t: TestContext) {
   };
 }
 const status = (code: number) => (error: unknown): boolean => error instanceof AppError && error.status === code;
+
+function assertHealthy(db: Database): void {
+  assert.deepEqual(db.query<Record<string, string>, []>('PRAGMA integrity_check').all(), [{ integrity_check: 'ok' }]);
+  assert.deepEqual(db.query('PRAGMA foreign_key_check').all(), []);
+}
+
+test('openWorkspace runs bounded planner optimization only after successful initialization', t => {
+  const executed: string[] = [];
+  const exec = Database.prototype.exec;
+  Database.prototype.exec = function(sql: string) {
+    executed.push(sql);
+    return exec.call(this, sql);
+  };
+  t.after(() => { Database.prototype.exec = exec; });
+
+  const directory = mkdtempSync(join(tmpdir(), 'taskdesk-optimize-'));
+  const file = join(directory, 'workspace.sqlite');
+  let objects = openWorkspace(file);
+  t.after(() => { objects.db.close(); rmSync(directory, { recursive: true, force: true }); });
+  assert.ok(executed.some(sql => sql === 'PRAGMA optimize=0x10002'));
+  assertHealthy(objects.db);
+
+  executed.length = 0;
+  objects.db.close();
+  objects = openWorkspace(file);
+  assert.ok(executed.some(sql => sql === 'PRAGMA optimize=0x10002'));
+  assertHealthy(objects.db);
+});
+
+test('unsupported workspaces are rejected without touching data or statistics', t => {
+  const executed: string[] = [];
+  const exec = Database.prototype.exec;
+  Database.prototype.exec = function(sql: string) {
+    executed.push(sql);
+    return exec.call(this, sql);
+  };
+  t.after(() => { Database.prototype.exec = exec; });
+
+  const directory = mkdtempSync(join(tmpdir(), 'taskdesk-unsupported-'));
+  const file = join(directory, 'workspace.sqlite');
+  let db = openDatabase(file);
+  t.after(() => { db.close(); rmSync(directory, { recursive: true, force: true }); });
+  db.exec(`
+    CREATE TABLE object_metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT;
+    INSERT INTO object_metadata VALUES ('schema_version', '999');
+    CREATE TABLE sample (id INTEGER PRIMARY KEY, value TEXT NOT NULL) STRICT;
+    CREATE INDEX sample_value ON sample(value);
+    INSERT INTO sample(value) VALUES ('a'), ('b'), ('c');
+    ANALYZE;
+  `);
+  const schema = db.query('SELECT type, name, tbl_name, sql FROM sqlite_schema ORDER BY type, name').all();
+  const statistics = db.query('SELECT * FROM sqlite_stat1 ORDER BY tbl, idx').all();
+  const rows = db.query('SELECT * FROM sample ORDER BY id').all();
+  db.close();
+
+  executed.length = 0;
+  assert.throws(() => openWorkspace(file), /Unsupported object database schema/);
+  assert.equal(executed.some(sql => sql === 'PRAGMA optimize=0x10002'), false);
+  db = openDatabase(file);
+  assert.deepEqual(db.query('SELECT type, name, tbl_name, sql FROM sqlite_schema ORDER BY type, name').all(), schema);
+  assert.deepEqual(db.query('SELECT * FROM sqlite_stat1 ORDER BY tbl, idx').all(), statistics);
+  assert.deepEqual(db.query('SELECT * FROM sample ORDER BY id').all(), rows);
+});
+
+test('reopening a populated WAL workspace preserves data, history, receipts, views and checks cleanly', t => {
+  const f = workspace(t);
+  let objects = f.state.objects;
+  const requestId = crypto.randomUUID();
+  const page = objects.createObject({ typeId: PAGE_TYPE_ID, title: 'Persistent page', properties: {}, body: 'Original body' }, requestId);
+  const edited = objects.updateObject(page.id, page.revision, { ...page, title: 'Edited page', body: 'Edited body' });
+  const views = new ViewService(objects);
+  const viewId = views.list()[0]!.id;
+  const evaluated = views.evaluate(viewId);
+  assertHealthy(objects.db);
+
+  objects = f.reopen();
+  assert.deepEqual(objects.getObject(page.id), edited);
+  assert.deepEqual(objects.createObject({ typeId: PAGE_TYPE_ID, title: 'Persistent page', properties: {}, body: 'Original body' }, requestId), edited);
+  assert.deepEqual(
+    JSON.parse(objects.db.query<{ snapshot_json: string }, [string, number]>('SELECT snapshot_json FROM object_revisions WHERE object_id = ? AND revision = ?').get(page.id, page.revision)!.snapshot_json),
+    page,
+  );
+  assert.deepEqual(new ViewService(objects).evaluate(viewId), evaluated);
+  assertHealthy(objects.db);
+});
 
 test('reopening a demo preserves edits, identities, trash, and deleted views even after emptying it', t => {
   const f = workspace(t);
