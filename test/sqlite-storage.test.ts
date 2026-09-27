@@ -45,7 +45,7 @@ test('synthetic fixture creates bounded canonical objects, references, history, 
 
 test('synthetic fixture validates limits before opening a database', () => {
   assert.throws(() => buildSyntheticFixture({ objects: 0 }), /objects must be/);
-  assert.throws(() => buildSyntheticFixture({ objects: 5_001 }), /objects must be/);
+  assert.throws(() => buildSyntheticFixture({ objects: 10_001 }), /objects must be/);
   assert.throws(() => buildSyntheticFixture({ bodyBytes: 16_385 }), /bodyBytes must be/);
   assert.throws(() => buildSyntheticFixture({ revisions: 11 }), /revisions must be/);
   assert.throws(() => parseArgs(['--database=/tmp/live.sqlite']), /existing database paths are not accepted/);

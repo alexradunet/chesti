@@ -12,6 +12,7 @@
     "start": "bun src/server.ts",
     "sqlite:runtime": "bun scripts/sqlite-runtime.ts",
     "sqlite:storage": "bun scripts/sqlite-storage.ts",
+    "sqlite:bench": "bun scripts/sqlite-bench.ts",
     "check": "tsc --noEmit",
     "test": "bun test"
   },
