@@ -126,7 +126,7 @@ export function buildSyntheticFixture(input: SyntheticFixtureOptions = {}): Synt
               }
             : {};
         if (!isTask && lastPageId && index % options.referenceEvery === 0) properties[referencePropertyId] = lastPageId;
-        if (options.benchmarkProperties && !isTask && pageIds.length >= 2 && index % Math.max(2, Math.floor(options.referenceEvery / 2)) === 0) properties[multiReferencePropertyId] = pageIds.slice(-2);
+        if (options.benchmarkProperties && !isTask && pageIds.length >= 2 && index % Math.max(2, Math.floor(options.referenceEvery / 2)) === 0) properties[multiReferencePropertyId] = [pageIds[0]!, pageIds.at(-1)!];
         let object = runtime.createObject({
           typeId: isTask ? TASK_TYPE_ID : PAGE_TYPE_ID,
           title: `Synthetic object ${String(index).padStart(5, '0')}`,
@@ -148,6 +148,12 @@ export function buildSyntheticFixture(input: SyntheticFixtureOptions = {}): Synt
         }
       }
     }).immediate();
+    if (options.benchmarkProperties) {
+      for (let index = 22; index < ids.length; index += 23) {
+        const object = runtime.getObject(ids[index]!);
+        runtime.setTrashed(object.id, object.revision, true);
+      }
+    }
     return {
       directory,
       file,
