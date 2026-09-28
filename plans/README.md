@@ -1,5 +1,28 @@
 # Implementation plans
 
+## Current assignment — favorites and day workspace, 2026-09-27
+
+Owner requested `/improve` plans and implementation of the agreed navigation/calendar enhancement. Baseline `ce30958`. One isolated Pi executor implemented sequentially; advisor wrote plans, reviewed full diffs and reran gates. Owner subsequently authorized integration: master is now `69427bb`, no push. A verified private database backup preceded integration; see accepted review. Existing owner drafts 012/013 remain untouched. Plan 025 supplies storage/query prerequisites for 026; the same executor may proceed after its focused/full gates pass. Final DONE requires independent combined review, not merely executor completion.
+
+| Plan | Outcome | Priority / effort / risk | Dependencies | Status |
+| --- | --- | --- | --- | --- |
+| [025](025-day-workspace-data.md) | Scheduled date, preserving schema v5, persistent object favorites and bounded day queries | P1 / M–L / HIGH | — | DONE — merged `69427bb` |
+| [026](026-day-workspace-interface.md) | New note/Calendar quick actions, simpler sidebar and daily journal/tasks/created workspace | P1 / L / MED–HIGH | 025 | DONE — merged `69427bb` |
+
+**Accepted after owner-authorized repair:** [independent review](025-026-accepted-review.md), strict TypeScript/152 tests/hygiene pass. Lead independently verified actual-baseline v4→v5 preservation, real enhanced create/first+second conflict/reconcile, blank correction/retry, dirty journal/task/date/favorite guards, completion, keyboard date navigation and mobile drawers. Clean 390px viewport screenshots obtained with Orca `exec --command 'set viewport 390 844'`; corrupted scale-3/full-page captures are explicitly not accepted evidence. After explicit owner merge approval, original master fast-forwarded to `69427bb`; independent post-merge TypeScript/152 tests pass again, static live asset HTTP200. Private pre-v5 backup preserved at `~/.local/state/taskdesk/backups/pre-v5-20260927T181738Z-69427bb.sqlite`. Executor restarted the dev watcher after original processes exited on resume; details in accepted review. No push. Isolated branch/worktree and all existing drafts remain preserved.
+
+**Owner-authorized continuation:** owner answered **yes** to another focused repair. [Authorized repair](025-026-authorized-repair.md) covers journal validation/conflict recovery, shared writing markup, remaining narrow/navigation details and genuine v4/query/browser verification on the same isolated branch. No integration/push or live data access. Worktree clean at `14dc6be` before dispatch; same sole Pi executor, no duplicate writer.
+
+**Prior review:** [BLOCKED at `14dc6be`](025-026-final-review.md), after [round 1](025-026-review-1.md) and [round 2](025-026-review-2.md). Independent TS/149 tests/hygiene pass; real Orca stale journal save still exposes no comparison/reconcile control, empty new-journal validation removes Save, and reviewedRevision accepts missing original revision. Source/screenshot/schema-test completeness gaps remain. Two allowed repair rounds exhausted; no third repair or integration authorized. Preserved branch `alexradunet/day-workspace`. Original checkout/source/database unchanged. See final review for exact probes and safe continuation.
+
+First delivery `742c7f1` (data `b0c2886`) independently passes TypeScript, 139 tests and hygiene but is not accepted. [Review round 1](025-026-review-1.md) documents reproduced stale journal replacement overwrite, non-idempotent retry, 422 save redirect, favorite mutation before request validation, incomplete calendar UI and missing preservation/browser tests. Same executor is correcting these; original checkout unchanged. Executor's initial mobile-tool limitation is under investigation, not acceptance.
+
+Baseline independently passed Bun 1.4.2 strict TypeScript and 134 tests. Executor: `/home/alex/orca/workspaces/GenUIExperiment/day-workspace`, branch `alexradunet/day-workspace`, terminal `term_05f61b14-f587-4d79-a459-fa27f22c97be`. Agent-first Orca child from exact `ce30958`, setup hooks skipped, both complete plans inlined. Simple terminal supervision (no orchestration Tasks/Dispatches). No integration authorization.
+
+Decisions: generic notes reuse Page; journals reuse existing date uniqueness; due OR scheduled tasks appear once including completed tasks; favorites are shared SQLite metadata; calendar uses visibly stated server-local timezone; native forms and unsaved-draft guarantees remain. Existing saved views/view pins remain accessible. Week/month event layouts, recurrence, arbitrary custom task types and modified-on-day feeds are deferred. Research was scoped to this requested feature and its schema/runtime/HTTP/editor/navigation callsites, not a general codebase audit. Verification: preserving upgrades and rollback, domain/HTTP tests, strict TS/full suite, diff hygiene, and Orca-only browser interaction/keyboard/responsive checks on synthetic data. Original checkout remains unchanged except these planning/review files.
+
+---
+
 ## Current assignment — architecture hot paths, 2026-09-27
 
 The owner requested **“implement them”** after the architecture audit's recommendation to implement its first four improvements. Scope is lazy request data, body-free reference validation, target-first reference membership, and reuse of unchanged writing derivations. Baseline is `eb324c4`: Bun 1.4.2 / SQLite 3.53.2, strict TypeScript and 128 passing tests. No source/data edits occurred during research. Existing untracked owner plans 012/013 remain untouched.
