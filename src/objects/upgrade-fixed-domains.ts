@@ -430,7 +430,9 @@ function validateApplicationShape(db: Database, builder: Builder): boolean {
     }
     if (row.type === 'table' && !knownApplicationTables.has(row.name)) {
       for (const fk of db.query<{ table: string }, [string]>('SELECT "table" FROM pragma_foreign_key_list(?)').iterate(row.name)) {
-        if (knownApplicationTables.has(fk.table)) {
+        // SQLite resolves these ASCII table names case-insensitively, while the
+        // pragma preserves the spelling supplied in the REFERENCES clause.
+        if (knownApplicationTables.has(fk.table.toLowerCase())) {
           builder.add('application-shape', row.name, 'Unrelated table references an application table.');
         }
       }

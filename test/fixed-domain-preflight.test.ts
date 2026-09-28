@@ -273,6 +273,44 @@ test('application shape rejects extra columns altered known triggers and externa
   assert.ok(blockerCategories(analyzeFixedDomainPreflight(db3)).includes('application-shape'));
 });
 
+test('external application foreign keys block regardless of identifier case or referencing rows', t => {
+  // SQLite preserves the REFERENCES spelling in its pragma but resolves ASCII names
+  // case-insensitively. A valid FK is still a dependency even without referencing rows.
+  for (const table of ['object_types', 'object_properties', 'objects']) {
+    for (const target of [table, table.toUpperCase(), `Object${table.slice(6)}`]) {
+      const db = withDb(t, createCompatibleV6Fixture);
+      db.exec(`CREATE TABLE "private dependency" (
+        id TEXT PRIMARY KEY, linked_id TEXT REFERENCES "${target}"(id) ON DELETE CASCADE
+      ) STRICT`);
+      assert.equal(db.query<{ table: string }, []>('PRAGMA foreign_key_list("private dependency")').get()!.table, target);
+      for (const populated of [false, true]) {
+        if (populated) {
+          const { id } = db.query<{ id: string }, []>(`SELECT id FROM "${table}" ORDER BY id LIMIT 1`).get()!;
+          db.query('INSERT INTO "private dependency" VALUES (?, ?)').run('sentinel', id);
+        }
+        assert.deepEqual(db.query('PRAGMA foreign_key_check').all(), []);
+        const before = logicalSnapshot(db);
+        const report = analyzeFixedDomainPreflight(db);
+        assert.equal(report.status, 'blocked', `${target}, populated=${populated}`);
+        assert.deepEqual(blockerCategories(report), ['application-shape']);
+        assert.equal(JSON.stringify(report).includes('private dependency'), false);
+        assert.deepEqual(logicalSnapshot(db), before);
+      }
+    }
+  }
+});
+
+test('case-insensitive foreign keys between unrelated tables remain compatible and unchanged', t => {
+  const db = withDb(t, createCompatibleV6Fixture);
+  db.exec(`CREATE TABLE unrelated_child (
+    id TEXT PRIMARY KEY, parent_id TEXT REFERENCES "UNRELATED_SENTINEL"(id)
+  ) STRICT; INSERT INTO unrelated_child VALUES ('child', 'sentinel')`);
+  assert.deepEqual(db.query('PRAGMA foreign_key_check').all(), []);
+  const before = logicalSnapshot(db);
+  assert.equal(analyzeFixedDomainPreflight(db).status, 'compatible');
+  assert.deepEqual(logicalSnapshot(db), before);
+});
+
 test('analysis does not permanently change writable connection pragmas and can run inside a transaction', () => {
   const db = new Database(':memory:', { strict: true });
   db.exec('PRAGMA foreign_keys = ON; CREATE TABLE writable_sentinel (id TEXT PRIMARY KEY, value TEXT) STRICT; INSERT INTO writable_sentinel(id, value) VALUES (\'a\', \'before\');');
