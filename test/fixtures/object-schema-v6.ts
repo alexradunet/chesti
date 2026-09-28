@@ -76,27 +76,91 @@ function schemaSignature(spec: ViewSpec): string {
 
 function j(value: unknown): string { return JSON.stringify(value); }
 
-function installV6Schema(db: Database, version = '6'): void {
+// Frozen from src/schema.ts at e5b6ed1 (v6), not an invocation of the evolving initializer.
+// Keep the SQL spelling: the preflight compares the complete stored DDL, not selected phrases.
+function installV6Schema(db: Database): void {
   db.exec(`
-    PRAGMA foreign_keys = ON;
     CREATE TABLE object_metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT;
-    INSERT INTO object_metadata(key, value) VALUES ('schema_version', '${version}');
-    CREATE TABLE object_types (id TEXT PRIMARY KEY, name TEXT NOT NULL, property_ids_json TEXT NOT NULL CHECK(json_valid(property_ids_json)) CONSTRAINT object_types_property_ids_array CHECK(json_valid(property_ids_json) AND json_type(property_ids_json) = 'array'), revision INTEGER NOT NULL CHECK(revision > 0)) STRICT;
-    CREATE TABLE object_properties (id TEXT PRIMARY KEY, label TEXT NOT NULL, kind TEXT NOT NULL CONSTRAINT object_properties_kind_supported CHECK(kind IN ('text','number','boolean','date','datetime','select','reference','date-range','time-range')), options_json TEXT CHECK(options_json IS NULL OR json_valid(options_json)) CONSTRAINT object_properties_select_options CHECK((kind = 'select' AND options_json IS NOT NULL AND json_valid(options_json) AND json_type(options_json) = 'array') OR (kind != 'select' AND options_json IS NULL)), target_type_id TEXT REFERENCES object_types(id) CONSTRAINT object_properties_reference_target CHECK((kind = 'reference' AND target_type_id IS NOT NULL) OR (kind != 'reference' AND target_type_id IS NULL)), multiple INTEGER NOT NULL DEFAULT 0 CHECK(multiple IN (0, 1)) CONSTRAINT object_properties_reference_multiple CHECK((kind = 'reference' AND multiple IN (0, 1)) OR (kind != 'reference' AND multiple = 0)), revision INTEGER NOT NULL CHECK(revision > 0)) STRICT;
-    CREATE TABLE objects (id TEXT PRIMARY KEY COLLATE NOCASE, type_id TEXT NOT NULL REFERENCES object_types(id), title TEXT NOT NULL, properties_json TEXT NOT NULL CHECK(json_valid(properties_json)) CONSTRAINT objects_properties_object CHECK(json_valid(properties_json) AND json_type(properties_json) = 'object'), body TEXT NOT NULL DEFAULT '', revision INTEGER NOT NULL CHECK(revision > 0), created_at TEXT NOT NULL, updated_at TEXT NOT NULL, trashed INTEGER NOT NULL CHECK(trashed IN (0, 1)), body_text TEXT NOT NULL) STRICT;
+    INSERT INTO object_metadata(key, value) VALUES ('schema_version', '6');
+    CREATE TABLE object_types (
+      id TEXT PRIMARY KEY, name TEXT NOT NULL,
+      property_ids_json TEXT NOT NULL CHECK(json_valid(property_ids_json))${' '}
+    CONSTRAINT object_types_property_ids_array CHECK(json_valid(property_ids_json) AND json_type(property_ids_json) = 'array'),
+      revision INTEGER NOT NULL CHECK(typeof(revision) = 'integer' AND revision > 0)
+    ) STRICT;
+    CREATE TABLE object_properties (
+      id TEXT PRIMARY KEY, label TEXT NOT NULL,
+      kind TEXT NOT NULL CONSTRAINT object_properties_kind_supported CHECK(kind IN ('text','number','boolean','date','datetime','select','reference','date-range','time-range')),
+      options_json TEXT CHECK(options_json IS NULL OR json_valid(options_json))
+        CONSTRAINT object_properties_select_options CHECK((kind = 'select' AND options_json IS NOT NULL AND json_valid(options_json) AND json_type(options_json) = 'array') OR (kind != 'select' AND options_json IS NULL)),
+      target_type_id TEXT REFERENCES object_types(id)
+        CONSTRAINT object_properties_reference_target CHECK((kind = 'reference' AND target_type_id IS NOT NULL) OR (kind != 'reference' AND target_type_id IS NULL)),
+      multiple INTEGER NOT NULL DEFAULT 0 CHECK(multiple IN (0, 1))
+        CONSTRAINT object_properties_reference_multiple CHECK((kind = 'reference' AND multiple IN (0, 1)) OR (kind != 'reference' AND multiple = 0)),
+      revision INTEGER NOT NULL CHECK(typeof(revision) = 'integer' AND revision > 0)
+    ) STRICT;
+    CREATE TABLE objects (
+      id TEXT PRIMARY KEY COLLATE NOCASE, type_id TEXT NOT NULL REFERENCES object_types(id), title TEXT NOT NULL,
+      properties_json TEXT NOT NULL CHECK(json_valid(properties_json))
+        CONSTRAINT objects_properties_object CHECK(json_valid(properties_json) AND json_type(properties_json) = 'object'),
+      body TEXT NOT NULL DEFAULT '', revision INTEGER NOT NULL CHECK(typeof(revision) = 'integer' AND revision > 0),
+      created_at TEXT NOT NULL, updated_at TEXT NOT NULL, trashed INTEGER NOT NULL CHECK(trashed IN (0, 1)),
+      body_text TEXT NOT NULL
+    ) STRICT;
     CREATE INDEX objects_browse ON objects(trashed, updated_at DESC, id);
     CREATE INDEX objects_type_browse ON objects(type_id, trashed, updated_at DESC, id);
-    CREATE TABLE object_references (source_id TEXT NOT NULL COLLATE NOCASE REFERENCES objects(id), target_id TEXT NOT NULL COLLATE NOCASE REFERENCES objects(id), property_id TEXT NOT NULL DEFAULT '', PRIMARY KEY(source_id, target_id, property_id)) STRICT;
+    CREATE TABLE object_references (
+      source_id TEXT NOT NULL COLLATE NOCASE REFERENCES objects(id), target_id TEXT NOT NULL COLLATE NOCASE REFERENCES objects(id),
+      property_id TEXT NOT NULL DEFAULT '', PRIMARY KEY(source_id, target_id, property_id)
+    ) STRICT;
     CREATE INDEX object_references_target ON object_references(target_id);
-    CREATE TABLE object_revisions (object_id TEXT NOT NULL COLLATE NOCASE REFERENCES objects(id), revision INTEGER NOT NULL CONSTRAINT object_revisions_revision_positive CHECK(revision > 0), snapshot_json TEXT NOT NULL CHECK(json_valid(snapshot_json)) CONSTRAINT object_revisions_snapshot_object CHECK(json_valid(snapshot_json) AND json_type(snapshot_json) = 'object'), recorded_at TEXT NOT NULL, PRIMARY KEY(object_id, revision)) STRICT;
-    CREATE TABLE object_create_requests (request_id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, object_id TEXT NOT NULL COLLATE NOCASE REFERENCES objects(id)) STRICT;
-    CREATE TABLE object_favorites (object_id TEXT PRIMARY KEY COLLATE NOCASE REFERENCES objects(id) ON DELETE CASCADE, created_at TEXT NOT NULL) STRICT;
-    CREATE TABLE object_views (id TEXT PRIMARY KEY, revision INTEGER NOT NULL CHECK(revision > 0), status TEXT NOT NULL CHECK(status IN ('draft','published')), spec_json TEXT NOT NULL CHECK(json_valid(spec_json)), prompt TEXT NOT NULL, model TEXT NOT NULL, schema_json TEXT NOT NULL CHECK(json_valid(schema_json)), created_at TEXT NOT NULL, updated_at TEXT NOT NULL, deleted INTEGER NOT NULL DEFAULT 0 CHECK(deleted IN (0,1)));
-    CREATE TABLE object_view_revisions (id TEXT NOT NULL, revision INTEGER NOT NULL CHECK(revision > 0), status TEXT NOT NULL CHECK(status IN ('draft','published')), spec_json TEXT NOT NULL CHECK(json_valid(spec_json)), prompt TEXT NOT NULL, model TEXT NOT NULL, schema_json TEXT NOT NULL CHECK(json_valid(schema_json)), created_at TEXT NOT NULL, updated_at TEXT NOT NULL, deleted INTEGER NOT NULL CHECK(deleted IN (0,1)), PRIMARY KEY(id,revision));
-    CREATE TRIGGER object_view_history_no_update BEFORE UPDATE ON object_view_revisions BEGIN SELECT RAISE(ABORT, 'View revision history is immutable'); END;
-    CREATE TRIGGER object_view_history_no_delete BEFORE DELETE ON object_view_revisions BEGIN SELECT RAISE(ABORT, 'View revision history is immutable'); END;
-    CREATE TABLE object_view_conversations (id TEXT PRIMARY KEY, visitor_id TEXT NOT NULL, previous_id TEXT REFERENCES object_views(id), context_title TEXT NOT NULL) STRICT;
-    CREATE TABLE object_view_conversation_turns (conversation_id TEXT NOT NULL REFERENCES object_view_conversations(id), position INTEGER NOT NULL CHECK(position >= 0), prompt TEXT NOT NULL, view_id TEXT NOT NULL REFERENCES object_views(id), title TEXT NOT NULL, description TEXT, model TEXT NOT NULL, PRIMARY KEY(conversation_id, position)) STRICT;
+    CREATE TABLE object_revisions (
+      object_id TEXT NOT NULL COLLATE NOCASE REFERENCES objects(id),
+      revision INTEGER NOT NULL CONSTRAINT object_revisions_revision_positive CHECK(typeof(revision) = 'integer' AND revision > 0),
+      snapshot_json TEXT NOT NULL CHECK(json_valid(snapshot_json))
+        CONSTRAINT object_revisions_snapshot_object CHECK(json_valid(snapshot_json) AND json_type(snapshot_json) = 'object'),
+      recorded_at TEXT NOT NULL, PRIMARY KEY(object_id, revision)
+    ) STRICT;
+    CREATE TABLE object_create_requests (
+      request_id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, object_id TEXT NOT NULL COLLATE NOCASE REFERENCES objects(id)
+    ) STRICT;
+    CREATE TABLE object_favorites (
+      object_id TEXT PRIMARY KEY COLLATE NOCASE REFERENCES objects(id) ON DELETE CASCADE,
+      created_at TEXT NOT NULL
+    ) STRICT;
+    CREATE TABLE object_views (
+      id TEXT PRIMARY KEY,
+      revision INTEGER NOT NULL CONSTRAINT object_views_revision_positive CHECK(typeof(revision) = 'integer' AND revision > 0),
+      status TEXT NOT NULL CHECK(status IN ('draft','published')),
+      spec_json TEXT NOT NULL CONSTRAINT object_views_spec_object CHECK(json_valid(spec_json) AND json_type(spec_json) = 'object'),
+      prompt TEXT NOT NULL, model TEXT NOT NULL,
+      schema_json TEXT NOT NULL CONSTRAINT object_views_schema_array CHECK(json_valid(schema_json) AND json_type(schema_json) = 'array'),
+      created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+      deleted INTEGER NOT NULL DEFAULT 0 CHECK(deleted IN (0,1))
+    );
+    CREATE TABLE object_view_revisions (
+      id TEXT NOT NULL,
+      revision INTEGER NOT NULL CONSTRAINT object_view_revisions_revision_positive CHECK(typeof(revision) = 'integer' AND revision > 0),
+      status TEXT NOT NULL CONSTRAINT object_view_revisions_status_closed CHECK(status IN ('draft','published')),
+      spec_json TEXT NOT NULL CONSTRAINT object_view_revisions_spec_object CHECK(json_valid(spec_json) AND json_type(spec_json) = 'object'),
+      prompt TEXT NOT NULL, model TEXT NOT NULL,
+      schema_json TEXT NOT NULL CONSTRAINT object_view_revisions_schema_array CHECK(json_valid(schema_json) AND json_type(schema_json) = 'array'),
+      created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+      deleted INTEGER NOT NULL CONSTRAINT object_view_revisions_deleted_closed CHECK(deleted IN (0,1)),
+      PRIMARY KEY(id,revision)
+    );
+    CREATE TRIGGER object_view_history_no_update BEFORE UPDATE ON object_view_revisions
+      BEGIN SELECT RAISE(ABORT, 'View revision history is immutable'); END;
+    CREATE TRIGGER object_view_history_no_delete BEFORE DELETE ON object_view_revisions
+      BEGIN SELECT RAISE(ABORT, 'View revision history is immutable'); END;
+    CREATE TABLE object_view_conversations (
+      id TEXT PRIMARY KEY, visitor_id TEXT NOT NULL, previous_id TEXT REFERENCES object_views(id), context_title TEXT NOT NULL
+    ) STRICT;
+    CREATE TABLE object_view_conversation_turns (
+      conversation_id TEXT NOT NULL REFERENCES object_view_conversations(id), position INTEGER NOT NULL CHECK(position >= 0),
+      prompt TEXT NOT NULL, view_id TEXT NOT NULL REFERENCES object_views(id), title TEXT NOT NULL, description TEXT, model TEXT NOT NULL,
+      PRIMARY KEY(conversation_id, position)
+    ) STRICT;
     CREATE TABLE browser_visitors (id TEXT PRIMARY KEY, csrf TEXT NOT NULL) STRICT;
     CREATE TABLE unrelated_sentinel (id TEXT PRIMARY KEY, note TEXT NOT NULL) STRICT;
     INSERT INTO unrelated_sentinel(id, note) VALUES ('sentinel', 'must survive later migrations');
@@ -107,13 +171,16 @@ function installDefinitions(db: Database): void {
   for (const type of frozenTypes) db.query('INSERT INTO object_types(id, name, property_ids_json, revision) VALUES (?, ?, ?, 1)').run(type.id, type.name, j(type.propertyIds));
   for (const property of frozenProperties) db.query('INSERT INTO object_properties(id, label, kind, options_json, target_type_id, multiple, revision) VALUES (?, ?, ?, NULL, NULL, 0, 1)').run(property.id, property.label, property.kind);
   for (const [index, type] of frozenTypes.entries()) {
-    const required = type.propertyIds.map(id => `(SELECT COUNT(*) FROM json_each(NEW.property_ids_json) WHERE type = 'text' AND value = '${id}') != 1`).join(' OR ') || '0';
+    const invalid = [
+      "json_type(NEW.property_ids_json) IS NOT 'array'",
+      ...type.propertyIds.map(id => `(SELECT COUNT(*) FROM json_each(NEW.property_ids_json) WHERE type = 'text' AND value = '${id}') != 1`),
+    ].join(' OR ');
     db.exec(`
       CREATE TRIGGER object_builtin_type_${index}_insert BEFORE INSERT ON object_types
-      WHEN NEW.id = '${type.id}' AND (json_type(NEW.property_ids_json) IS NOT 'array' OR ${required})
+      WHEN NEW.id = '${type.id}' AND (${invalid})
       BEGIN SELECT RAISE(ABORT, 'Built-in type core fields are protected.'); END;
       CREATE TRIGGER object_builtin_type_${index}_update BEFORE UPDATE ON object_types
-      WHEN (OLD.id = '${type.id}' OR NEW.id = '${type.id}') AND (OLD.id != NEW.id OR json_type(NEW.property_ids_json) IS NOT 'array' OR ${required})
+      WHEN (OLD.id = '${type.id}' OR NEW.id = '${type.id}') AND (OLD.id != NEW.id OR ${invalid})
       BEGIN SELECT RAISE(ABORT, 'Built-in type identity and core fields are protected.'); END;
       CREATE TRIGGER object_builtin_type_${index}_delete BEFORE DELETE ON object_types
       WHEN OLD.id = '${type.id}'
@@ -133,13 +200,21 @@ function installDefinitions(db: Database): void {
       BEGIN SELECT RAISE(ABORT, 'Built-in properties cannot be deleted.'); END;
     `);
   }
+  const path = `$."${JOURNAL_DATE_PROPERTY_ID}"`;
+  const date = `json_extract(NEW.properties_json, '${path}')`;
+  const invalidDate = `json_type(NEW.properties_json) IS NOT 'object'
+    OR (SELECT COUNT(*) FROM json_each(NEW.properties_json) WHERE key = '${JOURNAL_DATE_PROPERTY_ID}') != 1
+    OR json_type(NEW.properties_json, '${path}') IS NOT 'text'
+    OR ${date} NOT GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'
+    OR substr(${date}, 1, 4) = '0000' OR date(${date}, '+0 days') IS NOT ${date}`;
   db.exec(`
-    CREATE UNIQUE INDEX objects_journal_date ON objects(json_extract(properties_json, '$."${JOURNAL_DATE_PROPERTY_ID}"')) WHERE type_id = '${JOURNAL_TYPE_ID}';
+    CREATE UNIQUE INDEX objects_journal_date
+    ON objects(json_extract(properties_json, '${path}')) WHERE type_id = '${JOURNAL_TYPE_ID}';
     CREATE TRIGGER objects_journal_date_insert BEFORE INSERT ON objects
-    WHEN NEW.type_id = '${JOURNAL_TYPE_ID}' AND (json_type(NEW.properties_json) IS NOT 'object' OR json_type(NEW.properties_json, '$."${JOURNAL_DATE_PROPERTY_ID}"') IS NOT 'text' OR json_extract(NEW.properties_json, '$."${JOURNAL_DATE_PROPERTY_ID}"') NOT GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]' OR substr(json_extract(NEW.properties_json, '$."${JOURNAL_DATE_PROPERTY_ID}"'), 1, 4) = '0000' OR date(json_extract(NEW.properties_json, '$."${JOURNAL_DATE_PROPERTY_ID}"'), '+0 days') IS NOT json_extract(NEW.properties_json, '$."${JOURNAL_DATE_PROPERTY_ID}"'))
+    WHEN NEW.type_id = '${JOURNAL_TYPE_ID}' AND (${invalidDate})
     BEGIN SELECT RAISE(ABORT, 'Journal requires a real calendar date.'); END;
     CREATE TRIGGER objects_journal_date_update BEFORE UPDATE ON objects
-    WHEN NEW.type_id = '${JOURNAL_TYPE_ID}' AND (json_type(NEW.properties_json) IS NOT 'object' OR json_type(NEW.properties_json, '$."${JOURNAL_DATE_PROPERTY_ID}"') IS NOT 'text' OR json_extract(NEW.properties_json, '$."${JOURNAL_DATE_PROPERTY_ID}"') NOT GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]' OR substr(json_extract(NEW.properties_json, '$."${JOURNAL_DATE_PROPERTY_ID}"'), 1, 4) = '0000' OR date(json_extract(NEW.properties_json, '$."${JOURNAL_DATE_PROPERTY_ID}"'), '+0 days') IS NOT json_extract(NEW.properties_json, '$."${JOURNAL_DATE_PROPERTY_ID}"'))
+    WHEN NEW.type_id = '${JOURNAL_TYPE_ID}' AND (${invalidDate})
     BEGIN SELECT RAISE(ABORT, 'Journal requires a real calendar date.'); END;
   `);
 }
@@ -170,7 +245,7 @@ export function createCompatibleV6Fixture(db: Database): void {
   installDefinitions(db);
   const unicodeBody = `Line one\r\nLine two with café and 🐉\r\n\r\nSee [task](/objects/${ids.task}) and [self](/objects/${ids.page}).`;
   insertObject(db, ids.page, PAGE_TYPE_ID, 'Page fixture', {}, unicodeBody);
-  insertObject(db, ids.task, TASK_TYPE_ID, 'Task fixture', { [TASK_DONE_PROPERTY_ID]: false, [TASK_DUE_PROPERTY_ID]: '2026-10-02', [TASK_SCHEDULED_PROPERTY_ID]: '2026-10-01' }, 'Task body', 2);
+  insertObject(db, ids.task, TASK_TYPE_ID, 'Edited Task fixture', { [TASK_DONE_PROPERTY_ID]: true, [TASK_DUE_PROPERTY_ID]: '2026-10-02', [TASK_SCHEDULED_PROPERTY_ID]: '2026-10-01' }, 'Edited Task body', 2);
   insertObject(db, ids.journal, JOURNAL_TYPE_ID, 'Journal fixture', { [JOURNAL_DATE_PROPERTY_ID]: '2026-09-28' }, 'Journal body');
   insertObject(db, ids.person, PERSON_TYPE_ID, 'Person fixture', { [PERSON_RELATIONSHIP_PROPERTY_ID]: '', [PERSON_BIRTHDAY_PROPERTY_ID]: '1980-02-29', [PERSON_PHONE_PROPERTY_ID]: '+1 555 0100', [PERSON_JOB_TITLE_PROPERTY_ID]: 'Librarian', [PERSON_FAVORITE_ARTISTS_PROPERTY_ID]: 'Björk', [PERSON_RECONNECT_EVERY_PROPERTY_ID]: 3, [PERSON_LAST_CONNECTED_PROPERTY_ID]: '2026-08-31' }, 'Person body');
   insertObject(db, ids.eventAllDay, EVENT_TYPE_ID, 'All-day event fixture', { [EVENT_DATES_PROPERTY_ID]: { start: '2026-10-03', end: '2026-10-04' } }, 'Event body');
@@ -179,7 +254,7 @@ export function createCompatibleV6Fixture(db: Database): void {
   insertObject(db, ids.reminderTime, REMINDER_TYPE_ID, 'Time reminder fixture', { [REMINDER_TIME_PROPERTY_ID]: '2026-10-05T09:30:00+02:00' }, 'Reminder time body');
   insertObject(db, ids.trash, TASK_TYPE_ID, 'Trashed fixture', { [TASK_DONE_PROPERTY_ID]: true }, 'Trashed body', 1, true);
   insertObject(db, ids.changedKind, PAGE_TYPE_ID, 'Changed kind fixture', {}, 'Current page body', 2);
-  insertRevision(db, ids.task, 1, snapshot(ids.task, TASK_TYPE_ID, 'Task before edit', { [TASK_DONE_PROPERTY_ID]: false, [TASK_DUE_PROPERTY_ID]: '2026-10-02' }, 'Old task body', 1));
+  insertRevision(db, ids.task, 1, snapshot(ids.task, TASK_TYPE_ID, taskCreatePayload.title, { ...taskCreatePayload.properties, [TASK_DONE_PROPERTY_ID]: false }, taskCreatePayload.body, 1));
   insertRevision(db, ids.changedKind, 1, snapshot(ids.changedKind, TASK_TYPE_ID, 'Former task', { [TASK_DONE_PROPERTY_ID]: true }, 'Historical different known kind', 1));
   db.query('INSERT INTO object_references(source_id, target_id, property_id) VALUES (?, ?, ?)').run(ids.page, ids.task, '');
   db.query('INSERT INTO object_references(source_id, target_id, property_id) VALUES (?, ?, ?)').run(ids.page.toUpperCase(), ids.page, '');
@@ -247,12 +322,12 @@ export function createMalformedDataFixture(db: Database): void {
   db.query('UPDATE objects SET created_at = ? WHERE id = ?').run('2026-99-99T88:88:88Z', ids.journal);
 }
 
-export function createUnknownVersionFixture(db: Database): void {
-  installV6Schema(db, '99');
-  installDefinitions(db);
+// Metadata-only version probes: not genuine older-format migration fixtures.
+export function createVersionMetadataFixture(db: Database, version: string): void {
+  db.exec('CREATE TABLE object_metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT');
+  db.query("INSERT INTO object_metadata VALUES ('schema_version', ?)").run(version);
 }
 
-export function createVersionFiveFixture(db: Database): void {
-  installV6Schema(db, '5');
-  installDefinitions(db);
+export function createUnknownVersionFixture(db: Database): void {
+  createVersionMetadataFixture(db, '99');
 }

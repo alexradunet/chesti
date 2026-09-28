@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import { Database } from 'bun:sqlite';
 import { existsSync, lstatSync, realpathSync } from 'node:fs';
-import { dirname, isAbsolute } from 'node:path';
+import { dirname, isAbsolute, normalize } from 'node:path';
 import { analyzeFixedDomainPreflight, type FixedDomainPreflightReport } from '../src/objects/upgrade-fixed-domains.js';
 
 function usage(): void {
@@ -19,17 +19,23 @@ Exit codes:
   1  Usage error, unreadable path, malformed database, or unsupported/newer schema.
 
 Reports are bounded: sample IDs/reasons are examples, not a complete inventory. Object titles,
-bodies, prompts, CSRF values, and full records are intentionally not printed.`);
+bodies, prompts, CSRF values, and full records are intentionally not printed.
+Schema acceptance uses the exact pristine v6 DDL. Older upgraded v6 SQL spellings, extra views,
+triggers, or application indexes conservatively require structural review (exit 2), not rewriting.
+Physical integrity diagnostics are capped at 100 by SQLite. FK scans have no sample cutoff.
+Table counts are row totals; blocker counts are findings. Unrecognized application DDL stops
+detailed row analysis. On recognized v6 shapes, samples do not limit row scanning.`);
 }
 
-function parse(argv: string[]): string | undefined {
-  if (argv.length === 1 && argv[0] === '--help') return undefined;
-  if (argv.length !== 2 || argv[0] !== '--database') throw new Error('Provide exactly --database /absolute/path/to/snapshot.sqlite.');
+function parse(argv: string[]): string {
+  if (argv.length !== 2 || argv[0] !== '--database' || !argv[1]) {
+    throw new Error('Provide exactly --database /absolute/path/to/snapshot.sqlite.');
+  }
   return argv[1];
 }
 
 function checkedPath(input: string): string {
-  if (!isAbsolute(input)) throw new Error('Database path must be absolute.');
+  if (!isAbsolute(input) || normalize(input) !== input) throw new Error('Database path must be absolute and normalized.');
   if (!existsSync(input)) throw new Error('Database file does not exist.');
   for (let path = input; ; path = dirname(path)) {
     const stat = lstatSync(path);
@@ -37,8 +43,11 @@ function checkedPath(input: string): string {
     const parent = dirname(path);
     if (parent === path) break;
   }
-  const stat = lstatSync(input);
-  if (!stat.isFile() || stat.nlink !== 1) throw new Error('Database must be a private regular file, not a symlink or hard link.');
+  for (const path of [input, `${input}-wal`, `${input}-shm`, `${input}-journal`]) {
+    if (path !== input && !existsSync(path)) continue;
+    const stat = lstatSync(path);
+    if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1) throw new Error('Database and sidecars must be private regular files.');
+  }
   return realpathSync(input);
 }
 
@@ -54,7 +63,7 @@ function printReport(report: FixedDomainPreflightReport): void {
   console.log(JSON.stringify(report, null, 2));
 }
 
-async function main(): Promise<number> {
+function main(): number {
   const args = process.argv.slice(2);
   if (args.length === 1 && args[0] === '--help') {
     usage();
@@ -62,11 +71,9 @@ async function main(): Promise<number> {
   }
   let databasePath: string;
   try {
-    const parsed = parse(args);
-    if (!parsed) return 0;
-    databasePath = checkedPath(parsed);
-  } catch (error) {
-    console.error(error instanceof Error ? error.message : String(error));
+    databasePath = checkedPath(parse(args));
+  } catch {
+    console.error('Invalid arguments or unsafe/unreadable database path (symlinks and hardlinks are refused).');
     console.error('Run with --help for usage.');
     return 1;
   }
@@ -85,4 +92,4 @@ async function main(): Promise<number> {
   }
 }
 
-process.exitCode = await main();
+process.exitCode = main();
