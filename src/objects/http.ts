@@ -3,7 +3,7 @@ import { AppError } from '../core.js';
 import type { Visitor } from '../visitors.js';
 import { renderMarkdown, validateMarkdown } from './markdown.js';
 import { serverTimeZone, validDate, valueError } from './values.js';
-import { IdSchema, JOURNAL_DATE_PROPERTY_ID, JOURNAL_TYPE_ID, PAGE_TYPE_ID, TASK_TYPE_ID } from './model.js';
+import { PERSON_TYPE_ID, IdSchema, JOURNAL_DATE_PROPERTY_ID, JOURNAL_TYPE_ID, PAGE_TYPE_ID, TASK_TYPE_ID } from './model.js';
 import type { EvaluatedView, ObjectLookupResult, ObjectPageModel, ObjectRecord, ObjectSummary, ObjectWrite, PropertyDefinition, PropertyKind, PropertyValue, SavedView, ViewConversation, ViewGenerator } from './model.js';
 import type { ObjectRuntime } from './runtime.js';
 import { ViewService } from './views.js';
@@ -85,7 +85,7 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
   const conversations = new ViewConversationService(objects.db, views);
   const generating = new Set<string>();
   return async (req: Request, url: URL, visitor: Visitor, fields?: URLSearchParams): Promise<Response | undefined> => {
-    if (!(url.pathname === '/' || /^\/calendar(?:\/|$)/.test(url.pathname) || url.pathname === '/tasks' || /^\/(?:journal|types|objects|properties|views)(?:\/|$)/.test(url.pathname))) return;
+    if (!(url.pathname === '/' || /^\/calendar(?:\/|$)/.test(url.pathname) || url.pathname === '/tasks' || url.pathname === '/people' || /^\/(?:journal|types|objects|properties|views)(?:\/|$)/.test(url.pathname))) return;
     if (req.method === 'POST' && url.pathname === '/objects/preview') {
       requireFields(fields!, ['csrf', 'body']);
       return Response.json({ html: renderMarkdown(validateMarkdown(fields!.get('body'))) });
@@ -318,6 +318,23 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
             model.hasMore = rows.length > 50;
             model.objects = rows.slice(0, 50);
             if (layout === 'gallery') model.objectExcerpts = objects.objectExcerpts(model.objects.map(record => record.id));
+          }
+        } else if (url.pathname === '/people') {
+          requireFields(url.searchParams, ['q', 'offset', 'person']);
+          model.screen = 'people';
+          model.search = url.searchParams.get('q') ?? '';
+          const offset = url.searchParams.get('offset') ?? '0';
+          if (!/^\d{1,7}$/.test(offset)) throw new AppError(422, 'Invalid people page.');
+          const listed = objects.listPeople(model.search, Number(offset));
+          model.people = listed.items;
+          model.offset = listed.offset;
+          model.hasMore = listed.hasMore;
+          const selected = url.searchParams.get('person');
+          if (selected !== null) {
+            if (!Value.Check(IdSchema, selected)) throw new AppError(422, 'Invalid person.');
+            const person = objects.getObject(selected);
+            if (person.typeId !== PERSON_TYPE_ID || person.trashed) throw new AppError(404, 'Person not found.');
+            model.object = person;
           }
         } else if (url.pathname === '/calendar') {
           requireFields(url.searchParams, ['date', 'tasksOffset', 'createdOffset', 'month', 'saved']);

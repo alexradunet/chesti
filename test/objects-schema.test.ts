@@ -19,8 +19,9 @@ const viewId = '77777777-7777-4777-8777-777777777777';
 const deletedViewId = '88888888-8888-4888-8888-888888888888';
 const conversationId = '99999999-9999-4999-8999-999999999999';
 const timestamp = '2026-09-27T12:34:56.000Z';
-const LEGACY_BUILTIN_PROPERTIES = BUILTIN_PROPERTIES.filter(property => property.id !== TASK_SCHEDULED_PROPERTY_ID);
-const LEGACY_BUILTIN_TYPES = BUILTIN_TYPES.map(type => type.id === TASK_TYPE_ID
+const person = BUILTIN_TYPES.find(type => type.name === 'Person')!;
+const LEGACY_BUILTIN_PROPERTIES = BUILTIN_PROPERTIES.filter(property => property.id !== TASK_SCHEDULED_PROPERTY_ID && !person.propertyIds.includes(property.id));
+const LEGACY_BUILTIN_TYPES = BUILTIN_TYPES.filter(type => type.id !== person.id).map(type => type.id === TASK_TYPE_ID
   ? { ...type, description: 'Work with a completion state and an optional due date.', propertyIds: [TASK_DONE_PROPERTY_ID, TASK_DUE_PROPERTY_ID] }
   : type);
 
@@ -129,6 +130,17 @@ function installV4Fixture(file: string): { schema: unknown[]; rows: Record<strin
   return { schema, rows };
 }
 
+function withPeople(rows: Record<string, any[]>): Record<string, any[]> {
+  rows.object_metadata = [{ key: 'schema_version', value: '6' }];
+  rows.object_types!.push({ id: person.id, name: person.name, property_ids_json: JSON.stringify(person.propertyIds), revision: 1 });
+  rows.object_types!.sort((a, b) => a.id.localeCompare(b.id));
+  for (const property of BUILTIN_PROPERTIES.filter(property => person.propertyIds.includes(property.id))) {
+    rows.object_properties!.push({ id: property.id, label: property.label, kind: property.kind, options_json: null, target_type_id: null, multiple: 0, revision: 1 });
+  }
+  rows.object_properties!.sort((a, b) => a.id.localeCompare(b.id));
+  return rows;
+}
+
 function captureRows(db: ReturnType<typeof openDatabase>): Record<string, unknown[]> {
   const tables = ['object_metadata', 'object_types', 'object_properties', 'objects', 'object_references', 'object_revisions', 'object_create_requests', 'object_favorites', 'object_views', 'object_view_revisions', 'object_view_conversations', 'object_view_conversation_turns', 'browser_visitors', 'unrelated'];
   return Object.fromEntries(tables.filter(table => db.query<{ present: number }, [string]>("SELECT 1 AS present FROM sqlite_schema WHERE type = 'table' AND name = ?").get(table))
@@ -181,12 +193,12 @@ function assertVersion4StructuralGuards(db: ReturnType<typeof openDatabase>): vo
   assert.throws(() => db.query('INSERT INTO object_view_revisions VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, 2)').run(id('bad-history-deleted'), 'draft', validSpec, 'prompt', 'model', validSchema, timestamp, timestamp), /object_view_revisions_deleted_closed/);
 }
 
-test('version-3 application schema upgrades to version 5 without changing object data', t => {
+test('version-3 application schema upgrades to version 6 without changing object data', t => {
   const file = temporaryWorkspace(t);
   const before = installV3Fixture(file);
   let db = openDatabase(file);
   const runtime = new ObjectRuntime(db);
-  assert.equal(db.query<{ value: string }, []>("SELECT value FROM object_metadata WHERE key = 'schema_version'").get()!.value, '5');
+  assert.equal(db.query<{ value: string }, []>("SELECT value FROM object_metadata WHERE key = 'schema_version'").get()!.value, '6');
   assert.equal(runtime.getObject(page).body, 'Exact **Markdown**\n\nEmoji 🚀');
   assert.deepEqual(runtime.getObject(page), {
     id: page,
@@ -209,7 +221,7 @@ test('version-3 application schema upgrades to version 5 without changing object
   expectedRows.object_types = expectedRows.object_types!.map(row => row.id === TASK_TYPE_ID
     ? { ...row, property_ids_json: JSON.stringify([TASK_DONE_PROPERTY_ID, TASK_DUE_PROPERTY_ID, textProperty, TASK_SCHEDULED_PROPERTY_ID]), revision: 6 }
     : row);
-  assert.deepEqual(captureRows(db), expectedRows);
+  assert.deepEqual(captureRows(db), withPeople(expectedRows));
   assert.deepEqual(db.query<Record<string, string>, []>('PRAGMA integrity_check').all(), [{ integrity_check: 'ok' }]);
   assert.deepEqual(db.query('PRAGMA foreign_key_check').all(), []);
   assertVersion4StructuralGuards(db);
@@ -222,12 +234,12 @@ test('version-3 application schema upgrades to version 5 without changing object
   db.close();
 });
 
-test('genuine version-4 workspace upgrades to version 5 preserving logical rows and new protection', t => {
+test('genuine version-4 workspace upgrades to version 6 preserving logical rows and new protection', t => {
   const file = temporaryWorkspace(t);
   const before = installV4Fixture(file);
   let db = openDatabase(file);
   const runtime = new ObjectRuntime(db);
-  assert.equal(db.query<{ value: string }, []>("SELECT value FROM object_metadata WHERE key = 'schema_version'").get()!.value, '5');
+  assert.equal(db.query<{ value: string }, []>("SELECT value FROM object_metadata WHERE key = 'schema_version'").get()!.value, '6');
   assert.deepEqual(runtime.getType(TASK_TYPE_ID).propertyIds, [TASK_DONE_PROPERTY_ID, TASK_DUE_PROPERTY_ID, textProperty, TASK_SCHEDULED_PROPERTY_ID]);
   assert.equal(runtime.getType(TASK_TYPE_ID).revision, 6);
   assert.equal(runtime.getType(PAGE_TYPE_ID).name, 'Renamed Page');
@@ -243,7 +255,7 @@ test('genuine version-4 workspace upgrades to version 5 preserving logical rows 
   expectedRows.object_types = expectedRows.object_types!.map(row => row.id === TASK_TYPE_ID
     ? { ...row, property_ids_json: JSON.stringify([TASK_DONE_PROPERTY_ID, TASK_DUE_PROPERTY_ID, textProperty, TASK_SCHEDULED_PROPERTY_ID]), revision: 6 }
     : row);
-  assert.deepEqual(captureRows(db), expectedRows);
+  assert.deepEqual(captureRows(db), withPeople(expectedRows));
   db.close();
 
   db = openDatabase(file);
@@ -253,7 +265,7 @@ test('genuine version-4 workspace upgrades to version 5 preserving logical rows 
 });
 
 test('explicit unsupported schema versions are rejected without changing existing data', t => {
-  for (const version of ['', ' ', '6']) {
+  for (const version of ['', ' ', '7']) {
     const file = temporaryWorkspace(t);
     let db = openDatabase(file);
     db.exec('CREATE TABLE object_metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT; CREATE TABLE sentinel (value TEXT) STRICT;');

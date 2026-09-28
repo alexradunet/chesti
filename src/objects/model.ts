@@ -8,6 +8,7 @@ export const TASK_TYPE_ID = '00000000-0000-4000-8000-000000000002';
 export const EVENT_TYPE_ID = '00000000-0000-4000-8000-000000000003';
 export const REMINDER_TYPE_ID = '00000000-0000-4000-8000-000000000004';
 export const JOURNAL_TYPE_ID = '00000000-0000-4000-8000-000000000005';
+export const PERSON_TYPE_ID = '00000000-0000-4000-8000-000000000006';
 export const TASK_DONE_PROPERTY_ID = '00000000-0000-4000-8000-000000000101';
 export const TASK_DUE_PROPERTY_ID = '00000000-0000-4000-8000-000000000102';
 export const TASK_SCHEDULED_PROPERTY_ID = '00000000-0000-4000-8000-000000000103';
@@ -16,6 +17,13 @@ export const EVENT_TIME_PROPERTY_ID = '00000000-0000-4000-8000-000000000202';
 export const REMINDER_DATE_PROPERTY_ID = '00000000-0000-4000-8000-000000000301';
 export const REMINDER_TIME_PROPERTY_ID = '00000000-0000-4000-8000-000000000302';
 export const JOURNAL_DATE_PROPERTY_ID = '00000000-0000-4000-8000-000000000401';
+export const PERSON_RELATIONSHIP_PROPERTY_ID = '00000000-0000-4000-8000-000000000501';
+export const PERSON_BIRTHDAY_PROPERTY_ID = '00000000-0000-4000-8000-000000000502';
+export const PERSON_PHONE_PROPERTY_ID = '00000000-0000-4000-8000-000000000503';
+export const PERSON_JOB_TITLE_PROPERTY_ID = '00000000-0000-4000-8000-000000000504';
+export const PERSON_FAVORITE_ARTISTS_PROPERTY_ID = '00000000-0000-4000-8000-000000000505';
+export const PERSON_RECONNECT_EVERY_PROPERTY_ID = '00000000-0000-4000-8000-000000000506';
+export const PERSON_LAST_CONNECTED_PROPERTY_ID = '00000000-0000-4000-8000-000000000507';
 export const PropertyKindSchema = Type.Union([
   Type.Literal('text'), Type.Literal('number'), Type.Literal('boolean'), Type.Literal('date'), Type.Literal('datetime'),
   Type.Literal('select'), Type.Literal('reference'), Type.Literal('date-range'), Type.Literal('time-range'),
@@ -39,6 +47,13 @@ export const BUILTIN_PROPERTIES: readonly Omit<PropertyDefinition, 'revision'>[]
   { id: REMINDER_TIME_PROPERTY_ID, label: 'Reminder time', kind: 'datetime' },
   { id: JOURNAL_DATE_PROPERTY_ID, label: 'Journal date', kind: 'date' },
   { id: TASK_SCHEDULED_PROPERTY_ID, label: 'Scheduled date', kind: 'date' },
+  { id: PERSON_RELATIONSHIP_PROPERTY_ID, label: 'Relationship', kind: 'text' },
+  { id: PERSON_BIRTHDAY_PROPERTY_ID, label: 'Birthday', kind: 'date' },
+  { id: PERSON_PHONE_PROPERTY_ID, label: 'Phone number', kind: 'text' },
+  { id: PERSON_JOB_TITLE_PROPERTY_ID, label: 'Job title', kind: 'text' },
+  { id: PERSON_FAVORITE_ARTISTS_PROPERTY_ID, label: 'Favorite artists', kind: 'text' },
+  { id: PERSON_RECONNECT_EVERY_PROPERTY_ID, label: 'Reconnect every (months)', kind: 'number' },
+  { id: PERSON_LAST_CONNECTED_PROPERTY_ID, label: 'Last connected', kind: 'date' },
 ];
 export const BUILTIN_TYPES: readonly { id: string; name: string; description: string; propertyIds: readonly string[] }[] = [
   { id: PAGE_TYPE_ID, name: 'Page', description: 'Freeform writing without required fields.', propertyIds: [] },
@@ -46,6 +61,7 @@ export const BUILTIN_TYPES: readonly { id: string; name: string; description: st
   { id: EVENT_TYPE_ID, name: 'Event', description: 'Exactly one all-day date range or timed range, with an exclusive end.', propertyIds: [EVENT_DATES_PROPERTY_ID, EVENT_TIME_PROPERTY_ID] },
   { id: REMINDER_TYPE_ID, name: 'Reminder', description: 'A calendar item with exactly one date or time. No notifications or recurrence.', propertyIds: [REMINDER_DATE_PROPERTY_ID, REMINDER_TIME_PROPERTY_ID] },
   { id: JOURNAL_TYPE_ID, name: 'Journal', description: 'One canonical entry per calendar date, including entries in Trash.', propertyIds: [JOURNAL_DATE_PROPERTY_ID] },
+  { id: PERSON_TYPE_ID, name: 'Person', description: 'A person you know, with relationship details and reconnect dates.', propertyIds: [PERSON_RELATIONSHIP_PROPERTY_ID, PERSON_BIRTHDAY_PROPERTY_ID, PERSON_PHONE_PROPERTY_ID, PERSON_JOB_TITLE_PROPERTY_ID, PERSON_FAVORITE_ARTISTS_PROPERTY_ID, PERSON_RECONNECT_EVERY_PROPERTY_ID, PERSON_LAST_CONNECTED_PROPERTY_ID] },
 ];
 export interface ObjectType {
   id: string;
@@ -165,7 +181,7 @@ export interface BacklinkPage { links: Backlink[]; offset: number; hasMore: bool
 export interface ObjectPageModel {
   csrf: string;
   path: string;
-  screen: 'home' | 'objects' | 'types' | 'type' | 'new-object' | 'object' | 'object-history' | 'views' | 'view' | 'journal' | 'calendar';
+  screen: 'home' | 'objects' | 'people' | 'types' | 'type' | 'new-object' | 'object' | 'object-history' | 'views' | 'view' | 'journal' | 'calendar';
   section?: 'calendar' | 'tasks' | 'favorites';
   catalog: Catalog;
   views: SavedView[];
@@ -173,6 +189,7 @@ export interface ObjectPageModel {
   typeCounts?: Record<string, number>;
   browseLayout?: 'list' | 'gallery';
   objectExcerpts?: Record<string, string>;
+  people?: ViewObjectRecord[];
   object?: ObjectRecord;
   objectDraft?: { title: string; body: string; revision?: string; requestId?: string; typeId?: string; properties?: Record<string, PropertyValue>; fields?: Record<string, string[]>; historyRevision?: string };
   history?: { revisions: ObjectRevisionSummary[]; selected?: ObjectRecord; offset: number; hasMore: boolean };

@@ -287,19 +287,19 @@ export function initializeApplicationSchema(db: Database): void {
   db.transaction(() => {
     db.exec('CREATE TABLE IF NOT EXISTS object_metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT');
     let version = db.query<{ value: string }, []>("SELECT value FROM object_metadata WHERE key = 'schema_version'").get()?.value;
-    if (version !== undefined && !['1', '2', '3', '4', '5'].includes(version)) throw new Error('Unsupported object database schema.');
+    if (version !== undefined && !['1', '2', '3', '4', '5', '6'].includes(version)) throw new Error('Unsupported object database schema.');
     const existing = new Set(['object_types', 'object_properties', 'objects', 'object_revisions', 'object_views', 'object_view_revisions'].filter(name => tableExists(db, name)));
     if (version === '1') {
       upgradeObjectMarkdown(db, fingerprint);
       version = '2';
     }
     installCoreTables(db);
-    if (version !== undefined && version !== '5') attachTaskScheduledProperty(db);
-    installBuiltins(db, version !== undefined && version !== '5');
+    if (version !== undefined && version !== '5' && version !== '6') attachTaskScheduledProperty(db);
+    installBuiltins(db, version !== undefined && version !== '5' && version !== '6');
     installViewTables(db);
     installConversationTables(db);
     installVisitorTables(db);
-    if (version !== '4' && version !== '5') addVersion4Constraints(db, existing);
-    db.query("INSERT INTO object_metadata(key, value) VALUES ('schema_version', '5') ON CONFLICT(key) DO UPDATE SET value = excluded.value").run();
+    if (version !== '4' && version !== '5' && version !== '6') addVersion4Constraints(db, existing);
+    db.query("INSERT INTO object_metadata(key, value) VALUES ('schema_version', '6') ON CONFLICT(key) DO UPDATE SET value = excluded.value").run();
   }).immediate();
 }

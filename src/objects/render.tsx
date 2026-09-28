@@ -2,10 +2,12 @@ import type { JSX } from 'hono/jsx/jsx-runtime';
 import { raw } from 'hono/html';
 import { renderMarkdown } from './markdown.js';
 import { Badge, Brand, Button, ButtonLink, CardLink, Dialog, EmptyState, Field, Icon, Input, Notice, PageHeading, Panel, Select, Status, Textarea, type IconName } from '../ui/index.js';
-import { BUILTIN_PROPERTIES, BUILTIN_TYPES, EVENT_DATES_PROPERTY_ID, EVENT_TIME_PROPERTY_ID, EVENT_TYPE_ID, JOURNAL_DATE_PROPERTY_ID, JOURNAL_TYPE_ID, PAGE_TYPE_ID, REMINDER_DATE_PROPERTY_ID, REMINDER_TIME_PROPERTY_ID, REMINDER_TYPE_ID, TASK_DONE_PROPERTY_ID, TASK_DUE_PROPERTY_ID, TASK_SCHEDULED_PROPERTY_ID, TASK_TYPE_ID } from './model.js';
+import { BUILTIN_PROPERTIES, BUILTIN_TYPES, EVENT_DATES_PROPERTY_ID, EVENT_TIME_PROPERTY_ID, EVENT_TYPE_ID, JOURNAL_DATE_PROPERTY_ID, JOURNAL_TYPE_ID, PAGE_TYPE_ID, PERSON_BIRTHDAY_PROPERTY_ID, PERSON_FAVORITE_ARTISTS_PROPERTY_ID, PERSON_JOB_TITLE_PROPERTY_ID, PERSON_LAST_CONNECTED_PROPERTY_ID, PERSON_PHONE_PROPERTY_ID, PERSON_RECONNECT_EVERY_PROPERTY_ID, PERSON_RELATIONSHIP_PROPERTY_ID, PERSON_TYPE_ID, REMINDER_DATE_PROPERTY_ID, REMINDER_TIME_PROPERTY_ID, REMINDER_TYPE_ID, TASK_DONE_PROPERTY_ID, TASK_DUE_PROPERTY_ID, TASK_SCHEDULED_PROPERTY_ID, TASK_TYPE_ID } from './model.js';
 import type { DayTaskSummary, EvaluatedBlock, ObjectPageModel, ObjectSummary, PropertyDefinition, PropertyValue, SavedView, ViewRow } from './model.js';
 import { WritingFields } from './writing-fields.js';
 import { Document } from '../ui/document.js';
+import { reconnectDate } from './people.js';
+import type { ViewObjectRecord } from './model.js';
 
 const Hidden = ({ name, value }: { name: string; value: string | number }) => <input type="hidden" name={name} value={value} />;
 const Token = ({ model }: { model: ObjectPageModel }) => <Hidden name="csrf" value={model.csrf} />;
@@ -26,6 +28,7 @@ function typeIcon(typeId: string): IconName {
     case EVENT_TYPE_ID: return 'calendar';
     case JOURNAL_TYPE_ID: return 'journal';
     case REMINDER_TYPE_ID: return 'reminder';
+    case PERSON_TYPE_ID: return 'people';
     default: return 'type';
   }
 }
@@ -37,6 +40,7 @@ function WorkspaceNav({ model }: { model: ObjectPageModel }) {
     { href: '/', label: 'Objects', icon: 'objects', active: model.screen === 'home' && !model.trashed },
     { href: '/?focus=search', label: 'Search', icon: 'search', active: browsing && !currentType },
     { href: '/tasks', label: 'Tasks', icon: 'tasks', active: model.section === 'tasks' },
+    { href: '/people', label: 'People', icon: 'people', active: model.screen === 'people' },
     { href: '/journal', label: 'Journal', icon: 'calendar', active: model.screen === 'journal' },
     { href: '/views', label: 'Views', icon: 'views', active: !model.section && (model.screen === 'views' || model.screen === 'view') },
   ];
@@ -86,6 +90,7 @@ function PropertyControl({ model, property, value, name = `p:${property.id}`, re
   const id = `field-${crypto.randomUUID()}`;
   const fields = name.startsWith('p:') ? model.objectDraft?.fields : undefined;
   const scalar = fields?.[name]?.[0] ?? (typeof value === 'string' || typeof value === 'number' ? String(value) : '');
+  if (property.id === PERSON_RECONNECT_EVERY_PROPERTY_ID) return <Field label={property.label}><Input name={name} type="number" min={1} max={120} step={1} value={scalar} aria-describedby={`${id}-help`} /><small id={`${id}-help`}>Optional: 1–120 whole months. People calculates the next date from Last connected, clamping to the target month’s last day.</small></Field>;
   if (property.kind === 'boolean') return <Field class="check"><Input type="checkbox" name={name} value="true" checked={fields?.[name] ? ['true', 'on'].includes(fields[name]?.[0] ?? '') : value === true} />{property.label}</Field>;
   if (property.kind === 'date-range' || property.kind === 'time-range') {
     const range = isRange(value) ? value : undefined;
@@ -678,10 +683,90 @@ function View({ model }: { model: ObjectPageModel }) {
   </>;
 }
 
+function peopleValue(record: ViewObjectRecord, propertyId: string): string {
+  const value = record.properties[propertyId];
+  return typeof value === 'string' || typeof value === 'number' ? String(value) : '';
+}
+
+function initials(title: string): string {
+  const parts = title.trim().split(/\s+/).filter(Boolean);
+  return (parts.length > 1 ? `${parts[0]![0]}${parts[parts.length - 1]![0]}` : title.slice(0, 2)).toUpperCase();
+}
+
+function daysFromToday(date: string): number | undefined {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return undefined;
+  const today = new Date();
+  const start = Date.UTC(today.getFullYear(), today.getMonth(), today.getDate());
+  const target = Date.parse(`${date}T00:00:00.000Z`);
+  if (!Number.isFinite(target)) return undefined;
+  return Math.round((target - start) / 86_400_000);
+}
+
+function People({ model }: { model: ObjectPageModel }) {
+  const selected = model.object;
+  const groups = new Map<string, ViewObjectRecord[]>();
+  const peoplePath = (offset: number, person?: string) => `/people?${new URLSearchParams({ q: model.search ?? '', offset: String(offset), ...(person ? { person } : {}) })}`;
+  for (const person of model.people ?? []) {
+    const groupName = peopleValue(person, PERSON_RELATIONSHIP_PROPERTY_ID).trim() || 'People';
+    const group = groups.get(groupName) ?? [];
+    group.push(person);
+    groups.set(groupName, group);
+  }
+  return <>
+    <PageHeading eyebrow="Built-in people" title="Relationships" description="Keep the people you know visible, grouped by relationship, with reconnect details close at hand.">
+      <ButtonLink variant="primary" href={`/objects/new?type=${PERSON_TYPE_ID}`}><Icon name="plus" />New person</ButtonLink>
+    </PageHeading>
+    <form class="filter-bar" action="/people" method="get">
+      <Field label="Search people"><Input type="search" name="q" maxlength={200} value={model.search ?? ''} /></Field>
+      <Button type="submit">Search</Button>
+    </form>
+    <div class="people-view">
+      <div class="people-board" aria-label="People grouped by relationship">
+        {[...groups.entries()].map(([group, people]) => <section class="people-group">
+          <h2>{group}</h2>
+          <ul>{people.map(person => {
+            const due = daysFromToday(reconnectDate(person.properties) ?? '');
+            const active = selected && sameObjectIdentity(selected.id, person.id);
+            return <li><a class={`person-tile ${active ? 'active' : ''}`.trim()} href={`${peoplePath(model.offset ?? 0, person.id)}#person-detail-heading`} aria-current={active ? 'true' : undefined}>
+              {due !== undefined && <span class={`person-badge ${due < 0 ? 'overdue' : due <= 7 ? 'soon' : ''}`.trim()}>{due < 0 ? `${Math.abs(due)} days overdue` : due === 0 ? 'today' : `in ${due} days`}</span>}
+              <span class="parch person-avatar" aria-hidden="true">{initials(titleOf(person))}</span>
+              <span class="person-name">{titleOf(person)}</span>
+            </a></li>;
+          })}</ul>
+        </section>)}
+        {!model.people?.length && <EmptyState icon="people" title="No people yet"><p>Create a Person object to start your relationship view.</p></EmptyState>}
+      </div>
+      <aside class="parch people-detail" aria-labelledby="person-detail-heading">
+        {selected ? <>
+          <span class="parch person-avatar" aria-hidden="true">{initials(titleOf(selected))}</span>
+          <h2 id="person-detail-heading" tabindex={-1}>{titleOf(selected)}</h2>
+          <div class="people-chips"><Badge>{peopleValue(selected, PERSON_RELATIONSHIP_PROPERTY_ID) || 'No relationship set'}</Badge>{peopleValue(selected, PERSON_RECONNECT_EVERY_PROPERTY_ID) && <Badge>Every {peopleValue(selected, PERSON_RECONNECT_EVERY_PROPERTY_ID)} months</Badge>}</div>
+          <dl class="people-fields">
+            <div><dt>Last connected</dt><dd>{peopleValue(selected, PERSON_LAST_CONNECTED_PROPERTY_ID) || 'Not set'}</dd></div>
+            <div><dt>Due to reconnect</dt><dd>{reconnectDate(selected.properties) || 'Set Last connected and a frequency (1–120 months) to calculate a date.'}</dd></div>
+            <div><dt>Birthday</dt><dd>{peopleValue(selected, PERSON_BIRTHDAY_PROPERTY_ID) || 'Not set'}</dd></div>
+            <div><dt>Phone number</dt><dd>{peopleValue(selected, PERSON_PHONE_PROPERTY_ID) || 'Not set'}</dd></div>
+            <div><dt>Job title</dt><dd>{peopleValue(selected, PERSON_JOB_TITLE_PROPERTY_ID) || 'Not set'}</dd></div>
+            <div><dt>Favorite artists</dt><dd>{peopleValue(selected, PERSON_FAVORITE_ARTISTS_PROPERTY_ID) || 'Not set'}</dd></div>
+          </dl>
+          {selected.body && <div class="people-notes"><h3>Notes</h3>{raw(renderMarkdown(selected.body))}</div>}
+          <ButtonLink href={objectUrl(selected.id)}>Edit person</ButtonLink>
+          <p class="fine">Reconnect dates are calculated from Last connected plus the frequency, not stored separately. Update Last connected after you meet.</p>
+        </> : <EmptyState icon="people" title="Choose a person"><p>Select someone to see their details, or create a new Person object.</p></EmptyState>}
+      </aside>
+    </div>
+    <nav class="pagination" aria-label="People pages">
+      {(model.offset ?? 0) > 0 && <a href={peoplePath(Math.max(0, (model.offset ?? 0) - 50))}>Previous</a>}
+      {model.hasMore && <a href={peoplePath((model.offset ?? 0) + 50)}>Next</a>}
+    </nav>
+  </>;
+}
+
 function WorkspaceScreen({ model }: { model: ObjectPageModel }) {
   switch (model.screen) {
     case 'home': return <ObjectHome model={model} />;
     case 'objects': return <Objects model={model} />;
+    case 'people': return <People model={model} />;
     case 'types': return <Types model={model} />;
     case 'type': return <TypeEditor model={model} />;
     case 'new-object':
@@ -695,7 +780,7 @@ function WorkspaceScreen({ model }: { model: ObjectPageModel }) {
 }
 
 export function renderObjectWorkspace(model: ObjectPageModel): string {
-  let title = 'Objects';
+  let title = model.screen === 'people' ? 'People' : 'Objects';
   if (model.screen === 'calendar') title = 'Calendar';
   else if (model.screen === 'journal') title = 'Journal';
   else if (model.trashed) title = model.selectedTypeId ? `${typeName(model, model.selectedTypeId)} · Trash` : 'Trash';

@@ -5,7 +5,7 @@ import type { JSX } from 'hono/jsx/jsx-runtime';
 const icons = {
   plus: 'quill', search: 'lens', calendar: 'hourglass', tasks: 'scroll',
   objects: 'tome', views: 'orb', type: 'gem', settings: 'key', trash: 'rune_x',
-  ai: 'orb', close: 'rune_x', pin: 'gem', page: 'scroll', journal: 'tome', reminder: 'bell',
+  ai: 'orb', close: 'rune_x', pin: 'gem', page: 'scroll', journal: 'tome', reminder: 'bell', people: 'shield',
 } as const;
 const runes = { menu: '☰', arrow: '▸' } as const;
 export type IconName = keyof typeof icons | keyof typeof runes;

@@ -225,6 +225,29 @@
 .object-shell .search-hints > span { display: flex; align-items: center; gap: var(--space-2); }
 
 /* Validated, trusted view renderers. */
+.object-shell .people-view { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(260px, 1fr); gap: var(--space-6); align-items: start; }
+.object-shell .people-board, .object-shell .people-detail { min-width: 0; }
+.object-shell .people-group { margin-bottom: var(--space-8); }
+.object-shell .people-group h2 { text-align: center; }
+.object-shell .people-group ul { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: var(--space-5); padding: 0; list-style: none; }
+.object-shell .person-tile { display: flex; flex-direction: column; align-items: center; gap: var(--space-2); padding: var(--space-2); color: var(--text-primary); text-decoration: none; position: relative; padding-top: var(--space-5); }
+.object-shell .person-tile.active { outline: 2px solid var(--action-primary); }
+.object-shell .person-avatar { display: grid; place-items: center; width: 76px; height: 76px; background: var(--surface-selected); color: var(--text-primary); border: 2px solid var(--border-subtle); box-shadow: var(--bevel-up); font: 32px var(--font-display); }
+.object-shell .person-name { text-align: center; overflow-wrap: anywhere; }
+.object-shell .person-badge { font: 11px var(--font-mono); text-align: center; color: var(--text-muted); }
+.object-shell .person-badge.overdue { color: var(--status-danger); font-weight: bold; }
+.object-shell .people-detail { padding: var(--space-5); overflow-wrap: anywhere; }
+.object-shell .people-detail > .person-avatar { margin-inline: auto; }
+.object-shell .people-detail > h2 { text-align: center; }
+.object-shell .people-chips { display: flex; flex-wrap: wrap; justify-content: center; gap: var(--space-2); }
+.object-shell .people-fields > div { display: grid; grid-template-columns: 1fr 1.4fr; gap: var(--space-3); margin-block: var(--space-4); }
+.object-shell .people-fields dt { color: var(--text-muted); }
+.object-shell .people-fields dd { margin: 0; }
+.object-shell .people-notes { border-top: 2px dashed var(--border-subtle); margin-block: var(--space-5); }
+@media (max-width: 900px) {
+  .object-shell .people-view { grid-template-columns: minmax(0, 1fr); }
+}
+
 .object-shell .view-actions { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: flex-start; }
 .object-shell .view-actions p { flex-basis: 100%; }
 .object-shell .view-block { margin: var(--space-10) 0; min-width: 0; }

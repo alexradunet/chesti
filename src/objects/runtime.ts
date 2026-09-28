@@ -2,6 +2,7 @@ import type { Database } from 'bun:sqlite';
 import { AppError } from '../core.js';
 import { initializeApplicationSchema } from '../schema.js';
 import { fingerprint } from './fingerprint.js';
+import { PERSON_TYPE_ID, PERSON_RECONNECT_EVERY_PROPERTY_ID, type ViewObjectRecord } from './model.js';
 import { localDateBounds, validDate, valueError } from './values.js';
 import { markdownReferences, markdownText, validateMarkdown } from './markdown.js';
 import { EVENT_DATES_PROPERTY_ID, EVENT_TIME_PROPERTY_ID, EVENT_TYPE_ID, JOURNAL_DATE_PROPERTY_ID, JOURNAL_TYPE_ID, REMINDER_DATE_PROPERTY_ID, REMINDER_TIME_PROPERTY_ID, REMINDER_TYPE_ID, TASK_DONE_PROPERTY_ID, TASK_DUE_PROPERTY_ID, TASK_SCHEDULED_PROPERTY_ID, TASK_TYPE_ID } from './model.js';
@@ -235,6 +236,15 @@ export class ObjectRuntime {
     return this.db.query<ObjectSummaryRow, (string | number)[]>(`SELECT id, type_id, title, revision, created_at, updated_at, trashed FROM objects WHERE ${shape.where} ORDER BY updated_at DESC, id LIMIT ? OFFSET ?`)
       .all(...shape.values, limit, offset).map(objectSummary);
   }
+  listPeople(search = '', offset = 0): BoundedPage<ViewObjectRecord> {
+    browseBounds({ offset });
+    const shape = browseShape({ typeId: PERSON_TYPE_ID, search });
+    const rows = this.db.query<ObjectSummaryRow & { properties_json: string }, (string | number)[]>(`
+      SELECT id, type_id, title, revision, created_at, updated_at, trashed, properties_json
+      FROM objects WHERE ${shape.where} ORDER BY title COLLATE NOCASE, id LIMIT 51 OFFSET ?
+    `).all(...shape.values, offset);
+    return { items: rows.slice(0, 50).map(row => ({ ...objectSummary(row), properties: JSON.parse(row.properties_json) })), offset, hasMore: rows.length > 50 };
+  }
   listDayTasks(date: string, offset = 0): BoundedPage<DayTaskSummary> {
     if (!validDate(date)) throw new AppError(422, 'Choose a real calendar date in YYYY-MM-DD format.');
     if (!Number.isInteger(offset) || offset < 0 || offset > 1_000_000) throw new AppError(422, 'Invalid task page.');
@@ -461,6 +471,12 @@ export class ObjectRuntime {
   }
   private validateBuiltinValues(write: ObjectWrite, previous?: ObjectRecord): void {
     const has = (id: string): boolean => Object.hasOwn(write.properties, id);
+    if (write.typeId === PERSON_TYPE_ID && has(PERSON_RECONNECT_EVERY_PROPERTY_ID)) {
+      const months = write.properties[PERSON_RECONNECT_EVERY_PROPERTY_ID];
+      if (typeof months !== 'number' || !Number.isInteger(months) || months < 1 || months > 120) {
+        throw new AppError(422, 'Reconnect frequency must be a whole number of months from 1 to 120.');
+      }
+    }
     if (write.typeId === TASK_TYPE_ID && !has(TASK_DONE_PROPERTY_ID)) {
       write.properties[TASK_DONE_PROPERTY_ID] = false;
       if (Object.keys(write.properties).length > 256 || JSON.stringify(write.properties).length > 262_144) throw new AppError(422, 'Invalid or oversized properties.');
