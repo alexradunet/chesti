@@ -170,7 +170,6 @@
 .object-shell .range-inputs label { flex: 1 1 140px; }
 .object-shell .range-field small { display: block; margin-top: var(--space-3); }
 .object-shell .writing { margin-top: var(--space-6); }
-.object-shell textarea.markdown-source { min-height: 320px; padding: var(--space-5); font-family: var(--font-mono); font-size: var(--text-sm); line-height: var(--leading-relaxed); tab-size: 2; }
 .object-shell .markdown-content { padding: var(--space-4) 0; line-height: var(--leading-relaxed); }
 .object-shell .markdown-content h1 { font-size: var(--text-2xl); }
 .object-shell .markdown-content h2 { font-size: var(--text-xl); margin-top: var(--space-6); }
@@ -210,10 +209,6 @@
 .object-shell [data-new-object] .range-inputs label { flex-basis: 100px; gap: var(--space-1); }
 .object-shell [data-new-object] .builtin-rules > p { margin: var(--space-2) 0; padding: var(--space-2) var(--space-3); }
 .object-shell [data-new-object] .writing { margin-top: var(--space-4); }
-.object-shell [data-new-object] .writing-toolbar { flex-wrap: nowrap; overflow-x: auto; padding: var(--space-1); }
-.object-shell [data-new-object] .writing-toolbar :is(button, select) { min-height: var(--space-8); padding: var(--space-1) var(--space-2); }
-.object-shell [data-new-object] .writing-toolbar > * { flex-shrink: 0; }
-.object-shell [data-new-object] .writing-toolbar button { white-space: nowrap; }
 
 /* Search remains a native modal dialog (focus, Escape, and form semantics). */
 .object-shell .object-search { width: min(640px, calc(100% - var(--space-8))); max-height: calc(100dvh - var(--space-8)); padding: var(--space-6); box-shadow: var(--shadow-overlay); overscroll-behavior: contain; }
@@ -375,7 +370,6 @@
   .object-shell .object-search { padding: var(--space-5); }
   .object-shell .object-search .object-index :is(a, button) { flex-wrap: wrap; gap: var(--space-1); }
   .object-shell :where(input:not([type="checkbox"]):not([type="hidden"]), select, textarea) { font-size: 1rem; }
-  .object-shell textarea.markdown-source { font-size: 1rem; }
 }
 @media (forced-colors: active) {
   .object-shell .nav-links > a[aria-current="page"], .object-shell .layout-switch a[aria-current="page"], .object-shell .month-table a[aria-current="date"] { outline: 2px solid Highlight; outline-offset: -2px; }

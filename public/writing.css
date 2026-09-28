@@ -1,14 +1,45 @@
 :root { scroll-padding-block-end: var(--writing-save-clearance, 8rem); }
 .object-shell .object-editor :is(input, select, textarea, button) { scroll-margin-block-end: var(--writing-save-clearance, 8rem); }
 .object-shell .writing-heading :is(h2, h3) { margin: 0; font-size: var(--text-lg); }
-.object-shell .writing-modes { display: flex; gap: var(--space-2); margin-bottom: var(--space-3); }
-.object-shell .writing-toolbar { display: flex; flex-wrap: nowrap; overflow-x: auto; align-items: center; gap: var(--space-1); border: 2px solid var(--outline-2); border-bottom: 0; padding: var(--space-2); }
+.object-shell .writing-heading { flex-wrap: wrap; gap: var(--space-2); }
+.object-shell .writing-icon { display: block; flex: 0 0 auto; }
+.object-shell .writing-modes { display: flex; gap: var(--space-1); padding: var(--space-1); background: var(--surface-2); border: 1px solid var(--parch-edge); }
+.object-shell .writing-modes button { min-height: 36px; padding: var(--space-1) var(--space-3); text-transform: none; letter-spacing: normal; }
+.object-shell .writing-modes button[aria-pressed="true"] { background: var(--surface); box-shadow: none; }
+
+/* One quiet sheet for tools, source, preview, and the draft reminder. */
+.object-shell .writing-surface { min-width: 0; border: 1px solid var(--parch-edge); background: var(--surface); }
+.object-shell .writing-surface:focus-within { border-color: var(--focus-ring); }
+.object-shell .writing-toolbar { display: flex; flex-wrap: nowrap; overflow-x: auto; align-items: center; gap: var(--space-2); padding: var(--space-2); border-bottom: 1px solid var(--parch-edge); background: var(--surface-2); scrollbar-width: thin; }
 .object-shell .writing-toolbar > * { flex-shrink: 0; }
-.object-shell .writing-toolbar button { padding: var(--space-2); min-height: var(--control-height); white-space: nowrap; }
-.object-shell .writing-toolbar select { width: auto; max-width: 100%; margin: 0; }
-.object-shell .writing-preview { min-height: 320px; padding: var(--space-5); border: 2px solid var(--parch-edge); background-color: var(--surface); background-image: var(--grain-ink); background-size: 4px 4px; color: var(--ink); overflow-wrap: anywhere; }
+.object-shell .writing-tool-group { display: flex; gap: 2px; padding-left: var(--space-2); border-left: 1px solid var(--parch-edge); }
+.object-shell .writing-toolbar button { width: 36px; min-height: 36px; padding: var(--space-1); color: var(--text-primary); }
+.object-shell .writing-toolbar button:hover:where(:not(:disabled)) { background: var(--surface); border-color: transparent; }
+.object-shell .writing-toolbar :is(button, select):focus-visible { outline-offset: -2px; }
+.object-shell .writing-toolbar select { width: auto; max-width: 100%; min-height: 36px; margin: 0; padding: var(--space-1) var(--space-2); border: 1px solid transparent; background: transparent; box-shadow: none; font: var(--text-xs) var(--font-mono); }
+.object-shell .writing-toolbar select:hover { border-color: var(--parch-edge); }
+.object-shell .writing-surface .markdown-source,
+.object-shell .writing-preview { display: block; width: 100%; min-height: 360px; margin: 0; padding: clamp(1rem, 3vw, 2rem); border: 0; background: var(--surface); color: var(--ink); box-shadow: none; }
+.object-shell .writing-surface .markdown-source { font-family: var(--font-mono); font-size: var(--text-sm); line-height: 1.9; tab-size: 2; }
+.object-shell .writing-surface :is(.markdown-source, .writing-preview):focus-visible { outline-offset: -2px; }
+.object-shell .writing-preview { overflow-wrap: anywhere; }
 .object-shell .writing-preview > :first-child { margin-top: 0; }
 .object-shell .writing-preview > :last-child { margin-bottom: 0; }
+.object-shell .writing-footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2); padding: var(--space-2) var(--space-3); border-top: 1px solid var(--parch-edge); }
+.object-shell .writing-footer button { min-height: 36px; padding: var(--space-1) var(--space-2); text-transform: none; letter-spacing: normal; }
+.object-shell .writing-footer .fine { font-size: var(--text-xs); }
+.object-shell .writing-help { margin-top: var(--space-2); }
+.object-shell .writing-help > summary { width: fit-content; padding: var(--space-2) 0; color: var(--text-muted); font-size: var(--text-sm); font-weight: normal; }
+.object-shell .writing-help p { max-width: 75ch; }
+.object-shell .writing-status { padding: var(--space-3); border-left: 2px solid var(--action-primary); background: var(--surface-2); }
 .object-shell.writing-enhanced [data-native-reading] { display: none; }
 .object-shell .writing-link-dialog { width: min(440px, calc(100vw - 2rem)); padding: var(--space-5); }
 .object-shell .writing-link-dialog h2 { margin-top: 0; }
+@media (pointer: coarse) {
+  .object-shell .writing-toolbar button { width: 44px; min-height: 44px; }
+  .object-shell .writing :is(.writing-modes button, .writing-toolbar select, .writing-footer button) { min-height: 44px; }
+}
+@media (max-width: 600px) {
+  .object-shell .writing-surface .markdown-source { font-size: 1rem; }
+  .object-shell .writing-footer { gap: var(--space-1); }
+}

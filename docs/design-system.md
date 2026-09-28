@@ -23,7 +23,7 @@ Import reusable components from `src/ui/index.ts`. UI components have no depende
 ## Materials and typography
 
 - **Oak page:** dark study / daylight study selected by the system color preference. No new preference store or theme switch.
-- **Wood chrome:** `.wood`, plank grain, raised bevel, gold and parchment-colored text. Navigation, workspace header, assistant ledge, and editor toolbar.
+- **Wood chrome:** `.wood`, plank grain, raised bevel, gold and parchment-colored text. Navigation, workspace header, and assistant ledge.
 - **Parchment content:** `.parch` (also owned by `Panel`, `Notice`, and `EmptyState`), ink-colored text, dither, two-pixel edge, hard drop. Cards, objects, journals, lists, tables, and dialogs.
 - **Inset wells:** `--bevel-in` for pressed/current chrome controls.
 - **Type:** Jersey 15 for headings at 20px and above; Piazzolla for readable 17px body copy; JetBrains Mono for functional small text and code; Silkscreen only for the Taskdesk nameplate.
@@ -62,7 +62,7 @@ import { Button, ButtonLink, Field, Input, Panel, Status } from '../ui/index.js'
 - `Status` renders a polite status or assertive error. `Notice` is a page-level message. Preserve existing `data-*` hooks so errors and unsaved drafts remain attached to the right form.
 - `Icon` uses the closed local PNG vocabulary or a typographic rune; images are decorative and pixelated. Use text for the action name. Unknown user content must never become an icon URL.
 
-Native element CSS also covers controls created by browser code (such as search results), so they do not require a second component framework. Writing uses the native textarea, selection-based Markdown commands, and an explicit safe draft preview. Dynamic assistant messages use the same `.parch` material. Domain-specific property binding and generated view decisions remain in the trusted renderers, not in the generic UI layer.
+Native element CSS also covers controls created by browser code (such as search results), so they do not require a second component framework. Writing uses a quiet, untextured parchment sheet with a grouped icon toolbar, an Edit/Preview segmented control, and a collapsible formatting guide. The editor's fixed inline SVG glyphs are a domain-local exception to the pixel-art vocabulary: they keep familiar formatting marks legible at small sizes. They are decorative, with accessible button names and native title hints; they never contain model or user data. Toolbar groups scroll horizontally on narrow screens, with inset keyboard focus rings and larger coarse-pointer targets. Writing retains the native textarea, selection-based Markdown commands, and an explicit safe draft preview. Dynamic assistant messages use the same `.parch` material. Domain-specific property binding and generated view decisions remain in the trusted renderers, not in the generic UI layer.
 
 ## Source and intentional adaptation
 

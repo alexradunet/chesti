@@ -2,6 +2,51 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { formatMarkdown, markdownLink, writingSource } from '../src/objects/writing-commands.js';
 import { markdownReferences, markdownText, renderMarkdown } from '../src/objects/markdown.js';
+import { WritingFields } from '../src/objects/writing-fields.js';
+
+test('writing icons keep named non-submit actions and native editing before enhancement', async () => {
+  const body = '\n# Draft <script> & text\r\n';
+  const markup = String(WritingFields({ body, textareaId: 'journal-source' }));
+  const commands: string[] = [];
+  let icons = 0;
+  let source = '';
+  await new HTMLRewriter()
+    .on('[data-writing-command]', { element(element) {
+      assert.equal(element.getAttribute('type'), 'button');
+      assert.ok(element.getAttribute('aria-label'));
+      assert.equal(element.getAttribute('title'), element.getAttribute('aria-label'));
+      commands.push(element.getAttribute('data-writing-command')!);
+    } })
+    .on('[data-writing-command] svg', { element(element) {
+      assert.equal(element.getAttribute('aria-hidden'), 'true');
+      assert.equal(element.getAttribute('focusable'), 'false');
+      icons++;
+    } })
+    .on('[data-writing-toolbar], [data-writing-modes], [data-writing-preview]', { element(element) {
+      assert.notEqual(element.getAttribute('hidden'), null);
+    } })
+    .on('[data-writing-edit]', { element(element) {
+      assert.equal(element.getAttribute('aria-controls'), 'journal-source');
+      assert.equal(element.getAttribute('aria-pressed'), 'true');
+    } })
+    .on('[data-writing-show-preview]', { element(element) {
+      assert.equal(element.getAttribute('aria-controls'), 'journal-source-preview');
+      assert.equal(element.getAttribute('aria-pressed'), 'false');
+    } })
+    .on('textarea[name="body"]', {
+      element(element) {
+        assert.equal(element.getAttribute('hidden'), null);
+        assert.equal(element.getAttribute('disabled'), null);
+        assert.equal(element.getAttribute('data-writing-source'), '&quot;\\n# Draft &lt;script&gt; &amp; text\\r\\n&quot;');
+      },
+      text(chunk) { source += chunk.text; },
+    })
+    .transform(new Response(markup)).text();
+  assert.deepEqual(commands, ['bold', 'italic', 'strike', 'bullet', 'ordered', 'task', 'quote', 'code', 'code-block', 'link', 'undo', 'redo']);
+  assert.equal(icons, commands.length);
+  assert.equal(source, '\n\n# Draft &lt;script&gt; &amp; text\r\n');
+  assert.doesNotMatch(markup, /<script>/);
+});
 
 function format(source: string, from: number, to: number, command: string) {
   const edit = formatMarkdown(source, from, to, command)!;
