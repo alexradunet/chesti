@@ -45,7 +45,8 @@ function checkedPath(input: string): string {
 function exitCode(report: FixedDomainPreflightReport): number {
   if (report.status === 'compatible') return 0;
   if (report.status === 'upgrade-required') return 2;
-  if (report.blockers.some(blocker => ['schema-version', 'application-shape', 'sqlite-integrity'].includes(blocker.category))) return 1;
+  if (report.status === 'malformed') return 1;
+  if (report.blockers.some(blocker => blocker.category === 'schema-version')) return 1;
   return 2;
 }
 
@@ -76,8 +77,8 @@ async function main(): Promise<number> {
     const report = analyzeFixedDomainPreflight(db);
     printReport(report);
     return exitCode(report);
-  } catch (error) {
-    console.error(error instanceof Error ? error.message : String(error));
+  } catch {
+    console.error('Preflight could not read a valid supported SQLite database.');
     return 1;
   } finally {
     db?.close();

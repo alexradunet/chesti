@@ -81,14 +81,14 @@ function installV6Schema(db: Database, version = '6'): void {
     PRAGMA foreign_keys = ON;
     CREATE TABLE object_metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT;
     INSERT INTO object_metadata(key, value) VALUES ('schema_version', '${version}');
-    CREATE TABLE object_types (id TEXT PRIMARY KEY, name TEXT NOT NULL, property_ids_json TEXT NOT NULL CHECK(json_valid(property_ids_json)), revision INTEGER NOT NULL CHECK(revision > 0)) STRICT;
-    CREATE TABLE object_properties (id TEXT PRIMARY KEY, label TEXT NOT NULL, kind TEXT NOT NULL, options_json TEXT CHECK(options_json IS NULL OR json_valid(options_json)), target_type_id TEXT REFERENCES object_types(id), multiple INTEGER NOT NULL DEFAULT 0 CHECK(multiple IN (0, 1)), revision INTEGER NOT NULL CHECK(revision > 0)) STRICT;
-    CREATE TABLE objects (id TEXT PRIMARY KEY COLLATE NOCASE, type_id TEXT NOT NULL REFERENCES object_types(id), title TEXT NOT NULL, properties_json TEXT NOT NULL CHECK(json_valid(properties_json)), body TEXT NOT NULL DEFAULT '', revision INTEGER NOT NULL CHECK(revision > 0), created_at TEXT NOT NULL, updated_at TEXT NOT NULL, trashed INTEGER NOT NULL CHECK(trashed IN (0, 1)), body_text TEXT NOT NULL) STRICT;
+    CREATE TABLE object_types (id TEXT PRIMARY KEY, name TEXT NOT NULL, property_ids_json TEXT NOT NULL CHECK(json_valid(property_ids_json)) CONSTRAINT object_types_property_ids_array CHECK(json_valid(property_ids_json) AND json_type(property_ids_json) = 'array'), revision INTEGER NOT NULL CHECK(revision > 0)) STRICT;
+    CREATE TABLE object_properties (id TEXT PRIMARY KEY, label TEXT NOT NULL, kind TEXT NOT NULL CONSTRAINT object_properties_kind_supported CHECK(kind IN ('text','number','boolean','date','datetime','select','reference','date-range','time-range')), options_json TEXT CHECK(options_json IS NULL OR json_valid(options_json)) CONSTRAINT object_properties_select_options CHECK((kind = 'select' AND options_json IS NOT NULL AND json_valid(options_json) AND json_type(options_json) = 'array') OR (kind != 'select' AND options_json IS NULL)), target_type_id TEXT REFERENCES object_types(id) CONSTRAINT object_properties_reference_target CHECK((kind = 'reference' AND target_type_id IS NOT NULL) OR (kind != 'reference' AND target_type_id IS NULL)), multiple INTEGER NOT NULL DEFAULT 0 CHECK(multiple IN (0, 1)) CONSTRAINT object_properties_reference_multiple CHECK((kind = 'reference' AND multiple IN (0, 1)) OR (kind != 'reference' AND multiple = 0)), revision INTEGER NOT NULL CHECK(revision > 0)) STRICT;
+    CREATE TABLE objects (id TEXT PRIMARY KEY COLLATE NOCASE, type_id TEXT NOT NULL REFERENCES object_types(id), title TEXT NOT NULL, properties_json TEXT NOT NULL CHECK(json_valid(properties_json)) CONSTRAINT objects_properties_object CHECK(json_valid(properties_json) AND json_type(properties_json) = 'object'), body TEXT NOT NULL DEFAULT '', revision INTEGER NOT NULL CHECK(revision > 0), created_at TEXT NOT NULL, updated_at TEXT NOT NULL, trashed INTEGER NOT NULL CHECK(trashed IN (0, 1)), body_text TEXT NOT NULL) STRICT;
     CREATE INDEX objects_browse ON objects(trashed, updated_at DESC, id);
     CREATE INDEX objects_type_browse ON objects(type_id, trashed, updated_at DESC, id);
     CREATE TABLE object_references (source_id TEXT NOT NULL COLLATE NOCASE REFERENCES objects(id), target_id TEXT NOT NULL COLLATE NOCASE REFERENCES objects(id), property_id TEXT NOT NULL DEFAULT '', PRIMARY KEY(source_id, target_id, property_id)) STRICT;
     CREATE INDEX object_references_target ON object_references(target_id);
-    CREATE TABLE object_revisions (object_id TEXT NOT NULL COLLATE NOCASE REFERENCES objects(id), revision INTEGER NOT NULL CHECK(revision > 0), snapshot_json TEXT NOT NULL CHECK(json_valid(snapshot_json)), recorded_at TEXT NOT NULL, PRIMARY KEY(object_id, revision)) STRICT;
+    CREATE TABLE object_revisions (object_id TEXT NOT NULL COLLATE NOCASE REFERENCES objects(id), revision INTEGER NOT NULL CONSTRAINT object_revisions_revision_positive CHECK(revision > 0), snapshot_json TEXT NOT NULL CHECK(json_valid(snapshot_json)) CONSTRAINT object_revisions_snapshot_object CHECK(json_valid(snapshot_json) AND json_type(snapshot_json) = 'object'), recorded_at TEXT NOT NULL, PRIMARY KEY(object_id, revision)) STRICT;
     CREATE TABLE object_create_requests (request_id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, object_id TEXT NOT NULL COLLATE NOCASE REFERENCES objects(id)) STRICT;
     CREATE TABLE object_favorites (object_id TEXT PRIMARY KEY COLLATE NOCASE REFERENCES objects(id) ON DELETE CASCADE, created_at TEXT NOT NULL) STRICT;
     CREATE TABLE object_views (id TEXT PRIMARY KEY, revision INTEGER NOT NULL CHECK(revision > 0), status TEXT NOT NULL CHECK(status IN ('draft','published')), spec_json TEXT NOT NULL CHECK(json_valid(spec_json)), prompt TEXT NOT NULL, model TEXT NOT NULL, schema_json TEXT NOT NULL CHECK(json_valid(schema_json)), created_at TEXT NOT NULL, updated_at TEXT NOT NULL, deleted INTEGER NOT NULL DEFAULT 0 CHECK(deleted IN (0,1)));
@@ -136,10 +136,10 @@ function installDefinitions(db: Database): void {
   db.exec(`
     CREATE UNIQUE INDEX objects_journal_date ON objects(json_extract(properties_json, '$."${JOURNAL_DATE_PROPERTY_ID}"')) WHERE type_id = '${JOURNAL_TYPE_ID}';
     CREATE TRIGGER objects_journal_date_insert BEFORE INSERT ON objects
-    WHEN NEW.type_id = '${JOURNAL_TYPE_ID}' AND json_extract(NEW.properties_json, '$."${JOURNAL_DATE_PROPERTY_ID}"') IS NULL
+    WHEN NEW.type_id = '${JOURNAL_TYPE_ID}' AND (json_type(NEW.properties_json) IS NOT 'object' OR json_type(NEW.properties_json, '$."${JOURNAL_DATE_PROPERTY_ID}"') IS NOT 'text' OR json_extract(NEW.properties_json, '$."${JOURNAL_DATE_PROPERTY_ID}"') NOT GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]' OR substr(json_extract(NEW.properties_json, '$."${JOURNAL_DATE_PROPERTY_ID}"'), 1, 4) = '0000' OR date(json_extract(NEW.properties_json, '$."${JOURNAL_DATE_PROPERTY_ID}"'), '+0 days') IS NOT json_extract(NEW.properties_json, '$."${JOURNAL_DATE_PROPERTY_ID}"'))
     BEGIN SELECT RAISE(ABORT, 'Journal requires a real calendar date.'); END;
     CREATE TRIGGER objects_journal_date_update BEFORE UPDATE ON objects
-    WHEN NEW.type_id = '${JOURNAL_TYPE_ID}' AND json_extract(NEW.properties_json, '$."${JOURNAL_DATE_PROPERTY_ID}"') IS NULL
+    WHEN NEW.type_id = '${JOURNAL_TYPE_ID}' AND (json_type(NEW.properties_json) IS NOT 'object' OR json_type(NEW.properties_json, '$."${JOURNAL_DATE_PROPERTY_ID}"') IS NOT 'text' OR json_extract(NEW.properties_json, '$."${JOURNAL_DATE_PROPERTY_ID}"') NOT GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]' OR substr(json_extract(NEW.properties_json, '$."${JOURNAL_DATE_PROPERTY_ID}"'), 1, 4) = '0000' OR date(json_extract(NEW.properties_json, '$."${JOURNAL_DATE_PROPERTY_ID}"'), '+0 days') IS NOT json_extract(NEW.properties_json, '$."${JOURNAL_DATE_PROPERTY_ID}"'))
     BEGIN SELECT RAISE(ABORT, 'Journal requires a real calendar date.'); END;
   `);
 }
@@ -244,7 +244,7 @@ export function createInputViewFixture(db: Database): void {
 
 export function createMalformedDataFixture(db: Database): void {
   createCompatibleV6Fixture(db);
-  db.query('UPDATE objects SET properties_json = ? WHERE id = ?').run(j({ [JOURNAL_DATE_PROPERTY_ID]: '2026-02-30' }), ids.journal);
+  db.query('UPDATE objects SET created_at = ? WHERE id = ?').run('2026-99-99T88:88:88Z', ids.journal);
 }
 
 export function createUnknownVersionFixture(db: Database): void {

@@ -1,6 +1,5 @@
 import type { Database, Statement } from 'bun:sqlite';
 import { Value } from 'typebox/value';
-import { fingerprint } from './fingerprint.js';
 import { markdownReferences, markdownText, validateMarkdown } from './markdown.js';
 import {
   EVENT_DATES_PROPERTY_ID, EVENT_TIME_PROPERTY_ID, EVENT_TYPE_ID,
@@ -11,7 +10,6 @@ import {
   TASK_DONE_PROPERTY_ID, TASK_TYPE_ID,
   ViewSpecSchema,
   type Catalog,
-  type ObjectWrite,
   type PropertyDefinition,
   type PropertyKind,
   type ViewSpec,
@@ -19,7 +17,7 @@ import {
 import { validDate, validDateTime, valueError } from './values.js';
 import { validateViewSpec } from './views.js';
 
-export type FixedDomainPreflightStatus = 'compatible' | 'blocked' | 'upgrade-required';
+export type FixedDomainPreflightStatus = 'compatible' | 'blocked' | 'upgrade-required' | 'malformed';
 
 export interface FixedDomainBlockerSample { id: string; reason: string }
 export interface FixedDomainBlocker { category: string; count: number; samples: FixedDomainBlockerSample[]; truncated: boolean }
@@ -30,7 +28,7 @@ export interface FixedDomainPreflightReport {
   blockers: FixedDomainBlocker[];
 }
 
-interface SchemaRow { name: string; type: string; sql: string | null }
+interface SchemaRow { name: string; type: string; tbl_name: string; sql: string | null }
 interface MetadataRow { value: string }
 interface TypeRow { id: string; name: string; property_ids_json: string; revision: number }
 interface PropertyRow { id: string; label: string; kind: string; options_json: string | null; target_type_id: string | null; multiple: number; revision: number }
@@ -97,20 +95,37 @@ const requiredColumns: Record<string, readonly string[]> = {
   object_view_conversations: ['id', 'visitor_id', 'previous_id', 'context_title'],
   object_view_conversation_turns: ['conversation_id', 'position', 'prompt', 'view_id', 'title', 'description', 'model'], browser_visitors: ['id', 'csrf'],
 };
+const knownIndexes = new Set(['objects_browse', 'objects_type_browse', 'object_references_target', 'objects_journal_date']);
 const knownTriggers = new Set([
   'object_view_history_no_update', 'object_view_history_no_delete', 'objects_journal_date_insert', 'objects_journal_date_update',
   ...frozenTypes.flatMap((_, index) => [`object_builtin_type_${index}_insert`, `object_builtin_type_${index}_update`, `object_builtin_type_${index}_delete`]),
   ...frozenProperties.flatMap((_, index) => [`object_builtin_property_${index}_insert`, `object_builtin_property_${index}_update`, `object_builtin_property_${index}_delete`]),
 ]);
+const triggerFragments: Record<string, string> = Object.fromEntries([
+  ['object_view_history_no_update', 'View revision history is immutable'], ['object_view_history_no_delete', 'View revision history is immutable'],
+  ['objects_journal_date_insert', 'Journal requires a real calendar date'], ['objects_journal_date_update', 'Journal requires a real calendar date'],
+  ...frozenTypes.flatMap((_, index) => [
+    [`object_builtin_type_${index}_insert`, 'Built-in type core fields are protected.'],
+    [`object_builtin_type_${index}_update`, 'Built-in type identity and core fields are protected.'],
+    [`object_builtin_type_${index}_delete`, 'Built-in types cannot be deleted.'],
+  ]),
+  ...frozenProperties.flatMap((_, index) => [
+    [`object_builtin_property_${index}_insert`, 'Built-in property structure is protected.'],
+    [`object_builtin_property_${index}_update`, 'Built-in property identity and structure are protected.'],
+    [`object_builtin_property_${index}_delete`, 'Built-in properties cannot be deleted.'],
+  ]),
+]);
 
 class Builder {
   readonly counts: Record<string, number> = {};
   private readonly blockers = new Map<string, FixedDomainBlocker>();
-  add(category: string, id: string, reason: string): void {
+  add(category: string, id: string, reason: string): void { this.addCount(category, 1, id, reason); }
+  addCount(category: string, count: number, id: string, reason: string): void {
     const blocker = this.blockers.get(category) ?? { category, count: 0, samples: [], truncated: false };
-    blocker.count += 1;
+    blocker.count += count;
     if (blocker.samples.length < SAMPLE_LIMIT) blocker.samples.push({ id: safeId(id), reason: safeReason(reason) });
     else blocker.truncated = true;
+    if (blocker.count > blocker.samples.length) blocker.truncated = true;
     this.blockers.set(category, blocker);
   }
   report(status: FixedDomainPreflightStatus, schemaVersion?: number): FixedDomainPreflightReport {
@@ -119,7 +134,7 @@ class Builder {
 }
 
 function safeId(id: string): string {
-  if (ID.test(id) || /^[-_.:@#a-zA-Z0-9]{1,120}$/.test(id)) return id;
+  if (ID.test(id) || /^[a-z_]+(?:\.[a-z_]+)?$/.test(id)) return id;
   return '[redacted]';
 }
 function safeReason(reason: string): string {
@@ -129,6 +144,11 @@ function safeJson(text: string): unknown { return JSON.parse(text) as unknown; }
 function isRecord(value: unknown): value is Record<string, unknown> { return value !== null && typeof value === 'object' && !Array.isArray(value); }
 function count(db: Database, table: string): number { return db.query<{ count: number }, []>(`SELECT COUNT(*) AS count FROM ${table}`).get()!.count; }
 function validScalar(kind: PropertyKind, value: unknown): boolean { return valueError(kind as Exclude<PropertyKind, 'select' | 'reference'>, value) === undefined; }
+function validInstant(value: string): boolean {
+  if (!ISO.test(value)) return false;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) && new Date(parsed).toISOString() === value;
+}
 function scanRows<Row>(statement: Statement<Row, [number, number]>, handle: (row: Row) => void): void {
   for (let offset = 0;; offset += BATCH_SIZE) {
     const rows = statement.all(BATCH_SIZE, offset);
@@ -183,8 +203,8 @@ function validateObjectRow(builder: Builder, row: ObjectRow): void {
   if (!ID.test(row.id)) builder.add('objects', row.id, 'object id is not a UUID');
   if (typeof row.title !== 'string' || row.title.length === 0 || row.title.length > 500) builder.add('objects', row.id, 'title is invalid');
   try { validateMarkdown(row.body); } catch { builder.add('objects', row.id, 'Markdown body is invalid or too large'); }
-  if (!Number.isInteger(row.revision) || row.revision <= 0) builder.add('objects', row.id, 'revision must be positive');
-  if (!ISO.test(row.created_at) || !ISO.test(row.updated_at)) builder.add('objects', row.id, 'timestamps must be ISO UTC strings');
+  if (!Number.isSafeInteger(row.revision) || row.revision <= 0) builder.add('objects', row.id, 'revision must be positive');
+  if (!validInstant(row.created_at) || !validInstant(row.updated_at)) builder.add('objects', row.id, 'timestamps must be real ISO UTC instants');
   if (row.trashed !== 0 && row.trashed !== 1) builder.add('objects', row.id, 'trash flag must be 0 or 1');
   if (row.body_text !== markdownText(row.body)) builder.add('objects', row.id, 'stored search text does not match Markdown body');
   let properties: unknown;
@@ -198,10 +218,14 @@ function validateSnapshot(builder: Builder, row: RevisionRow): void {
   if (!isRecord(snapshot)) { builder.add('history', `${row.object_id}@${row.revision}`, 'snapshot is not an object'); return; }
   if (snapshot.id !== row.object_id) builder.add('history', `${row.object_id}@${row.revision}`, 'snapshot id does not match row object');
   if (snapshot.revision !== row.revision) builder.add('history', `${row.object_id}@${row.revision}`, 'snapshot revision does not match row revision');
-  if (typeof snapshot.typeId !== 'string' || typeof snapshot.title !== 'string' || typeof snapshot.body !== 'string' || typeof snapshot.createdAt !== 'string' || typeof snapshot.updatedAt !== 'string' || typeof snapshot.trashed !== 'boolean' || !isRecord(snapshot.properties)) {
+  if (typeof snapshot.id !== 'string' || typeof snapshot.typeId !== 'string' || typeof snapshot.title !== 'string' || typeof snapshot.body !== 'string' || typeof snapshot.createdAt !== 'string' || typeof snapshot.updatedAt !== 'string' || typeof snapshot.trashed !== 'boolean' || !isRecord(snapshot.properties)) {
     builder.add('history', `${row.object_id}@${row.revision}`, 'snapshot is not a complete legacy object record');
     return;
   }
+  if (!ID.test(row.object_id) || !ID.test(snapshot.id)) builder.add('history', `${row.object_id}@${row.revision}`, 'snapshot identity is not a UUID');
+  if (typeof snapshot.title !== 'string' || snapshot.title.length === 0 || snapshot.title.length > 500) builder.add('history', `${row.object_id}@${row.revision}`, 'snapshot title is invalid');
+  if (!Number.isSafeInteger(snapshot.revision as number) || (snapshot.revision as number) <= 0) builder.add('history', `${row.object_id}@${row.revision}`, 'snapshot revision must be positive');
+  if (!validInstant(snapshot.createdAt) || !validInstant(snapshot.updatedAt)) builder.add('history', `${row.object_id}@${row.revision}`, 'snapshot timestamps must be real ISO UTC instants');
   try { validateMarkdown(snapshot.body); } catch { builder.add('history', `${row.object_id}@${row.revision}`, 'historical Markdown body is invalid or too large'); }
   validateProperties(builder, 'history', `${row.object_id}@${row.revision}`, snapshot.typeId, snapshot.properties);
 }
@@ -241,25 +265,30 @@ function validateDefinitions(db: Database, builder: Builder): void {
 }
 
 function validateApplicationShape(db: Database, builder: Builder): boolean {
-  const schema = db.query<SchemaRow, []>("SELECT name, type, sql FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%' ORDER BY type, name").all();
+  const schema = db.query<SchemaRow, []>("SELECT name, type, tbl_name, sql FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%' ORDER BY type, name").all();
   const existingTables = new Set(schema.filter(row => row.type === 'table').map(row => row.name));
   let ok = true;
   for (const [table, columns] of Object.entries(requiredColumns)) {
     if (!existingTables.has(table)) { builder.add('application-shape', table, 'required table is missing'); ok = false; continue; }
-    const present = db.query<{ name: string }, []>(`PRAGMA table_xinfo(${table})`).all().map(row => row.name);
+    const present = db.query<{ name: string }, [string]>('SELECT name FROM pragma_table_xinfo(?)').all(table).map(row => row.name);
     for (const column of columns) if (!present.includes(column)) { builder.add('application-shape', `${table}.${column}`, 'required column is missing'); ok = false; }
     for (const column of present) if (!columns.includes(column)) { builder.add('application-shape', `${table}.${column}`, 'unsupported extra application column'); ok = false; }
   }
   for (const table of existingTables) {
-    for (const fk of db.query<{ table: string }, []>(`PRAGMA foreign_key_list(${table})`).all()) {
-      if (!knownApplicationTables.has(table) && knownApplicationTables.has(fk.table)) builder.add('application-shape', table, `unrelated table references application table ${fk.table}`);
+    for (const fk of db.query<{ table: string }, [string]>('SELECT "table" AS "table" FROM pragma_foreign_key_list(?)').all(table)) {
+      if (!knownApplicationTables.has(table) && knownApplicationTables.has(fk.table)) builder.add('application-shape', table, 'unrelated table references an application table');
     }
   }
+  const schemaByName = new Map(schema.map(row => [row.name, row]));
+  for (const index of knownIndexes) if (!schemaByName.has(index)) { builder.add('application-shape', index, 'required application index is missing'); ok = false; }
+  for (const trigger of knownTriggers) if (!schemaByName.has(trigger)) { builder.add('application-shape', trigger, 'required application trigger is missing'); ok = false; }
   for (const row of schema) {
-    if ((row.type === 'view' || row.type === 'trigger') && !knownTriggers.has(row.name)) {
-      if (/\bobject(s|_|$)|\bobject_types\b|\bobject_properties\b|\bbrowser_visitors\b/i.test(row.sql ?? '')) builder.add('application-shape', row.name, `custom ${row.type} depends on application tables`);
+    if (row.type === 'index' && knownApplicationTables.has(row.tbl_name ?? '') && !knownIndexes.has(row.name)) builder.add('application-shape', row.name, 'custom index depends on an application table');
+    if (row.type === 'trigger') {
+      if (!knownTriggers.has(row.name)) builder.add('application-shape', row.name, 'custom trigger is not supported');
+      else if (!String(row.sql ?? '').includes(triggerFragments[row.name] ?? '\0')) builder.add('application-shape', row.name, 'known trigger definition changed');
     }
-    if (row.name.startsWith('object_view_history_') && !String(row.sql ?? '').includes('View revision history is immutable')) builder.add('application-shape', row.name, 'known trigger definition changed');
+    if (row.type === 'view' && /\bobject(s|_|$)|\bobject_types\b|\bobject_properties\b|\bbrowser_visitors\b/i.test(row.sql ?? '')) builder.add('application-shape', row.name, 'custom view depends on application tables');
   }
   return ok;
 }
@@ -273,28 +302,23 @@ function validateReceipts(db: Database, builder: Builder): void {
 }
 
 function validateWritingEdges(db: Database, builder: Builder): void {
-  const expected = new Map<string, Set<string>>();
-  scanRows(db.query<{ id: string; body: string }, [number, number]>('SELECT id, body FROM objects ORDER BY id LIMIT ? OFFSET ?'), row => expected.set(row.id.toLowerCase(), new Set(markdownReferences(row.body))));
-  const actual = new Map<string, Set<string>>();
-  scanRows(db.query<ReferenceRow, [number, number]>("SELECT source_id, target_id, property_id FROM object_references WHERE property_id = '' ORDER BY source_id, target_id LIMIT ? OFFSET ?"), row => {
-    const source = row.source_id.toLowerCase();
-    const target = row.target_id.toLowerCase();
-    if (!actual.has(source)) actual.set(source, new Set());
-    actual.get(source)!.add(target);
+  scanRows(db.query<{ id: string; body: string }, [number, number]>('SELECT id, body FROM objects ORDER BY id LIMIT ? OFFSET ?'), row => {
+    const source = row.id.toLowerCase();
+    const expected = new Set(markdownReferences(row.body));
+    const actual = new Set(db.query<{ target_id: string }, [string]>("SELECT target_id FROM object_references WHERE property_id = '' AND source_id = ? COLLATE NOCASE").all(row.id).map(edge => edge.target_id.toLowerCase()));
+    for (const target of expected) if (!actual.has(target)) builder.add('writing-links', source, `missing Markdown edge to ${target}`);
+    for (const target of actual) if (!expected.has(target)) builder.add('writing-links', source, `stored Markdown edge to ${target} is not present in body`);
   });
-  for (const [source, targets] of expected) for (const target of targets) if (!actual.get(source)?.has(target)) builder.add('writing-links', source, `missing Markdown edge to ${target}`);
-  for (const [source, targets] of actual) for (const target of targets) if (!expected.get(source)?.has(target)) builder.add('writing-links', source, `stored Markdown edge to ${target} is not present in body`);
 }
+
 
 function integrityCheck(db: Database, builder: Builder): void {
   const integrity = db.query<{ integrity_check: string }, []>('PRAGMA integrity_check').all();
   if (integrity.length !== 1 || integrity[0]!.integrity_check !== 'ok') for (const row of integrity.slice(0, SAMPLE_LIMIT)) builder.add('sqlite-integrity', 'integrity_check', row.integrity_check);
-  const fkRows = db.query<Record<string, unknown>, []>('PRAGMA foreign_key_check').all();
-  for (const row of fkRows.slice(0, SAMPLE_LIMIT)) builder.add('sqlite-integrity', String(row.table ?? 'foreign_key_check'), 'foreign key check failed');
-  if (fkRows.length > SAMPLE_LIMIT) for (let index = SAMPLE_LIMIT; index < fkRows.length; index += 1) builder.add('sqlite-integrity', 'foreign_key_check', 'foreign key check failed');
+  const fkCount = db.query<{ count: number }, []>('SELECT COUNT(*) AS count FROM pragma_foreign_key_check').get()!.count;
+  for (const row of db.query<{ table: string }, [number]>('SELECT "table" AS "table" FROM pragma_foreign_key_check LIMIT ?').all(SAMPLE_LIMIT)) builder.add('sqlite-integrity', row.table, 'foreign key check failed');
+  if (fkCount > SAMPLE_LIMIT) builder.addCount('sqlite-integrity', fkCount - SAMPLE_LIMIT, 'foreign_key_check', 'foreign key check failed');
 }
-
-export function fixedDomainFingerprint(input: ObjectWrite): string { return fingerprint(input); }
 
 export function analyzeFixedDomainPreflight(db: Database): FixedDomainPreflightReport {
   const builder = new Builder();
@@ -307,18 +331,20 @@ export function analyzeFixedDomainPreflight(db: Database): FixedDomainPreflightR
     const version = schemaVersion as number;
     if (version >= 1 && version <= 5) { builder.add('schema-version', String(version), 'run the old application preserving upgrade to schema version 6 on a disposable backup before fixed-domain preflight'); report = builder.report('upgrade-required', version); return; }
     if (version !== 6) { builder.add('schema-version', String(version), 'unsupported object database schema version'); report = builder.report('blocked', version); return; }
-    if (!validateApplicationShape(db, builder)) { report = builder.report('blocked', version); return; }
+    if (!validateApplicationShape(db, builder)) { report = builder.report('malformed', version); return; }
     for (const table of Object.keys(requiredColumns)) builder.counts[table] = count(db, table);
     validateDefinitions(db, builder);
     scanRows(db.query<ObjectRow, [number, number]>('SELECT id, type_id, title, properties_json, body, revision, created_at, updated_at, trashed, body_text FROM objects ORDER BY id LIMIT ? OFFSET ?'), row => validateObjectRow(builder, row));
     scanRows(db.query<RevisionRow, [number, number]>('SELECT object_id, revision, snapshot_json FROM object_revisions ORDER BY object_id, revision LIMIT ? OFFSET ?'), row => validateSnapshot(builder, row));
     const structuredReferences = db.query<{ count: number }, []>("SELECT COUNT(*) AS count FROM object_references WHERE property_id != ''").get()!.count;
-    if (structuredReferences) for (let i = 0; i < structuredReferences; i += 1) builder.add('structured-references', 'object_references', 'property/reference edge is not a Markdown link');
+    if (structuredReferences) builder.addCount('structured-references', structuredReferences, 'object_references', 'property/reference edge is not a Markdown link');
     validateWritingEdges(db, builder);
     validateReceipts(db, builder);
     scanRows(db.query<ViewRow, [number, number]>('SELECT id, revision, spec_json, schema_json FROM object_views ORDER BY id LIMIT ? OFFSET ?'), row => validateView(builder, 'views', row));
     scanRows(db.query<ViewRow, [number, number]>('SELECT id, revision, spec_json, schema_json FROM object_view_revisions ORDER BY id, revision LIMIT ? OFFSET ?'), row => validateView(builder, 'view-history', row));
-    report = builder.report(builder.report('blocked', version).blockers.length ? 'blocked' : 'compatible', version);
+    const blockers = builder.report('blocked', version).blockers;
+    const malformed = blockers.some(blocker => ['sqlite-integrity', 'application-shape', 'objects', 'history', 'receipts'].includes(blocker.category));
+    report = builder.report(blockers.length ? (malformed ? 'malformed' : 'blocked') : 'compatible', version);
   };
   if (db.inTransaction) run();
   else db.transaction(run).deferred();
