@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import { Database } from 'bun:sqlite';
 import { existsSync, lstatSync, realpathSync } from 'node:fs';
-import { isAbsolute, resolve } from 'node:path';
+import { dirname, isAbsolute } from 'node:path';
 import { analyzeFixedDomainPreflight, type FixedDomainPreflightReport } from '../src/objects/upgrade-fixed-domains.js';
 
 function usage(): void {
@@ -31,9 +31,22 @@ function parse(argv: string[]): string | undefined {
 function checkedPath(input: string): string {
   if (!isAbsolute(input)) throw new Error('Database path must be absolute.');
   if (!existsSync(input)) throw new Error('Database file does not exist.');
+  for (let path = input; ; path = dirname(path)) {
+    const stat = lstatSync(path);
+    if (stat.isSymbolicLink()) throw new Error('Database path must not contain a symlink.');
+    const parent = dirname(path);
+    if (parent === path) break;
+  }
   const stat = lstatSync(input);
-  if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1) throw new Error('Database must be a private regular file, not a symlink or hard link.');
+  if (!stat.isFile() || stat.nlink !== 1) throw new Error('Database must be a private regular file, not a symlink or hard link.');
   return realpathSync(input);
+}
+
+function exitCode(report: FixedDomainPreflightReport): number {
+  if (report.status === 'compatible') return 0;
+  if (report.status === 'upgrade-required') return 2;
+  if (report.blockers.some(blocker => ['schema-version', 'application-shape', 'sqlite-integrity'].includes(blocker.category))) return 1;
+  return 2;
 }
 
 function printReport(report: FixedDomainPreflightReport): void {
@@ -62,8 +75,7 @@ async function main(): Promise<number> {
     db.exec('PRAGMA trusted_schema = OFF; PRAGMA foreign_keys = ON; PRAGMA query_only = ON;');
     const report = analyzeFixedDomainPreflight(db);
     printReport(report);
-    if (report.status === 'compatible') return 0;
-    return report.blockers.some(blocker => blocker.category === 'schema-version' && blocker.samples.some(sample => sample.reason.includes('unsupported'))) ? 1 : 2;
+    return exitCode(report);
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
     return 1;

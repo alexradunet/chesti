@@ -1,7 +1,5 @@
 import type { Database } from 'bun:sqlite';
-import { fingerprint } from '../../src/objects/fingerprint.js';
 import {
-  BUILTIN_PROPERTIES, BUILTIN_TYPES,
   EVENT_DATES_PROPERTY_ID, EVENT_TIME_PROPERTY_ID, EVENT_TYPE_ID,
   JOURNAL_DATE_PROPERTY_ID, JOURNAL_TYPE_ID,
   PAGE_TYPE_ID,
@@ -11,6 +9,7 @@ import {
   TASK_DONE_PROPERTY_ID, TASK_DUE_PROPERTY_ID, TASK_SCHEDULED_PROPERTY_ID, TASK_TYPE_ID,
   type ObjectWrite,
 } from '../../src/objects/model.js';
+import type { PropertyDefinition, ViewSpec } from '../../src/objects/model.js';
 import { markdownText } from '../../src/objects/markdown.js';
 
 export const ids = {
@@ -33,7 +32,48 @@ export const ids = {
 
 const now = '2026-09-28T12:00:00.000Z';
 
-function q(id: string): string { return JSON.stringify(id); }
+const frozenTypes = [
+  { id: PAGE_TYPE_ID, name: 'Page', propertyIds: [] },
+  { id: TASK_TYPE_ID, name: 'Task', propertyIds: [TASK_DONE_PROPERTY_ID, TASK_DUE_PROPERTY_ID, TASK_SCHEDULED_PROPERTY_ID] },
+  { id: EVENT_TYPE_ID, name: 'Event', propertyIds: [EVENT_DATES_PROPERTY_ID, EVENT_TIME_PROPERTY_ID] },
+  { id: REMINDER_TYPE_ID, name: 'Reminder', propertyIds: [REMINDER_DATE_PROPERTY_ID, REMINDER_TIME_PROPERTY_ID] },
+  { id: JOURNAL_TYPE_ID, name: 'Journal', propertyIds: [JOURNAL_DATE_PROPERTY_ID] },
+  { id: PERSON_TYPE_ID, name: 'Person', propertyIds: [PERSON_RELATIONSHIP_PROPERTY_ID, PERSON_BIRTHDAY_PROPERTY_ID, PERSON_PHONE_PROPERTY_ID, PERSON_JOB_TITLE_PROPERTY_ID, PERSON_FAVORITE_ARTISTS_PROPERTY_ID, PERSON_RECONNECT_EVERY_PROPERTY_ID, PERSON_LAST_CONNECTED_PROPERTY_ID] },
+] as const;
+const frozenProperties: readonly Omit<PropertyDefinition, 'revision'>[] = [
+  { id: TASK_DONE_PROPERTY_ID, label: 'Done', kind: 'boolean' },
+  { id: TASK_DUE_PROPERTY_ID, label: 'Due date', kind: 'date' },
+  { id: EVENT_DATES_PROPERTY_ID, label: 'All-day dates', kind: 'date-range' },
+  { id: EVENT_TIME_PROPERTY_ID, label: 'Event time', kind: 'time-range' },
+  { id: REMINDER_DATE_PROPERTY_ID, label: 'Reminder date', kind: 'date' },
+  { id: REMINDER_TIME_PROPERTY_ID, label: 'Reminder time', kind: 'datetime' },
+  { id: JOURNAL_DATE_PROPERTY_ID, label: 'Journal date', kind: 'date' },
+  { id: TASK_SCHEDULED_PROPERTY_ID, label: 'Scheduled date', kind: 'date' },
+  { id: PERSON_RELATIONSHIP_PROPERTY_ID, label: 'Relationship', kind: 'text' },
+  { id: PERSON_BIRTHDAY_PROPERTY_ID, label: 'Birthday', kind: 'date' },
+  { id: PERSON_PHONE_PROPERTY_ID, label: 'Phone number', kind: 'text' },
+  { id: PERSON_JOB_TITLE_PROPERTY_ID, label: 'Job title', kind: 'text' },
+  { id: PERSON_FAVORITE_ARTISTS_PROPERTY_ID, label: 'Favorite artists', kind: 'text' },
+  { id: PERSON_RECONNECT_EVERY_PROPERTY_ID, label: 'Reconnect every (months)', kind: 'number' },
+  { id: PERSON_LAST_CONNECTED_PROPERTY_ID, label: 'Last connected', kind: 'date' },
+];
+const propertyById = new Map(frozenProperties.map(property => [property.id, property]));
+export const taskCreatePayload: ObjectWrite = { typeId: TASK_TYPE_ID, title: 'Task fixture', properties: { [TASK_DUE_PROPERTY_ID]: '2026-10-02', [TASK_SCHEDULED_PROPERTY_ID]: '2026-10-01' }, body: 'Task body' };
+export const taskCreateFingerprint = '0e6bff1dbfaae388dc23fe01c202931d8754b5302663023356ebef3df1af4c65';
+
+function schemaSignature(spec: ViewSpec): string {
+  const used = new Set<string>();
+  for (const block of spec.blocks) for (const source of block.sources) {
+    for (const id of Object.values(source.bindings)) used.add(id);
+    for (const filter of source.where ?? []) used.add(filter.propertyId);
+    if (source.orderBy) used.add(source.orderBy.propertyId);
+  }
+  return JSON.stringify([...used].sort().map(id => {
+    const property = propertyById.get(id)!;
+    return [id, property.kind, Boolean(property.multiple), property.targetTypeId ?? null];
+  }));
+}
+
 function j(value: unknown): string { return JSON.stringify(value); }
 
 function installV6Schema(db: Database, version = '6'): void {
@@ -64,8 +104,44 @@ function installV6Schema(db: Database, version = '6'): void {
 }
 
 function installDefinitions(db: Database): void {
-  for (const type of BUILTIN_TYPES) db.query('INSERT INTO object_types(id, name, property_ids_json, revision) VALUES (?, ?, ?, 1)').run(type.id, type.name, j(type.propertyIds));
-  for (const property of BUILTIN_PROPERTIES) db.query('INSERT INTO object_properties(id, label, kind, options_json, target_type_id, multiple, revision) VALUES (?, ?, ?, NULL, NULL, 0, 1)').run(property.id, property.label, property.kind);
+  for (const type of frozenTypes) db.query('INSERT INTO object_types(id, name, property_ids_json, revision) VALUES (?, ?, ?, 1)').run(type.id, type.name, j(type.propertyIds));
+  for (const property of frozenProperties) db.query('INSERT INTO object_properties(id, label, kind, options_json, target_type_id, multiple, revision) VALUES (?, ?, ?, NULL, NULL, 0, 1)').run(property.id, property.label, property.kind);
+  for (const [index, type] of frozenTypes.entries()) {
+    const required = type.propertyIds.map(id => `(SELECT COUNT(*) FROM json_each(NEW.property_ids_json) WHERE type = 'text' AND value = '${id}') != 1`).join(' OR ') || '0';
+    db.exec(`
+      CREATE TRIGGER object_builtin_type_${index}_insert BEFORE INSERT ON object_types
+      WHEN NEW.id = '${type.id}' AND (json_type(NEW.property_ids_json) IS NOT 'array' OR ${required})
+      BEGIN SELECT RAISE(ABORT, 'Built-in type core fields are protected.'); END;
+      CREATE TRIGGER object_builtin_type_${index}_update BEFORE UPDATE ON object_types
+      WHEN (OLD.id = '${type.id}' OR NEW.id = '${type.id}') AND (OLD.id != NEW.id OR json_type(NEW.property_ids_json) IS NOT 'array' OR ${required})
+      BEGIN SELECT RAISE(ABORT, 'Built-in type identity and core fields are protected.'); END;
+      CREATE TRIGGER object_builtin_type_${index}_delete BEFORE DELETE ON object_types
+      WHEN OLD.id = '${type.id}'
+      BEGIN SELECT RAISE(ABORT, 'Built-in types cannot be deleted.'); END;
+    `);
+  }
+  for (const [index, property] of frozenProperties.entries()) {
+    db.exec(`
+      CREATE TRIGGER object_builtin_property_${index}_insert BEFORE INSERT ON object_properties
+      WHEN NEW.id = '${property.id}' AND (NEW.kind != '${property.kind}' OR NEW.options_json IS NOT NULL OR NEW.target_type_id IS NOT NULL OR NEW.multiple != 0)
+      BEGIN SELECT RAISE(ABORT, 'Built-in property structure is protected.'); END;
+      CREATE TRIGGER object_builtin_property_${index}_update BEFORE UPDATE ON object_properties
+      WHEN (OLD.id = '${property.id}' OR NEW.id = '${property.id}') AND (OLD.id != NEW.id OR NEW.kind != '${property.kind}' OR NEW.options_json IS NOT NULL OR NEW.target_type_id IS NOT NULL OR NEW.multiple != 0)
+      BEGIN SELECT RAISE(ABORT, 'Built-in property identity and structure are protected.'); END;
+      CREATE TRIGGER object_builtin_property_${index}_delete BEFORE DELETE ON object_properties
+      WHEN OLD.id = '${property.id}'
+      BEGIN SELECT RAISE(ABORT, 'Built-in properties cannot be deleted.'); END;
+    `);
+  }
+  db.exec(`
+    CREATE UNIQUE INDEX objects_journal_date ON objects(json_extract(properties_json, '$."${JOURNAL_DATE_PROPERTY_ID}"')) WHERE type_id = '${JOURNAL_TYPE_ID}';
+    CREATE TRIGGER objects_journal_date_insert BEFORE INSERT ON objects
+    WHEN NEW.type_id = '${JOURNAL_TYPE_ID}' AND json_extract(NEW.properties_json, '$."${JOURNAL_DATE_PROPERTY_ID}"') IS NULL
+    BEGIN SELECT RAISE(ABORT, 'Journal requires a real calendar date.'); END;
+    CREATE TRIGGER objects_journal_date_update BEFORE UPDATE ON objects
+    WHEN NEW.type_id = '${JOURNAL_TYPE_ID}' AND json_extract(NEW.properties_json, '$."${JOURNAL_DATE_PROPERTY_ID}"') IS NULL
+    BEGIN SELECT RAISE(ABORT, 'Journal requires a real calendar date.'); END;
+  `);
 }
 
 function insertObject(db: Database, id: string, typeId: string, title: string, properties: Record<string, unknown>, body: string, revision = 1, trashed = false): void {
@@ -82,17 +158,17 @@ function insertRevision(db: Database, objectId: string, revision: number, row: R
 }
 
 function insertView(db: Database, id: string, spec: Record<string, unknown>, status: 'draft' | 'published', deleted = false): void {
-  const schema = [{ source: TASK_TYPE_ID, property: TASK_DONE_PROPERTY_ID, kind: 'boolean' }];
+  const signature = schemaSignature(spec as ViewSpec);
   db.query('INSERT INTO object_views(id, revision, status, spec_json, prompt, model, schema_json, created_at, updated_at, deleted) VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, ?)')
-    .run(id, status, j(spec), 'fixture prompt redacted by preflight', 'fixture/model', j(schema), now, now, deleted ? 1 : 0);
+    .run(id, status, j(spec), 'fixture prompt redacted by preflight', 'fixture/model', signature, now, now, deleted ? 1 : 0);
   db.query('INSERT INTO object_view_revisions(id, revision, status, spec_json, prompt, model, schema_json, created_at, updated_at, deleted) VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, ?)')
-    .run(id, status, j(spec), 'fixture prompt redacted by preflight', 'fixture/model', j(schema), now, now, deleted ? 1 : 0);
+    .run(id, status, j(spec), 'fixture prompt redacted by preflight', 'fixture/model', signature, now, now, deleted ? 1 : 0);
 }
 
 export function createCompatibleV6Fixture(db: Database): void {
   installV6Schema(db);
   installDefinitions(db);
-  const unicodeBody = `Line one\r\nLine two with café and 🐉\r\n\r\nSee [task](/objects/${ids.task}).`;
+  const unicodeBody = `Line one\r\nLine two with café and 🐉\r\n\r\nSee [task](/objects/${ids.task}) and [self](/objects/${ids.page}).`;
   insertObject(db, ids.page, PAGE_TYPE_ID, 'Page fixture', {}, unicodeBody);
   insertObject(db, ids.task, TASK_TYPE_ID, 'Task fixture', { [TASK_DONE_PROPERTY_ID]: false, [TASK_DUE_PROPERTY_ID]: '2026-10-02', [TASK_SCHEDULED_PROPERTY_ID]: '2026-10-01' }, 'Task body', 2);
   insertObject(db, ids.journal, JOURNAL_TYPE_ID, 'Journal fixture', { [JOURNAL_DATE_PROPERTY_ID]: '2026-09-28' }, 'Journal body');
@@ -108,10 +184,15 @@ export function createCompatibleV6Fixture(db: Database): void {
   db.query('INSERT INTO object_references(source_id, target_id, property_id) VALUES (?, ?, ?)').run(ids.page, ids.task, '');
   db.query('INSERT INTO object_references(source_id, target_id, property_id) VALUES (?, ?, ?)').run(ids.page.toUpperCase(), ids.page, '');
   db.query('INSERT INTO object_favorites(object_id, created_at) VALUES (?, ?)').run(ids.page, now);
-  const createInput: ObjectWrite = { typeId: TASK_TYPE_ID, title: 'Task fixture', properties: { [TASK_DUE_PROPERTY_ID]: '2026-10-02', [TASK_SCHEDULED_PROPERTY_ID]: '2026-10-01' }, body: 'Task body' };
-  db.query('INSERT INTO object_create_requests(request_id, fingerprint, object_id) VALUES (?, ?, ?)').run('50000000-0000-4000-8000-000000000001', fingerprint(createInput), ids.task);
+  db.query('INSERT INTO object_create_requests(request_id, fingerprint, object_id) VALUES (?, ?, ?)').run('50000000-0000-4000-8000-000000000001', taskCreateFingerprint, ids.task);
   const view = { title: 'Task board', blocks: [{ title: 'By done', component: 'board', editable: true, sources: [{ typeId: TASK_TYPE_ID, bindings: { group: TASK_DONE_PROPERTY_ID }, where: [{ propertyId: TASK_DONE_PROPERTY_ID, operator: 'notEmpty' }] }] }] };
-  const calendar = { title: 'Calendar', blocks: [{ title: 'Due', component: 'calendar', editable: true, sources: [{ typeId: TASK_TYPE_ID, bindings: { date: TASK_DUE_PROPERTY_ID } }, { typeId: JOURNAL_TYPE_ID, bindings: { date: JOURNAL_DATE_PROPERTY_ID } }, { typeId: EVENT_TYPE_ID, bindings: { date: EVENT_DATES_PROPERTY_ID } }, { typeId: EVENT_TYPE_ID, bindings: { date: EVENT_TIME_PROPERTY_ID } }, { typeId: REMINDER_TYPE_ID, bindings: { date: REMINDER_DATE_PROPERTY_ID } }, { typeId: REMINDER_TYPE_ID, bindings: { date: REMINDER_TIME_PROPERTY_ID } }] }] };
+  const calendar = { title: 'Calendar', blocks: [
+    { title: 'Task and journal dates', component: 'calendar', editable: true, sources: [{ typeId: TASK_TYPE_ID, bindings: { date: TASK_DUE_PROPERTY_ID } }, { typeId: JOURNAL_TYPE_ID, bindings: { date: JOURNAL_DATE_PROPERTY_ID } }] },
+    { title: 'All-day events', component: 'calendar', editable: true, sources: [{ typeId: EVENT_TYPE_ID, bindings: { date: EVENT_DATES_PROPERTY_ID }, where: [{ propertyId: EVENT_DATES_PROPERTY_ID, operator: 'notEmpty' }] }] },
+    { title: 'Timed events', component: 'calendar', editable: true, sources: [{ typeId: EVENT_TYPE_ID, bindings: { date: EVENT_TIME_PROPERTY_ID }, where: [{ propertyId: EVENT_TIME_PROPERTY_ID, operator: 'notEmpty' }] }] },
+    { title: 'Date reminders', component: 'calendar', editable: true, sources: [{ typeId: REMINDER_TYPE_ID, bindings: { date: REMINDER_DATE_PROPERTY_ID }, where: [{ propertyId: REMINDER_DATE_PROPERTY_ID, operator: 'notEmpty' }] }] },
+    { title: 'Time reminders', component: 'calendar', editable: true, sources: [{ typeId: REMINDER_TYPE_ID, bindings: { date: REMINDER_TIME_PROPERTY_ID }, where: [{ propertyId: REMINDER_TIME_PROPERTY_ID, operator: 'notEmpty' }] }] },
+  ] };
   insertView(db, ids.view, view, 'published');
   insertView(db, ids.draftView, calendar, 'draft');
   insertView(db, ids.deletedView, { title: 'People', blocks: [{ title: 'People', component: 'table', columns: [{ role: 'relationship', label: 'Relationship' }], sources: [{ typeId: PERSON_TYPE_ID, bindings: { relationship: PERSON_RELATIONSHIP_PROPERTY_ID } }] }] }, 'published', true);
