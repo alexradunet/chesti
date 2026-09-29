@@ -61,5 +61,5 @@ test('retired schema mutation route is not writable', async t => {
   const a = await app(t);
   const response = await a.post('/types/create', { name: 'Custom' });
   assert.equal(response.status, 404);
-  assert.equal(a.objects.catalog().types.length, 6);
+  assert.equal(a.objects.catalog().types.length, 4);
 });

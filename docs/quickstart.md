@@ -9,7 +9,7 @@ bun install --frozen-lockfile
 bun start
 ```
 
-Open **http://127.0.0.1:3000/**. A new object workspace starts with an editable demo built from Page, Task, Event, Reminder, Daily Page, and Person, fixed fields, Markdown links, and published views. To initialize another workspace, choose a new database path; an existing workspace is never reseeded. Existing v1–v6 object databases are refused rather than migrated or deleted. To use another database or an explicit authenticated model:
+Open **http://127.0.0.1:3000/**. A new object workspace starts with an editable demo built from Page, Task, Event, and Person, fixed fields, Markdown links, and published views. To initialize another workspace, choose a new database path; an existing workspace is never reseeded. Existing v1–v7 object databases are refused rather than migrated or deleted. To use another database or an explicit authenticated model:
 
 ```sh
 DATABASE_PATH=/absolute/path/to/workspace.sqlite \
@@ -22,13 +22,13 @@ Model availability depends on your Pi credentials. Object editing and saved view
 
 The fictional neighborhood reading-room project demonstrates the application without plugins, generated code, or a provider call. All examples are ordinary saved objects, not a separate tutorial mode.
 
-1. Open **Page → Start here · your workspace is made of primitives**. Its writing is editable Markdown; with JavaScript, choose **Preview** to read the current draft, or **Edit** to return to source. Without JavaScript, **Read saved writing** appears below the source. Follow the guide links to the project brief, writing guide, view guide, and safe-experiment guide. Page's List and Gallery layouts browse the same content.
-2. Open **Views → 01 · Start here**. Read the guide-page list, change a task's Done value on the board, and see that same task in the table. Its source is labeled `built-in/demo`, not an AI provider.
-3. Open **Views → 02 · Calendar**. Task due dates and Daily Page dates share an agenda. Events and Reminders have separate all-day/timed blocks; undated tasks remain Unscheduled. Use an inline date action to reschedule the original object.
-4. Open **Views → 03 · Page focus** and select **Reading room · a small neighborhood project**. Its shared Context reference scopes unfinished tasks and related events, reminders, and daily pages. Select the Writing page to see a different task; no input means no results.
-5. Open **Trash → Task → Restore me · a discarded checklist** to try restoration. Edit or trash any example normally. Deleting a demo view never deletes its objects.
+1. Open **Page → Start here · fixed domains**. Its writing is editable Markdown; with JavaScript, choose **Preview** to read the current draft, or **Edit** to return to source. Without JavaScript, **Read saved writing** appears below the source. Page's List and Gallery layouts browse the same content.
+2. Open **Views → 01 · Tasks by done state**. Change a task's Done value on the board and see that same task in other views. Its source is labeled `built-in/demo`, not an AI provider.
+3. Open **Views → 02 · Fixed-domain calendar**. Scheduled tasks, both Event representations, and dated pages share an agenda. Use an inline date action to reschedule the original object.
+4. Open the day workspace (**/** or **Calendar**). The demo's daily page and a second dated page both appear for today: the editor edits the page titled with the date, and **Pages on this day** lists every page dated that day.
+5. Open **Trash → any type** to try trashing and restoring examples normally. Edit or trash any example normally. Deleting a demo view never deletes its objects.
 
-The demo includes all nine property kinds, single and multiple references, writing backlinks, a completed task, an undated task, and one daily page. Dates are relative to the server's local initialization day; timed examples use UTC. They are saved once, not moved forward on restart.
+The demo uses the fixed domains, their property kinds, writing backlinks, a completed task, an undated task, and two pages dated today. Dates are relative to the server's local initialization day; timed examples use UTC. They are saved once, not moved forward on restart.
 
 Initialization and all demo writes commit together or roll back together. Existing databases—including empty workspaces—keep their data and customizations. Restarting does not overwrite edits, restore trashed examples, or recreate deleted views. To see the pristine demo again without losing your workspace, start with a different `DATABASE_PATH`. Back up before intentionally replacing any database.
 
@@ -36,27 +36,20 @@ The bundled views are already published so you can try their actions offline. Cr
 
 ## Create fixed-domain data
 
-1. Choose one of the six fixed domains when creating an object. Task has **Done**, **Due date**, and **Scheduled date**. The domains and fields are code-owned; there is no schema editor, custom type creation, select field, or structured reference field.
-2. Under **Create a type**, enter `Work item`, choose Task under **Based on**, and choose **Create type & add properties**. This reuses the current Done, Due date, and Scheduled date property identities. The new type is independent: later field additions and built-in lifecycle rules do not propagate.
-3. Add an `Effort` property with the **Number** format to Work item. Use **Use an existing property** when the same concept is already represented elsewhere. Property cards show formats and choices; **Rename property** identifies other types that share its label.
-4. Open **New note** for a generic Page, or open **Objects** and choose a type-specific new object. For a Task, add Scheduled date and/or Due date in **Properties**, above the optional writing. Choose **Create object** to save. Create another task without a date and a Work item with a date. Switching types keeps title, writing, and field drafts; without JavaScript, choose **Use type** to load the selected fields without saving. Only the selected type’s properties are saved on creation; existing objects also retain their existing fields.
-5. Choose **Insert object link** in the editor footer, search, and choose an object. Markdown source also accepts a normal link such as `[Project](/objects/UUID)`. Open the linked object to see its backlink.
+1. Choose one of the four fixed domains when creating an object. Task has **Done**, **Due date**, and **Scheduled date**; Page has an optional **Date**; Event uses exactly one temporal range. The domains and fields are code-owned; there is no schema editor, custom type creation, select field, or structured reference field.
+2. Open **New note** for a generic Page, or open **Objects** and choose a type-specific new object. For a Task, add Scheduled date and/or Due date in **Properties**, above the optional writing. For a Page, an optional **Date** anchors it to a calendar day. Choose **Create object** to save. Create another task without a date and an event with an all-day range. Switching types keeps title, writing, and field drafts; without JavaScript, choose **Use type** to load the selected fields without saving. Only the selected type’s properties are saved on creation; existing objects also retain their existing fields.
+3. Choose **Insert object link** in the editor footer, search, and choose an object. Markdown source also accepts a normal link such as `[Project](/objects/UUID)`. Open the linked object to see its backlink.
 
-Types and properties can be renamed. Existing objects keep their identity and properties when changing type; references targeting the old type must be resolved before an incompatible type change. Trash retains data and can be restored. Existing references survive trash, but new references to trashed objects are rejected.
+The domains are fixed in code. Existing objects keep their identity and properties when changing type. Trash retains data and can be restored.
 
 ## Use the built-ins
 
-- **Page:** a generic text page with no required extra properties.
+- **Page:** a generic text page with an optional **Date**. A page titled `YYYY-MM-DD` with that date is that day's daily page; any number of pages can share a date.
 - **Task:** an action with Done, an optional Scheduled date, and an optional Due date. Unchecked means incomplete.
-- **Event:** fill either All-day dates or Event time, not both. Ends are exclusive: a one-day event on September 24 runs from September 24 to September 25. Timed ranges require explicit timestamp offsets and an IANA time zone such as `Europe/London` or `UTC`.
-- **Reminder:** fill either Reminder date or Reminder time. It is only a calendar item; it does not send an alert, snooze, repeat, or track completion.
-- **Daily Page:** one canonical writing page per calendar day.
+- **Event:** fill either All-day dates or Event time, not both. Ends are exclusive: a one-day event on September 24 runs from September 24 to September 25. Timed ranges require explicit timestamp offsets and an IANA time zone such as `Europe/London` or `UTC`. It does not send an alert, snooze, repeat, or track completion; a reminder-style moment is a short timed range.
+- **Person:** relationship details and a derived next-reconnect date.
 
-Opening Taskdesk at **/** shows the calendar day workspace for daily pages (same screen as **Calendar**), or open `/journal` directly for the standalone daily page picker. Opening an existing day preserves its writing; opening a new day from `/journal` creates one empty page titled with its date. The day workspace creates an empty day's page only after you write and save. A chosen date always takes precedence.
-
-Rename a daily page freely without changing its day. Change Daily page date only to an unoccupied day. A daily page in Trash still owns its date: open the existing page and choose **Restore object**, rather than creating a replacement. Duplicate creation keeps your unsaved draft and links to the existing page; no writing is automatically merged or discarded.
-
-Add fields such as Mood to Daily Page or Priority to Task to customize the built-ins. A custom type based on Daily Page shares its date property but is not another canonical daily page; it can have multiple objects per date.
+Opening Taskdesk at **/** shows the calendar day workspace for daily pages (same screen as **Calendar**), or open `/journal` directly for the standalone daily page picker and that day's page list. Opening an existing day preserves its writing; opening a new day from `/journal` creates one empty page titled with its date. The day workspace creates an empty day's page only after you write and save. A chosen date always takes precedence.
 
 ## Browse, favorite, and use the day workspace
 
@@ -64,7 +57,7 @@ The **Objects** page at `/objects` shows totals for objects, types, and saved vi
 
 Favorite a saved object from its object page to show it in the sidebar Favorites list. Favorites are shared workspace metadata in SQLite; they survive restart and renames, do not change object revisions, and are hidden while the object is in Trash. Use **All favorites** when there are more than 50.
 
-Opening Taskdesk at **/** (or **Calendar**) shows today's server-local day workspace by default. Pick another date with the previous/next/today links or the month date picker. The day shows an explicitly saved Daily Page, canonical Task objects whose Scheduled date or Due date matches the selected date, and live objects created during that local day. Tasks matching both dates appear once with both labels; completed tasks remain visible. Empty day pages are created only when you write and save.
+Opening Taskdesk at **/** (or **Calendar**) shows today's server-local day workspace by default. Pick another date with the previous/next/today links or the month date picker. The day shows the daily page editor, every other live page dated that day, canonical Task objects whose Scheduled date or Due date matches the selected date, and live objects created during that local day. Tasks matching both dates appear once with both labels; completed tasks remain visible. Empty day pages are created only when you write and save.
 
 Use **List** for compact rows or **Gallery** for cards with titles, saved-writing excerpts, and update dates. List is the default; the selected layout is part of the page URL, so refreshing or using browser Back retains it. Switching layouts keeps your search and page. Both layouts work without JavaScript and do not create or modify a saved view.
 
@@ -78,7 +71,7 @@ Open **Views → Create view**. In the right-hand View assistant, ask:
 
 With JavaScript, a fresh new-view conversation offers starter suggestions when the composer is completely empty. Choosing one only fills and focuses the composer locally; it never submits or calls the provider. Suggestions never replace an existing prompt, including whitespace, and are hidden for refinement, active/saved threads, and while restoring or generating. Edit the prompt as needed, then explicitly choose **Generate view**. Without JavaScript, enter the prompt and submit the native form.
 
-The model sees your prompt, schema metadata, up to 12 prior conversation prompts, and the previous view specification when refining—not object titles or writing unless you put them in your prompt. Review the draft in the main area and choose **Publish view**. Open **Edit Due date** on a row to reschedule the original object. Rename Due date to Deadline in Manage types: the saved view still works because bindings use property IDs.
+The model sees your prompt, schema metadata, up to 12 prior conversation prompts, and the previous view specification when refining—not object titles or writing unless you put them in your prompt. Review the draft in the main area and choose **Publish view**. Open **Edit Due date** on a row to reschedule the original object.
 
 Continue in the assistant to refine its latest result, or use **Refine with AI** to explicitly start a thread about the view you are looking at. For example:
 
@@ -88,7 +81,7 @@ Refinement creates another draft. Neither generation nor publication changes obj
 
 A reference-based view can ask for an input object, such as a Project. Without selecting that input it shows no records; it does not fall back to an unfiltered collection.
 
-For a combined life calendar, ask for Task due dates, Daily Page dates, both Event formats, and both Reminder formats. Events and Reminders use separate calendar blocks for their all-day and timed alternatives, with nonempty filters on the corresponding fields. This does not duplicate objects. Reschedule within the same date format in an editable calendar; switch between all-day and timed formats in the object editor by clearing one field and filling the other.
+For a combined life calendar, ask for Task due dates, dated pages, and both Event formats. Events use separate calendar blocks for their all-day and timed alternatives, with nonempty filters on the corresponding fields. This does not duplicate objects. Reschedule within the same date format in an editable calendar; switch between all-day and timed formats in the object editor by clearing one field and filling the other.
 
 ## Navigate without losing the conversation
 
@@ -155,10 +148,8 @@ Alternatively stop the server and back up the database together with any `-wal`/
 
 Synthetic storage measurements are documented in [SQLite storage measurements](sqlite-measurements.md).
 
-Back up current v7 data before future upgrades. Version 7 is a fresh-only fixed-domain format: older object schema versions are not migrated in this application. To keep an older file available, leave it in place and start this version with a new explicit `DATABASE_PATH`. Open **People** to browse relationships; set Last connected and Reconnect every (months, 1–120) to calculate the next reconnect date automatically. Month ends clamp to the last day of the target month; no background notifications are sent.
+Back up current v8 data before future upgrades. Version 8 is a fresh-only fixed-domain format: older object schema versions are not migrated in this application. To keep an older file available, leave it in place and start this version with a new explicit `DATABASE_PATH`. Open **People** to browse relationships; set Last connected and Reconnect every (months, 1–120) to calculate the next reconnect date automatically. Month ends clamp to the last day of the target month; no background notifications are sent.
 
-Empty editor paragraphs retain blank-line source, and ending or consecutive hard breaks become ordinary Markdown whitespace breaks. Markdown may collapse empty editor blocks visually; it does not add placeholders or raw HTML. Emphasis is preserved across punctuation, whitespace, and adjacent or nested marks; conversion may use character entities to prevent Markdown delimiter ambiguity. These conversions also apply to historical revisions and creation receipts, and the converted Markdown must fit the 256 KiB writing limit. Unknown or malformed structures and unsupported content such as inline code containing newlines still abort the upgrade. On failure, the transaction leaves the version-1 database intact and usable by the previous application version; the reported conversion issue must be resolved before upgrading.
-
-Only fresh version-7 object databases are supported by this build. There is no historical issue/vault runtime, directory import/export tool, legacy object migration path, or automatic reset. Startup never converts or deletes unrelated tables or files. Back up the SQLite database rather than treating Markdown files as live storage.
+Only fresh version-8 object databases are supported by this build. There is no historical issue/vault runtime, directory import/export tool, legacy object migration path, or automatic reset. Startup never converts or deletes unrelated tables or files. Back up the SQLite database rather than treating Markdown files as live storage.
 
 See the [object/view contract](object-contract.md) for storage, query, and command constraints.

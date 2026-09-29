@@ -1,9 +1,8 @@
 import type { Database } from 'bun:sqlite';
-import { FIXED_TYPE_IDS, JOURNAL_DATE_PROPERTY_ID, JOURNAL_TYPE_ID } from './objects/model.js';
+import { FIXED_TYPE_IDS } from './objects/model.js';
 
-export const APPLICATION_SCHEMA_VERSION = '7';
+export const APPLICATION_SCHEMA_VERSION = '8';
 
-const JOURNAL_DATE_PATH = `$."${JOURNAL_DATE_PROPERTY_ID}"`;
 const POSITIVE_INTEGER_REVISION = `typeof(revision) = 'integer' AND revision > 0`;
 const TYPE_CHECK = [...FIXED_TYPE_IDS].map(id => `'${id}'`).join(',');
 
@@ -115,22 +114,6 @@ function installTables(db: Database): void {
       PRIMARY KEY(conversation_id, position)
     ) STRICT;
     CREATE TABLE browser_visitors (id TEXT PRIMARY KEY, csrf TEXT NOT NULL) STRICT;
-  `);
-  const date = `json_extract(NEW.properties_json, '${JOURNAL_DATE_PATH}')`;
-  const invalidDate = `json_type(NEW.properties_json) IS NOT 'object'
-    OR (SELECT COUNT(*) FROM json_each(NEW.properties_json) WHERE key = '${JOURNAL_DATE_PROPERTY_ID}') != 1
-    OR json_type(NEW.properties_json, '${JOURNAL_DATE_PATH}') IS NOT 'text'
-    OR ${date} NOT GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'
-    OR substr(${date}, 1, 4) = '0000' OR date(${date}, '+0 days') IS NOT ${date}`;
-  db.exec(`
-    CREATE UNIQUE INDEX objects_journal_date
-    ON objects(json_extract(properties_json, '${JOURNAL_DATE_PATH}')) WHERE type_id = '${JOURNAL_TYPE_ID}';
-    CREATE TRIGGER objects_journal_date_insert BEFORE INSERT ON objects
-    WHEN NEW.type_id = '${JOURNAL_TYPE_ID}' AND (${invalidDate})
-    BEGIN SELECT RAISE(ABORT, 'Daily Page requires a real calendar date.'); END;
-    CREATE TRIGGER objects_journal_date_update BEFORE UPDATE ON objects
-    WHEN NEW.type_id = '${JOURNAL_TYPE_ID}' AND (${invalidDate})
-    BEGIN SELECT RAISE(ABORT, 'Daily Page requires a real calendar date.'); END;
   `);
 }
 

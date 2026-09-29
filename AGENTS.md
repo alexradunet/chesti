@@ -21,14 +21,13 @@ Read `README.md` for setup and current boundaries. Read `docs/object-contract.md
 - `src/server.ts`: Bun HTTP entrypoint, shared request security, assets, and route composition.
 - `src/visitors.ts`: persistent browser identity and CSRF state, separate from shared object data.
 - `src/database.ts`: SQLite connection setup and durability.
-- `src/schema.ts`: single application SQLite schema owner, upgrades, structural guards, and built-in protection triggers.
+- `src/schema.ts`: single application SQLite schema owner, structural guards, and built-in protection triggers.
 - `src/objects/model.ts`: active object/view types and declarative schemas.
 - `src/objects/runtime.ts`: canonical object/type/property commands, revisions, and backlinks.
 - `src/objects/views.ts`: view validation, lifecycle, bounded SQL queries, and scoped commands.
 - `src/objects/conversations.ts`, `generator.ts`: view conversations and isolated Pi generation.
 - `src/objects/markdown.ts`, `values.ts`: bounded Markdown writing and scalar/temporal validation.
 - `src/objects/writing.ts`, `writing-commands.ts`, `writing-links.ts`, `public/writing.css`: native textarea tools, selection-based Markdown commands, safe links, and draft preview styling; the server serves an optional same-origin bundle.
-- `src/objects/upgrade-markdown.ts`: one-time transactional upgrade of the current object writing format.
 - `src/objects/http.ts`, `render.tsx`, `client.ts`, `public/objects.css`: HTTP parsing, trusted rendering, browser enhancement, and domain layout.
 - `src/ui/`, `public/tokens.css`, `public/ui.css`: shared native UI components and Hearthwood materials. See `docs/design-system.md` and `/design-system` before extending them.
 - `src/pi.ts`: resource isolation for the embedded view generator.
@@ -55,7 +54,7 @@ Read `README.md` for setup and current boundaries. Read `docs/object-contract.md
 - SQLite is the sole live authority. Objects own data; views reference it. Deleting or refining a view must not delete, copy, or silently mutate objects.
 - Preserve stable identities, revision conflict checks, creation idempotency, transactional revision/backlink updates, and atomic draft/conversation writes.
 - Model output is untrusted declarative data. Validate it before persistence and render only trusted components. Never execute generated HTML, JavaScript, SQL, or arbitrary tools.
-- Preserve existing canonical data and fail on unsupported database schema versions. Current-format upgrades must be transactional and fail rather than drop unrecognized content. Do not reintroduce historical issue/vault conversion or delete unrelated tables/files on startup.
+- Preserve existing canonical data and fail on unsupported database schema versions. This is a dev-mode, single-owner workspace: the schema is fresh-start by default—when the model changes shape, bump `APPLICATION_SCHEMA_VERSION`, keep the refusal path for old versions, and start again from a new `DATABASE_PATH`; do not write in-place data migrations. Refused databases are never deleted, reset, or converted, and unrelated tables/files are left untouched. Do not reintroduce historical issue/vault conversion.
 - View generation receives the intended schema metadata and user-supplied prompt context, not automatic access to object contents, files, shell, personal agent instructions, or extensions. This file governs repository development, not the embedded model's resource discovery.
 - Keep generation bounded and failures explicit. Do not fabricate fallback views or success. Structural view compatibility does not grant write permission; commands must check their current publication, capability, revision, and scope.
 - Keep loopback binding, host/origin/CSRF protections, safe document links, prepared SQL values, and input/query bounds. Visitor cookies isolate conversations, not access to shared objects; this is not a multi-user authentication system.

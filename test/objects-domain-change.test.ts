@@ -6,7 +6,6 @@ import { createObjectRoutes } from '../src/objects/http.js';
 import {
   PAGE_TYPE_ID, TASK_TYPE_ID, TASK_DONE_PROPERTY_ID, TASK_DUE_PROPERTY_ID,
   PERSON_TYPE_ID, PERSON_RELATIONSHIP_PROPERTY_ID, PERSON_LAST_CONNECTED_PROPERTY_ID,
-  REMINDER_TYPE_ID, REMINDER_DATE_PROPERTY_ID,
 } from '../src/objects/model.js';
 
 const visitor = { id: crypto.randomUUID(), csrf: crypto.randomUUID() };
@@ -144,32 +143,32 @@ test('submitting fields that do not belong to the selected domain is rejected wi
 test('intent=change-type re-render activates only the target domain fields', async () => {
   const db = openDatabase();
   const runtime = new ObjectRuntime(db);
-  const reminder = runtime.createObject({
-    typeId: REMINDER_TYPE_ID,
+  const person = runtime.createObject({
+    typeId: PERSON_TYPE_ID,
     title: 'Bring notebook',
-    properties: { [REMINDER_DATE_PROPERTY_ID]: '2026-02-01' },
+    properties: { [PERSON_RELATIONSHIP_PROPERTY_ID]: 'Friend' },
     body: '',
   });
-  // Native intent=change-type: Reminder → Task
+  // Native intent=change-type: Person → Task
   const fields = new URLSearchParams({
     csrf: visitor.csrf,
-    revision: String(reminder.revision),
+    revision: String(person.revision),
     typeId: TASK_TYPE_ID,
     title: 'Bring notebook',
     body: '',
     intent: 'change-type',
   });
-  const response = await route(runtime, 'POST', `/objects/${reminder.id}/update`, fields);
+  const response = await route(runtime, 'POST', `/objects/${person.id}/update`, fields);
   assert.equal(response?.status, 200, 'intent=change-type must re-render');
   const html = await response!.text();
   // The re-rendered page must show Task fields as active (not disabled/hidden)
-  // and Reminder fields as inactive (disabled)
+  // and Person fields as inactive (disabled)
   // Check that the select shows Task as selected
   assert.ok(html.includes('selected'), 'Re-rendered page must show the target type selected');
   // Object must be unchanged (non-mutating)
-  const unchanged = runtime.getObject(reminder.id);
-  assert.equal(unchanged.typeId, REMINDER_TYPE_ID);
-  assert.equal(unchanged.revision, reminder.revision);
+  const unchanged = runtime.getObject(person.id);
+  assert.equal(unchanged.typeId, PERSON_TYPE_ID);
+  assert.equal(unchanged.revision, person.revision);
   db.close();
 });
 

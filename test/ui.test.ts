@@ -31,16 +31,16 @@ test('action atoms preserve native intent, accessible names, and form overrides'
 });
 
 test('field atoms retain labels, validation, selections, and exact escaped source', async () => {
-  const markup = String(Field({ for: 'title', label: 'Title', children: Input({ id: 'title', name: 'title', required: true, value: '<draft>', 'aria-describedby': 'help', 'data-journal-date': '' }) }))
+  const markup = String(Field({ for: 'title', label: 'Title', children: Input({ id: 'title', name: 'title', required: true, value: '<draft>', 'aria-describedby': 'help', 'data-property-field': '' }) }))
     + String(Select({ name: 'refs', multiple: true, size: 4, children: 'Choices' }))
     + String(Textarea({ name: 'body', class: 'markdown-source', children: '\n\n# <source> & text\n' }));
   assert.equal((await attributes(markup, 'label', ['for']))[0]?.for, 'title');
-  const input = (await attributes(markup, 'input', ['id', 'name', 'required', 'aria-describedby', 'data-journal-date']))[0]!;
+  const input = (await attributes(markup, 'input', ['id', 'name', 'required', 'aria-describedby', 'data-property-field']))[0]!;
   assert.equal(input.id, 'title');
   assert.equal(input.name, 'title');
   assert.notEqual(input.required, null);
   assert.equal(input['aria-describedby'], 'help');
-  assert.equal(input['data-journal-date'], '');
+  assert.equal(input['data-property-field'], '');
   assert.notEqual((await attributes(markup, 'select', ['multiple']))[0]?.multiple, null);
   assert.match(markup, />\n\n# &lt;source&gt; &amp; text\n<\/textarea>/);
 });

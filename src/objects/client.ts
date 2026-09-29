@@ -1,6 +1,6 @@
 import { Value } from 'typebox/value';
 import { restoreAiState, type AiState } from './ai-state.js';
-import { JOURNAL_TYPE_ID, ObjectLookupSchema } from './model.js';
+import { ObjectLookupSchema } from './model.js';
 import type { ObjectLookupResult, ViewConversation } from './model.js';
 import type { WritingEditor } from './writing.js';
 import { writingSelection, writingSource as sourceOf } from './writing-commands.js';
@@ -615,11 +615,6 @@ for (const form of forms) {
       const page = new DOMParser().parseFromString(html, 'text/html');
       const error = page.querySelector('[data-form-state][role="alert"]')?.textContent?.trim()
         || [...page.querySelectorAll('[role="alert"]')].map(element => element.textContent?.trim()).find(Boolean);
-      if (!response.ok && form.hasAttribute('data-object-editor')) {
-        const discovery = form.querySelector('[data-journal-discovery]');
-        const nextDiscovery = page.querySelector('[data-journal-discovery]');
-        if (discovery && nextDiscovery) discovery.replaceWith(document.importNode(nextDiscovery, true));
-      }
       if (response.status === 409 && form.hasAttribute('data-object-editor')) {
         const nextPanel = page.querySelector<HTMLElement>('[data-conflict-panel]:not([hidden])');
         const currentPanel = document.querySelector<HTMLElement>('[data-conflict-panel]');
@@ -741,10 +736,8 @@ if (journalPicker && pickedDate) {
   pickedDate.addEventListener('input', () => {
     const date = document.querySelector<HTMLInputElement>('[data-journal-open] input[name="date"]');
     const label = document.querySelector<HTMLElement>('[data-journal-day]');
-    const discovery = document.querySelector<HTMLElement>('[data-journal-discovery]');
     if (date) date.value = pickedDate.value;
     if (label) label.textContent = pickedDate.value;
-    if (discovery) discovery.hidden = true;
   });
 }
 
@@ -752,26 +745,9 @@ for (const select of document.querySelectorAll<HTMLSelectElement>('[data-new-typ
   const form = select.form;
   if (!form) continue;
   const title = form.querySelector<HTMLInputElement>('input[name="title"]');
-  const journalDate = form.querySelector<HTMLInputElement>('[data-journal-date]');
   let currentType = select.value;
-  let titleEdited = form.dataset.draft === 'true' || Boolean(title && title.value !== title.defaultValue);
-  title?.addEventListener('input', () => { titleEdited = true; });
-  journalDate?.addEventListener('input', () => {
-    const discovery = form.querySelector<HTMLElement>('[data-journal-discovery]');
-    if (discovery) discovery.hidden = true;
-  });
-  if (form.dataset.localDateDefault === 'true' && journalDate && journalDate.value === journalDate.defaultValue) {
-    const discovery = form.querySelector<HTMLElement>('[data-journal-discovery]');
-    if (discovery && journalDate.value !== localDate()) discovery.hidden = true;
-    journalDate.value = localDate();
-    if (title && !titleEdited && title.dataset.journalTitleDefault === 'true') title.value = journalDate.value;
-  }
   const sync = () => {
     if (form.dataset.busy === 'true') { select.value = currentType; return; }
-    if (select.value !== currentType) {
-      const discovery = form.querySelector<HTMLElement>('[data-journal-discovery]');
-      if (discovery) discovery.hidden = true;
-    }
     currentType = select.value;
     const back = document.querySelector<HTMLAnchorElement>('[data-object-back]');
     if (back) {
@@ -787,8 +763,6 @@ for (const select of document.querySelectorAll<HTMLSelectElement>('[data-new-typ
     }
     for (const field of form.querySelectorAll<HTMLInputElement>('[data-inactive-draft]')) field.disabled = true;
     for (const rule of form.querySelectorAll<HTMLElement>('[data-builtin-rule]')) rule.hidden = rule.dataset.builtinRule !== select.value;
-    if (journalDate) journalDate.required = select.value === JOURNAL_TYPE_ID;
-    if (select.value === JOURNAL_TYPE_ID && form.dataset.newObject === 'true' && title && !titleEdited && !title.value) title.value = journalDate?.value || localDate();
     const badge = form.querySelector<HTMLElement>('[data-property-count]');
     if (badge) {
       badge.textContent = String(count);

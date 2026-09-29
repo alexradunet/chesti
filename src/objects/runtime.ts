@@ -2,14 +2,13 @@ import type { Database } from 'bun:sqlite';
 import { AppError } from '../core.js';
 import { initializeApplicationSchema } from '../schema.js';
 import { fingerprint } from './fingerprint.js';
-import { FIXED_PROPERTIES, FIXED_TYPES, FIXED_PROPERTY_IDS, FIXED_TYPE_IDS, PERSON_TYPE_ID, PERSON_RECONNECT_EVERY_PROPERTY_ID, type ViewObjectRecord } from './model.js';
+import { EVENT_DATES_PROPERTY_ID, EVENT_TIME_PROPERTY_ID, EVENT_TYPE_ID, FIXED_PROPERTIES, FIXED_PROPERTY_IDS, FIXED_TYPE_IDS, FIXED_TYPES, PAGE_DATE_PROPERTY_ID, PAGE_TYPE_ID, PERSON_RECONNECT_EVERY_PROPERTY_ID, PERSON_TYPE_ID, TASK_DONE_PROPERTY_ID, TASK_DUE_PROPERTY_ID, TASK_SCHEDULED_PROPERTY_ID, TASK_TYPE_ID, type ViewObjectRecord } from './model.js';
 import { localDateBounds, validDate, valueError } from './values.js';
 import { markdownReferences, markdownText, validateMarkdown } from './markdown.js';
-import { EVENT_DATES_PROPERTY_ID, EVENT_TIME_PROPERTY_ID, EVENT_TYPE_ID, JOURNAL_DATE_PROPERTY_ID, JOURNAL_TYPE_ID, REMINDER_DATE_PROPERTY_ID, REMINDER_TIME_PROPERTY_ID, REMINDER_TYPE_ID, TASK_DONE_PROPERTY_ID, TASK_DUE_PROPERTY_ID, TASK_SCHEDULED_PROPERTY_ID, TASK_TYPE_ID } from './model.js';
 import type { BacklinkPage, BoundedPage, Catalog, DayTaskSummary, ObjectListOptions, ObjectRecord, ObjectRevisionSummary, ObjectSummary, ObjectType, ObjectWrite, PropertyDefinition, PropertyValue } from './model.js';
 
 const ID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
-const JOURNAL_DATE_PATH = `$."${JOURNAL_DATE_PROPERTY_ID}"`;
+const PAGE_DATE_PATH = `$."${PAGE_DATE_PROPERTY_ID}"`;
 interface ObjectSummaryRow { id: string; type_id: string; title: string; revision: number; created_at: string; updated_at: string; trashed: number }
 interface ObjectRow extends ObjectSummaryRow { properties_json: string; body: string }
 interface DayTaskRow extends ObjectSummaryRow { done: unknown; due_date: unknown; scheduled_date: unknown; matches_due: number; matches_scheduled: number }
@@ -122,19 +121,30 @@ export class ObjectRuntime {
     if (snapshot.id.toLowerCase() !== id.toLowerCase() || snapshot.revision !== revision) throw new AppError(500, 'Historical snapshot does not match this object.');
     return snapshot;
   }
-  getJournal(date: string): ObjectRecord | undefined {
+  /** The day's daily page is the live Page titled with the date and carrying that Date. */
+  findDayPage(date: string): ObjectRecord | undefined {
     if (!validDate(date)) throw new AppError(422, 'Choose a real calendar date in YYYY-MM-DD format.');
-    const row = this.db.query<ObjectRow, [string]>(`SELECT * FROM objects
-      WHERE type_id = '${JOURNAL_TYPE_ID}' AND json_extract(properties_json, '${JOURNAL_DATE_PATH}') = ?`).get(date);
+    const row = this.db.query<ObjectRow, [string, string]>(`SELECT * FROM objects
+      WHERE trashed = 0 AND type_id = '${PAGE_TYPE_ID}' AND title = ? AND json_extract(properties_json, '${PAGE_DATE_PATH}') = ?
+      ORDER BY updated_at DESC, id LIMIT 1`).get(date, date);
     return row ? objectRecord(row) : undefined;
   }
-  openJournal(date: string): ObjectRecord {
+  listDayPages(date: string, offset = 0): BoundedPage<ObjectSummary> {
+    if (!validDate(date)) throw new AppError(422, 'Choose a real calendar date in YYYY-MM-DD format.');
+    if (!Number.isInteger(offset) || offset < 0 || offset > 1_000_000) throw new AppError(422, 'Invalid day page request.');
+    const rows = this.db.query<ObjectSummaryRow, [string, number, number]>(`SELECT id, type_id, title, revision, created_at, updated_at, trashed
+      FROM objects WHERE trashed = 0 AND type_id = '${PAGE_TYPE_ID}' AND json_extract(properties_json, '${PAGE_DATE_PATH}') = ?
+      ORDER BY updated_at DESC, id LIMIT ? OFFSET ?`).all(date, 51, offset);
+    return { items: rows.slice(0, 50).map(objectSummary), offset, hasMore: rows.length > 50 };
+  }
+  openDayPage(date: string): ObjectRecord {
+    if (!validDate(date)) throw new AppError(422, 'Choose a real calendar date in YYYY-MM-DD format.');
     return this.db.transaction(() => {
-      const existing = this.getJournal(date);
-      return existing ?? this.createObject({ typeId: JOURNAL_TYPE_ID, title: date, properties: { [JOURNAL_DATE_PROPERTY_ID]: date }, body: '' });
+      const existing = this.findDayPage(date);
+      return existing ?? this.createObject({ typeId: PAGE_TYPE_ID, title: date, properties: { [PAGE_DATE_PROPERTY_ID]: date }, body: '' });
     }).immediate();
   }
-  saveDayJournal(input: { date: string; body: string; requestId: string } | { date: string; body: string; objectId: string; revision: number }): ObjectRecord {
+  saveDayPage(input: { date: string; body: string; requestId: string } | { date: string; body: string; objectId: string; revision: number }): ObjectRecord {
     if (!validDate(input.date)) throw new AppError(422, 'Choose a real calendar date in YYYY-MM-DD format.');
     if ('objectId' in input) {
       if (typeof input.objectId !== 'string' || !ID.test(input.objectId)) throw new AppError(422, 'Invalid daily page object.');
@@ -142,14 +152,15 @@ export class ObjectRuntime {
         const previous = this.getObject(input.objectId);
         revisionIs(previous.revision, input.revision);
         if (previous.trashed) throw new AppError(409, 'This daily page is in Trash. Open the existing object to restore it.');
-        if (previous.typeId !== JOURNAL_TYPE_ID || previous.properties[JOURNAL_DATE_PROPERTY_ID] !== input.date) {
+        if (previous.typeId !== PAGE_TYPE_ID || previous.properties[PAGE_DATE_PROPERTY_ID] !== input.date) {
           throw new AppError(409, 'This daily page no longer belongs to the selected day. Reload before saving.');
         }
-        return this.updateObjectFromPrevious(previous, input.revision, { typeId: JOURNAL_TYPE_ID, title: previous.title, properties: { ...previous.properties }, body: input.body });
+        // The daily page flow always enforces the YYYY-MM-DD title and the day's Date.
+        return this.updateObjectFromPrevious(previous, input.revision, { typeId: PAGE_TYPE_ID, title: input.date, properties: { ...previous.properties, [PAGE_DATE_PROPERTY_ID]: input.date }, body: input.body });
       }).immediate();
     }
-    if (!input.body.trim()) throw new AppError(422, 'Write something before saving a new journal.');
-    return this.createObject({ typeId: JOURNAL_TYPE_ID, title: input.date, properties: { [JOURNAL_DATE_PROPERTY_ID]: input.date }, body: input.body }, input.requestId);
+    if (!input.body.trim()) throw new AppError(422, 'Write something before saving a new daily page.');
+    return this.createObject({ typeId: PAGE_TYPE_ID, title: input.date, properties: { [PAGE_DATE_PROPERTY_ID]: input.date }, body: input.body }, input.requestId);
   }
   listObjects(options: ObjectListOptions = {}): ObjectRecord[] {
     const { limit, offset } = browseBounds(options);
@@ -392,15 +403,6 @@ export class ObjectRuntime {
     }
     if (write.typeId === EVENT_TYPE_ID && has(EVENT_DATES_PROPERTY_ID) === has(EVENT_TIME_PROPERTY_ID)) {
       throw new AppError(422, 'Event requires exactly one all-day date range or timed range.');
-    }
-    if (write.typeId === REMINDER_TYPE_ID && has(REMINDER_DATE_PROPERTY_ID) === has(REMINDER_TIME_PROPERTY_ID)) {
-      throw new AppError(422, 'Reminder requires exactly one date or time.');
-    }
-    if (write.typeId === JOURNAL_TYPE_ID) {
-      const date = write.properties[JOURNAL_DATE_PROPERTY_ID];
-      if (!validDate(date)) throw new AppError(422, 'Daily Page requires a real calendar date in YYYY-MM-DD format.');
-      const existing = this.getJournal(date);
-      if (existing && existing.id !== previous?.id) throw new AppError(409, `A Daily Page already exists for ${date}, including in Trash. Open the existing Daily Page instead.`);
     }
   }
   private remember(object: ObjectRecord): void {

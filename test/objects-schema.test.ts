@@ -6,11 +6,14 @@ import { ObjectRuntime } from '../src/objects/runtime.js';
 import { initializeApplicationSchema, rejectUnsupportedApplicationSchema } from '../src/schema.js';
 import { PAGE_TYPE_ID } from '../src/objects/model.js';
 
-test('fresh schema initializes version 7 without mutable definition tables', () => {
+test('fresh schema initializes version 8 without mutable definition tables', () => {
   const db = openDatabase();
   const runtime = new ObjectRuntime(db);
-  assert.equal(db.query<{ value: string }, []>("SELECT value FROM object_metadata WHERE key='schema_version'").get()!.value, '7');
+  assert.equal(db.query<{ value: string }, []>("SELECT value FROM object_metadata WHERE key='schema_version'").get()!.value, '8');
   assert.equal(db.query("SELECT 1 FROM sqlite_schema WHERE name='object_types'").get(), null);
+  // Retired fixed domains (Reminder, Daily Page) are structurally refused, not just hidden.
+  assert.equal(db.query("SELECT name FROM sqlite_schema WHERE name LIKE 'objects_journal_date%'").get(), null);
+  assert.throws(() => db.query("INSERT INTO objects(id, type_id, title, properties_json, body, body_text, revision, trashed, created_at, updated_at) VALUES('x','00000000-0000-4000-8000-000000000004','t','{}','','',1,0,'2026-01-01T00:00:00.000Z','2026-01-01T00:00:00.000Z')").run(), /CHECK/);
   const object = runtime.createObject({ typeId: PAGE_TYPE_ID, title: 'Page', properties: {}, body: '' });
   assert.equal(runtime.getObject(object.id).title, 'Page');
   db.close();

@@ -6,17 +6,13 @@ export const IdSchema = Type.String({ pattern: '^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9
 export const PAGE_TYPE_ID = '00000000-0000-4000-8000-000000000001';
 export const TASK_TYPE_ID = '00000000-0000-4000-8000-000000000002';
 export const EVENT_TYPE_ID = '00000000-0000-4000-8000-000000000003';
-export const REMINDER_TYPE_ID = '00000000-0000-4000-8000-000000000004';
-export const JOURNAL_TYPE_ID = '00000000-0000-4000-8000-000000000005';
 export const PERSON_TYPE_ID = '00000000-0000-4000-8000-000000000006';
 export const TASK_DONE_PROPERTY_ID = '00000000-0000-4000-8000-000000000101';
 export const TASK_DUE_PROPERTY_ID = '00000000-0000-4000-8000-000000000102';
 export const TASK_SCHEDULED_PROPERTY_ID = '00000000-0000-4000-8000-000000000103';
 export const EVENT_DATES_PROPERTY_ID = '00000000-0000-4000-8000-000000000201';
 export const EVENT_TIME_PROPERTY_ID = '00000000-0000-4000-8000-000000000202';
-export const REMINDER_DATE_PROPERTY_ID = '00000000-0000-4000-8000-000000000301';
-export const REMINDER_TIME_PROPERTY_ID = '00000000-0000-4000-8000-000000000302';
-export const JOURNAL_DATE_PROPERTY_ID = '00000000-0000-4000-8000-000000000401';
+export const PAGE_DATE_PROPERTY_ID = '00000000-0000-4000-8000-000000000401';
 export const PERSON_RELATIONSHIP_PROPERTY_ID = '00000000-0000-4000-8000-000000000501';
 export const PERSON_BIRTHDAY_PROPERTY_ID = '00000000-0000-4000-8000-000000000502';
 export const PERSON_PHONE_PROPERTY_ID = '00000000-0000-4000-8000-000000000503';
@@ -43,10 +39,8 @@ export const BUILTIN_PROPERTIES: readonly Omit<PropertyDefinition, 'revision'>[]
   { id: TASK_DUE_PROPERTY_ID, label: 'Due date', kind: 'date' },
   { id: EVENT_DATES_PROPERTY_ID, label: 'All-day dates', kind: 'date-range' },
   { id: EVENT_TIME_PROPERTY_ID, label: 'Event time', kind: 'time-range' },
-  { id: REMINDER_DATE_PROPERTY_ID, label: 'Reminder date', kind: 'date' },
-  { id: REMINDER_TIME_PROPERTY_ID, label: 'Reminder time', kind: 'datetime' },
-  { id: JOURNAL_DATE_PROPERTY_ID, label: 'Daily page date', kind: 'date' },
   { id: TASK_SCHEDULED_PROPERTY_ID, label: 'Scheduled date', kind: 'date' },
+  { id: PAGE_DATE_PROPERTY_ID, label: 'Date', kind: 'date' },
   { id: PERSON_RELATIONSHIP_PROPERTY_ID, label: 'Relationship', kind: 'text' },
   { id: PERSON_BIRTHDAY_PROPERTY_ID, label: 'Birthday', kind: 'date' },
   { id: PERSON_PHONE_PROPERTY_ID, label: 'Phone number', kind: 'text' },
@@ -56,11 +50,9 @@ export const BUILTIN_PROPERTIES: readonly Omit<PropertyDefinition, 'revision'>[]
   { id: PERSON_LAST_CONNECTED_PROPERTY_ID, label: 'Last connected', kind: 'date' },
 ];
 export const BUILTIN_TYPES: readonly { id: string; name: string; description: string; propertyIds: readonly string[] }[] = [
-  { id: PAGE_TYPE_ID, name: 'Page', description: 'Freeform writing without extra fields.', propertyIds: [] },
+  { id: PAGE_TYPE_ID, name: 'Page', description: 'Freeform writing with an optional calendar date. A page titled YYYY-MM-DD with that date is a daily page.', propertyIds: [PAGE_DATE_PROPERTY_ID] },
   { id: TASK_TYPE_ID, name: 'Task', description: 'Work with a completion state, optional scheduled date, and optional due date.', propertyIds: [TASK_DONE_PROPERTY_ID, TASK_DUE_PROPERTY_ID, TASK_SCHEDULED_PROPERTY_ID] },
-  { id: EVENT_TYPE_ID, name: 'Event', description: 'Exactly one all-day date range or timed range, with an exclusive end.', propertyIds: [EVENT_DATES_PROPERTY_ID, EVENT_TIME_PROPERTY_ID] },
-  { id: REMINDER_TYPE_ID, name: 'Reminder', description: 'A calendar item with exactly one date or time. No notifications or recurrence.', propertyIds: [REMINDER_DATE_PROPERTY_ID, REMINDER_TIME_PROPERTY_ID] },
-  { id: JOURNAL_TYPE_ID, name: 'Daily Page', description: 'One canonical page per calendar date, including pages in Trash.', propertyIds: [JOURNAL_DATE_PROPERTY_ID] },
+  { id: EVENT_TYPE_ID, name: 'Event', description: 'Exactly one all-day date range or timed range, with an exclusive end. A one-day event is a short all-day range.', propertyIds: [EVENT_DATES_PROPERTY_ID, EVENT_TIME_PROPERTY_ID] },
   { id: PERSON_TYPE_ID, name: 'Person', description: 'A person you know, with relationship details and reconnect dates.', propertyIds: [PERSON_RELATIONSHIP_PROPERTY_ID, PERSON_BIRTHDAY_PROPERTY_ID, PERSON_PHONE_PROPERTY_ID, PERSON_JOB_TITLE_PROPERTY_ID, PERSON_FAVORITE_ARTISTS_PROPERTY_ID, PERSON_RECONNECT_EVERY_PROPERTY_ID, PERSON_LAST_CONNECTED_PROPERTY_ID] },
 ];
 
@@ -193,6 +185,7 @@ export interface ObjectPageModel {
   journalDate?: string;
   journalDateDefault?: boolean;
   journal?: ObjectRecord;
+  dayPages?: BoundedPage<ObjectSummary>;
   dayTasks?: BoundedPage<DayTaskSummary>;
   dayCreated?: BoundedPage<ObjectSummary>;
   favorites?: BoundedPage<ObjectSummary>;

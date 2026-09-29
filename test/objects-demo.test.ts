@@ -14,6 +14,6 @@ test('demo seeds only fixed domains, writing links and published views', () => {
   assert.ok(runtime.listObjectSummaries({ typeId: TASK_TYPE_ID }).length >= 1);
   const views = new ViewService(runtime).list();
   assert.equal(views.every(view => view.status === 'published' && view.model === 'built-in/demo'), true);
-  assert.equal(runtime.catalog().types.length, 6);
+  assert.equal(runtime.catalog().types.length, 4);
   db.close();
 });

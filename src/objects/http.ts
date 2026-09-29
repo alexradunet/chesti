@@ -3,7 +3,7 @@ import { AppError } from '../core.js';
 import type { Visitor } from '../visitors.js';
 import { renderMarkdown, validateMarkdown } from './markdown.js';
 import { serverTimeZone, validDate, valueError } from './values.js';
-import { PERSON_TYPE_ID, IdSchema, JOURNAL_DATE_PROPERTY_ID, JOURNAL_TYPE_ID, PAGE_TYPE_ID, TASK_TYPE_ID } from './model.js';
+import { PERSON_TYPE_ID, IdSchema, PAGE_DATE_PROPERTY_ID, PAGE_TYPE_ID, TASK_TYPE_ID } from './model.js';
 import type { EvaluatedView, ObjectLookupResult, ObjectPageModel, ObjectRecord, ObjectSummary, ObjectWrite, PropertyDefinition, PropertyValue, SavedView, ViewConversation, ViewGenerator } from './model.js';
 import type { ObjectRuntime } from './runtime.js';
 import { ViewService } from './views.js';
@@ -96,14 +96,15 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
       return new Response(renderObjectWorkspace(model), { status, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
     };
     const go = (path: string) => new Response(null, { status: 303, headers: { Location: path } });
-    const loadCalendar = (date: string, tasksOffset = 0, createdOffset = 0, month?: string) => {
+    const loadCalendar = (date: string, tasksOffset = 0, pagesOffset = 0, createdOffset = 0, month?: string) => {
       if (!validDate(date)) throw new AppError(422, 'Choose a real calendar date in YYYY-MM-DD format.');
-      if (!Number.isInteger(tasksOffset) || tasksOffset < 0 || tasksOffset > 1_000_000 || !Number.isInteger(createdOffset) || createdOffset < 0 || createdOffset > 1_000_000) throw new AppError(422, 'Invalid calendar page.');
+      if (!Number.isInteger(tasksOffset) || tasksOffset < 0 || tasksOffset > 1_000_000 || !Number.isInteger(pagesOffset) || pagesOffset < 0 || pagesOffset > 1_000_000 || !Number.isInteger(createdOffset) || createdOffset < 0 || createdOffset > 1_000_000) throw new AppError(422, 'Invalid calendar page.');
       if (month !== undefined && !validMonth(month)) throw new AppError(422, 'Choose a real calendar month.');
       model.screen = 'calendar';
       model.journalDate = date;
       model.calendarMonth = month ?? date.slice(0, 7);
-      model.journal = objects.getJournal(date);
+      model.journal = objects.findDayPage(date);
+      model.dayPages = objects.listDayPages(date, pagesOffset);
       model.dayTasks = objects.listDayTasks(date, tasksOffset);
       model.dayCreated = objects.listObjectsCreatedOn(date, createdOffset);
       model.timeZone = serverTimeZone();
@@ -296,19 +297,23 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
             model.object = person;
           }
         } else if (url.pathname === '/' || url.pathname === '/calendar') {
-          requireFields(url.searchParams, ['date', 'tasksOffset', 'createdOffset', 'month', 'saved']);
-          if (url.searchParams.getAll('date').length > 1 || url.searchParams.getAll('tasksOffset').length > 1 || url.searchParams.getAll('createdOffset').length > 1 || url.searchParams.getAll('month').length > 1) throw new AppError(422, 'Invalid calendar request.');
+          requireFields(url.searchParams, ['date', 'tasksOffset', 'pagesOffset', 'createdOffset', 'month', 'saved']);
+          if (url.searchParams.getAll('date').length > 1 || url.searchParams.getAll('tasksOffset').length > 1 || url.searchParams.getAll('pagesOffset').length > 1 || url.searchParams.getAll('createdOffset').length > 1 || url.searchParams.getAll('month').length > 1) throw new AppError(422, 'Invalid calendar request.');
           model.journalDateDefault = !url.searchParams.has('date');
           const date = url.searchParams.get('date') ?? localDate();
           const tasksOffset = url.searchParams.get('tasksOffset') ?? '0';
+          const pagesOffset = url.searchParams.get('pagesOffset') ?? '0';
           const createdOffset = url.searchParams.get('createdOffset') ?? '0';
-          if (!/^\d{1,7}$/.test(tasksOffset) || !/^\d{1,7}$/.test(createdOffset)) throw new AppError(422, 'Invalid calendar page.');
-          loadCalendar(date, Number(tasksOffset), Number(createdOffset), url.searchParams.get('month') ?? undefined);
+          if (!/^\d{1,7}$/.test(tasksOffset) || !/^\d{1,7}$/.test(pagesOffset) || !/^\d{1,7}$/.test(createdOffset)) throw new AppError(422, 'Invalid calendar page.');
+          loadCalendar(date, Number(tasksOffset), Number(pagesOffset), Number(createdOffset), url.searchParams.get('month') ?? undefined);
         } else if (url.pathname === '/journal') {
+          requireFields(url.searchParams, ['date']);
           model.screen = 'journal';
           model.journalDateDefault = !url.searchParams.has('date');
           model.journalDate = url.searchParams.get('date') ?? localDate();
-          model.journal = objects.getJournal(model.journalDate);
+          if (!validDate(model.journalDate)) throw new AppError(422, 'Choose a real calendar date in YYYY-MM-DD format.');
+          model.journal = objects.findDayPage(model.journalDate);
+          model.dayPages = objects.listDayPages(model.journalDate);
         } else if (url.pathname === '/types') {
           model.screen = 'types';
         }
@@ -316,9 +321,6 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
           model.screen = 'new-object';
           model.objectType = objects.getType(url.searchParams.get('type') ?? PAGE_TYPE_ID);
           model.objects = pickerObjects();
-          model.journalDateDefault = !url.searchParams.has('date');
-          model.journalDate = url.searchParams.get('date') ?? localDate();
-          if (model.objectType.id === JOURNAL_TYPE_ID) model.journal = objects.getJournal(model.journalDate);
         } else if (url.pathname === '/views') {
           model.screen = 'views';
         } else {
@@ -379,13 +381,13 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
         if (fields.has('objectId')) {
           const originalRevision = revision(fields);
           const expectedRevision = fields.has('reviewedRevision') ? revision(fields, 'reviewedRevision') : originalRevision;
-          saved = objects.saveDayJournal({ date: model.journalDate, body: fields.get('body') ?? '', objectId: fields.get('objectId') ?? '', revision: expectedRevision });
+          saved = objects.saveDayPage({ date: model.journalDate, body: fields.get('body') ?? '', objectId: fields.get('objectId') ?? '', revision: expectedRevision });
         } else {
           const requestId = fields.get('requestId') ?? '';
           if (!Value.Check(IdSchema, requestId)) throw new AppError(422, 'Creation request ID must be a UUID.');
-          saved = objects.saveDayJournal({ date: model.journalDate, body: fields.get('body') ?? '', requestId });
+          saved = objects.saveDayPage({ date: model.journalDate, body: fields.get('body') ?? '', requestId });
         }
-        return go(`${calendarPath(saved.properties[JOURNAL_DATE_PROPERTY_ID] as string)}&saved=1`);
+        return go(`${calendarPath(saved.properties[PAGE_DATE_PROPERTY_ID] as string)}&saved=1`);
       }
       if (url.pathname === '/calendar/task') {
         requireFields(fields, ['csrf', 'date', 'objectId', 'revision', 'done']);
@@ -408,8 +410,9 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
         model.screen = 'journal';
         model.journalDate = fields.get('date') ?? '';
         requireFields(fields, ['csrf', 'date']);
-        const journal = objects.openJournal(model.journalDate);
-        return go(`/objects/${journal.id}`);
+        if (!validDate(model.journalDate)) throw new AppError(422, 'Choose a real calendar date in YYYY-MM-DD format.');
+        const dayPage = objects.openDayPage(model.journalDate);
+        return go(`/objects/${dayPage.id}`);
       }
       if (url.pathname === '/objects/create') {
         model.screen = 'new-object';
@@ -418,7 +421,6 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
         model.objects = pickerObjects();
         requireFields(fields, ['csrf', 'requestId', 'typeId', 'title', 'body', 'intent'], true);
         if (fields.get('intent') === 'change-type') {
-          model.journalDate = localDate();
           return page();
         }
         const write = readWrite(fields);
@@ -582,21 +584,10 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
           if (!(favoriteLookupError instanceof AppError && favoriteLookupError.status === 404)) throw favoriteLookupError;
         }
       }
-      if (model.objectDraft?.typeId === JOURNAL_TYPE_ID) {
-        const date = model.objectDraft.fields?.[`p:${JOURNAL_DATE_PROPERTY_ID}`]?.[0];
-        if (date) {
-          try {
-            const existing = objects.getJournal(date);
-            if (existing?.id !== model.object?.id) model.journal = existing;
-          } catch (lookupError) {
-            if (!(lookupError instanceof AppError)) throw lookupError;
-          }
-        }
-      }
       if (url.pathname === '/calendar/journal' && model.dayJournalDraft) {
         const safeSameObject = model.dayJournalDraft.mode === 'update' && model.journal && !model.journal.trashed &&
           model.journal.id.toLowerCase() === (model.dayJournalDraft.objectId ?? '').toLowerCase() &&
-          model.journal.properties[JOURNAL_DATE_PROPERTY_ID] === model.dayJournalDraft.date;
+          model.journal.properties[PAGE_DATE_PROPERTY_ID] === model.dayJournalDraft.date;
         if (error.status === 409 && safeSameObject) {
           model.dayJournalConflict = true;
           model.dayJournalDraft.conflictRevision = String(model.journal!.revision);

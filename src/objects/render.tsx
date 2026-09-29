@@ -2,7 +2,7 @@ import type { JSX } from 'hono/jsx/jsx-runtime';
 import { raw } from 'hono/html';
 import { renderMarkdown } from './markdown.js';
 import { Badge, Brand, Button, ButtonLink, CardLink, Dialog, EmptyState, Field, Icon, Input, Notice, PageHeading, Panel, Select, Status, Textarea, type IconName } from '../ui/index.js';
-import { BUILTIN_PROPERTIES, BUILTIN_TYPES, EVENT_DATES_PROPERTY_ID, EVENT_TIME_PROPERTY_ID, EVENT_TYPE_ID, JOURNAL_DATE_PROPERTY_ID, JOURNAL_TYPE_ID, PAGE_TYPE_ID, PERSON_BIRTHDAY_PROPERTY_ID, PERSON_FAVORITE_ARTISTS_PROPERTY_ID, PERSON_JOB_TITLE_PROPERTY_ID, PERSON_LAST_CONNECTED_PROPERTY_ID, PERSON_PHONE_PROPERTY_ID, PERSON_RECONNECT_EVERY_PROPERTY_ID, PERSON_RELATIONSHIP_PROPERTY_ID, PERSON_TYPE_ID, REMINDER_DATE_PROPERTY_ID, REMINDER_TIME_PROPERTY_ID, REMINDER_TYPE_ID, TASK_DONE_PROPERTY_ID, TASK_DUE_PROPERTY_ID, TASK_SCHEDULED_PROPERTY_ID, TASK_TYPE_ID } from './model.js';
+import { BUILTIN_PROPERTIES, BUILTIN_TYPES, EVENT_DATES_PROPERTY_ID, EVENT_TIME_PROPERTY_ID, EVENT_TYPE_ID, PAGE_DATE_PROPERTY_ID, PAGE_TYPE_ID, PERSON_BIRTHDAY_PROPERTY_ID, PERSON_FAVORITE_ARTISTS_PROPERTY_ID, PERSON_JOB_TITLE_PROPERTY_ID, PERSON_LAST_CONNECTED_PROPERTY_ID, PERSON_PHONE_PROPERTY_ID, PERSON_RECONNECT_EVERY_PROPERTY_ID, PERSON_RELATIONSHIP_PROPERTY_ID, PERSON_TYPE_ID, TASK_DONE_PROPERTY_ID, TASK_DUE_PROPERTY_ID, TASK_SCHEDULED_PROPERTY_ID, TASK_TYPE_ID } from './model.js';
 import type { DayTaskSummary, EvaluatedBlock, ObjectPageModel, ObjectSummary, PropertyDefinition, PropertyValue, SavedView, ViewRow } from './model.js';
 import { WritingFields } from './writing-fields.js';
 import { Document } from '../ui/document.js';
@@ -26,8 +26,6 @@ function typeIcon(typeId: string): IconName {
     case PAGE_TYPE_ID: return 'page';
     case TASK_TYPE_ID: return 'tasks';
     case EVENT_TYPE_ID: return 'calendar';
-    case JOURNAL_TYPE_ID: return 'journal';
-    case REMINDER_TYPE_ID: return 'reminder';
     case PERSON_TYPE_ID: return 'people';
     default: return 'type';
   }
@@ -100,7 +98,7 @@ function PropertyControl({ model, property, value, name = `p:${property.id}`, re
       {property.kind === 'time-range' && <Field label="Time zone"><Input name={`${name}:timeZone`} type="text" value={fields?.[`${name}:timeZone`]?.[0] ?? range?.timeZone ?? ''} placeholder="Europe/London" /></Field>}
     </div><small id={`${id}-help`}>{property.kind === 'time-range' ? 'ISO timestamps with offsets, for example 2026-09-24T09:00:00+01:00.' : 'End is exclusive: for one all-day event on September 24, use September 24 to September 25. Fill both dates, or clear both to leave unset.'}</small></fieldset>;
   }
-  return <Field label={property.label}><Input name={name} type={property.kind === 'number' ? 'number' : property.kind === 'date' ? 'date' : 'text'} step={property.kind === 'number' ? 'any' : undefined} value={scalar} required={required} data-journal-date={property.id === JOURNAL_DATE_PROPERTY_ID ? '' : undefined} aria-describedby={property.kind === 'datetime' ? `${id}-help` : undefined} />{property.kind === 'datetime' && <small id={`${id}-help`}>ISO timestamp with offset, for example 2026-09-24T09:00:00+01:00.</small>}</Field>;
+  return <Field label={property.label}><Input name={name} type={property.kind === 'number' ? 'number' : property.kind === 'date' ? 'date' : 'text'} step={property.kind === 'number' ? 'any' : undefined} value={scalar} required={required} aria-describedby={property.kind === 'datetime' ? `${id}-help` : undefined} />{property.kind === 'datetime' && <small id={`${id}-help`}>ISO timestamp with offset, for example 2026-09-24T09:00:00+01:00.</small>}</Field>;
 }
 
 function Value({ model, propertyId, value }: { model: ObjectPageModel; propertyId: string; value: PropertyValue | undefined }): JSX.Element {
@@ -218,7 +216,7 @@ const kindLabel = (property: PropertyDefinition) => propertyKinds.find(kind => k
 
 function Types({ model }: { model: ObjectPageModel }) {
   return <>
-    <PageHeading eyebrow="Fixed domains" title="Object types" description="Six fixed domains with code-owned fields. Connections are Markdown links." />
+    <PageHeading eyebrow="Fixed domains" title="Object types" description="Four fixed domains with code-owned fields. Connections are Markdown links." />
     <div class="type-cards">{model.catalog.types.map(type => {
       const builtin = BUILTIN_TYPES.find(item => item.id === type.id);
       return <Panel as="article" class="type-card"><span class="type-card-icon"><Icon name={typeIcon(type.id)} /></span><h2>{type.name}</h2>
@@ -282,23 +280,26 @@ function DayWorkspace({ model }: { model: ObjectPageModel }) {
   const previousMonth = addMonths(displayMonth, -1);
   const nextMonth = addMonths(displayMonth, 1);
   const today = dateString(new Date());
-  const taskPage = (offset: number) => `/calendar?${new URLSearchParams({ date, tasksOffset: String(offset), createdOffset: String(model.dayCreated?.offset ?? 0) })}`;
-  const createdPage = (offset: number) => `/calendar?${new URLSearchParams({ date, tasksOffset: String(model.dayTasks?.offset ?? 0), createdOffset: String(offset) })}`;
+  const taskPage = (offset: number) => `/calendar?${new URLSearchParams({ date, tasksOffset: String(offset), pagesOffset: String(model.dayPages?.offset ?? 0), createdOffset: String(model.dayCreated?.offset ?? 0) })}`;
+  const pagesPage = (offset: number) => `/calendar?${new URLSearchParams({ date, tasksOffset: String(model.dayTasks?.offset ?? 0), pagesOffset: String(offset), createdOffset: String(model.dayCreated?.offset ?? 0) })}`;
+  const createdPage = (offset: number) => `/calendar?${new URLSearchParams({ date, tasksOffset: String(model.dayTasks?.offset ?? 0), pagesOffset: String(model.dayPages?.offset ?? 0), createdOffset: String(offset) })}`;
+  const dayPages = (model.dayPages?.items ?? []).filter(record => record.id !== journal?.id);
   return <div class="day-workspace">
     <section class="day-main">
-      <PageHeading eyebrow={`Server-local day · ${model.timeZone ?? 'local time'}`} title={date} description="Daily page, scheduled or due tasks, and objects created on this day.">
+      <PageHeading eyebrow={`Server-local day · ${model.timeZone ?? 'local time'}`} title={date} description="Daily page, pages dated this day, scheduled or due tasks, and objects created on this day.">
         {addDays(date, -1) && <ButtonLink href={`/calendar?date=${addDays(date, -1)}`}>Previous day</ButtonLink>}<ButtonLink href="/calendar">Today</ButtonLink>{addDays(date, 1) && <ButtonLink href={`/calendar?date=${addDays(date, 1)}`}>Next day</ButtonLink>}
       </PageHeading>
       <form class="filter-bar day-mobile-picker" method="get" action="/calendar"><Field label="Choose date"><Input type="date" name="date" value={date} required /></Field><Button type="submit">Show day</Button></form>
-      <Panel class="day-journal"><div class="section-heading"><h2>Daily page</h2>{journal?.trashed && <Badge tone="warning">In trash</Badge>}</div>
-        {journal?.trashed && !draft ? <p>This day's daily page is in Trash. <a href={objectUrl(journal.id)}>Open the existing page to restore it</a>.</p> : <form class="object-editor" method="post" action="/calendar/journal" data-enhance="" data-object-editor="" data-draft={draft || model.objectDraft ? 'true' : undefined}>
+      <Panel class="day-journal"><div class="section-heading"><h2>Daily page</h2></div>
+        <form class="object-editor" method="post" action="/calendar/journal" data-enhance="" data-object-editor="" data-draft={draft || model.objectDraft ? 'true' : undefined}>
           <Token model={model} /><Hidden name="date" value={draft?.date ?? date} />{draft?.mode === 'update' ? <><Hidden name="objectId" value={draft.objectId ?? ''} /><Hidden name="revision" value={draft.revision ?? ''} /></> : journal && !draft ? <><Hidden name="objectId" value={journal.id} /><Hidden name="revision" value={journal.revision} /></> : <Hidden name="requestId" value={draft?.requestId ?? crypto.randomUUID()} />}
           <WritingFields body={body} headingLevel={3} textareaId="day-journal-body" blockId="day-writing-block" linkHeadingId="day-writing-link-heading" rows={12} />
           <div class="save-bar"><span data-object-save-controls="">{draft?.saveBlocked ? <ButtonLink href={draft.objectId ? objectUrl(draft.objectId) : `/calendar?date=${date}`}>{draft.objectId ? 'Open submitted daily page' : 'Reload selected day'}</ButtonLink> : model.dayJournalConflict && journal ? <Button type="submit" variant="primary" name="reviewedRevision" value={journal.revision}>Save reconciled daily page</Button> : <Button type="submit" variant="primary">Save daily page</Button>}</span><State message={model.error || (journal ? `Saved revision ${journal.revision}.` : 'Write something, then save to create this daily page.')} error={Boolean(model.error)} /></div>
           {draft?.saveBlocked && <p class="notice error">This draft no longer has a safe same-page save target. Copy the writing above, then open the submitted daily page or reload the selected day before saving.</p>}
           <aside class="parch saved-conflict" data-conflict-panel="" hidden={!model.dayJournalConflict || !journal} tabindex={-1}>{model.dayJournalConflict && journal && <><h3>Latest saved daily page · revision {journal.revision}</h3><div class="markdown-content">{raw(renderMarkdown(journal.body))}</div><details><summary>Latest Markdown source</summary><pre class="saved-source">{`\n${journal.body}`}</pre></details><p>Reconcile your draft above, then choose Save reconciled daily page. Another intervening save will still reject.</p></>}</aside>
-        </form>}
+        </form>
       </Panel>
+      <Panel><div class="section-heading"><h2>Pages on this day</h2><Badge>{dayPages.length}</Badge></div>{dayPages.length ? <ul class="object-index">{dayPages.map(record => <li><a href={objectUrl(record.id)}><strong>{titleOf(record)}</strong><span>Page</span></a><time datetime={record.updatedAt}>{new Date(record.updatedAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}</time></li>)}</ul> : <p class="muted">No other pages are dated this day. Date any Page to keep it here.</p>}<nav class="pagination">{(model.dayPages?.offset ?? 0) > 0 && <a href={pagesPage(Math.max(0, (model.dayPages?.offset ?? 0) - 50))}>Previous pages</a>}{model.dayPages?.hasMore && <a href={pagesPage((model.dayPages.offset ?? 0) + 50)}>Next pages</a>}</nav></Panel>
       <Panel><div class="section-heading"><h2>Tasks</h2><Badge>{model.dayTasks?.items.length ?? 0}</Badge></div>{model.dayTasks?.items.length ? <ul class="day-list">{model.dayTasks.items.map(task => <li><div><a href={objectUrl(task.id)}>{titleOf(task)}</a><span class="fine">{taskMatchLabel(task)}{task.done ? ' · completed' : ''}</span></div><form method="post" action="/calendar/task"><Token model={model} /><Hidden name="date" value={date} /><Hidden name="objectId" value={task.id} /><Hidden name="revision" value={task.revision} /><Hidden name="done" value={task.done ? 'false' : 'true'} /><Button type="submit">{task.done ? 'Mark incomplete' : 'Mark done'}</Button></form></li>)}</ul> : <p class="muted">No scheduled or due tasks for this date.</p>}<nav class="pagination">{(model.dayTasks?.offset ?? 0) > 0 && <a href={taskPage(Math.max(0, (model.dayTasks?.offset ?? 0) - 50))}>Previous tasks</a>}{model.dayTasks?.hasMore && <a href={taskPage((model.dayTasks.offset ?? 0) + 50)}>Next tasks</a>}</nav></Panel>
       <Panel><div class="section-heading"><h2>Created on this day</h2><Badge>{model.dayCreated?.items.length ?? 0}</Badge></div>{model.dayCreated?.items.length ? <ul class="object-index">{model.dayCreated.items.map(record => <li><a href={objectUrl(record.id)}><strong>{titleOf(record)}</strong><span>{typeName(model, record.typeId)}</span></a><time datetime={record.createdAt}>{localTime(record.createdAt)}</time></li>)}</ul> : <p class="muted">No live objects were created on this day.</p>}<nav class="pagination">{(model.dayCreated?.offset ?? 0) > 0 && <a href={createdPage(Math.max(0, (model.dayCreated?.offset ?? 0) - 50))}>Previous created objects</a>}{model.dayCreated?.hasMore && <a href={createdPage((model.dayCreated.offset ?? 0) + 50)}>Next created objects</a>}</nav></Panel>
     </section>
@@ -306,25 +307,24 @@ function DayWorkspace({ model }: { model: ObjectPageModel }) {
   </div>;
 }
 
-function JournalDiscovery({ model }: { model: ObjectPageModel }) {
-  return <div data-journal-discovery="" class="parch journal-discovery" hidden={!model.journal}>
-    {model.journal && <p>This date already has a daily page{model.journal.trashed ? ' in trash' : ''}. <a href={objectUrl(model.journal.id)}>{model.journal.trashed ? 'Open existing daily page to restore it' : 'Open existing daily page'}</a>. Your draft is not merged or discarded.</p>}
-  </div>;
-}
-
 function Journal({ model }: { model: ObjectPageModel }) {
+  const date = model.journalDate ?? '';
+  const dayPages = (model.dayPages?.items ?? []).filter(record => record.id !== model.journal?.id);
   return <>
-    <PageHeading title="Daily page" description="One daily page per calendar date, including pages in trash." />
+    <PageHeading title="Daily page" description="Open or create the page for a date, and find every page dated that day." />
     <form class="filter-bar" method="get" action="/journal" data-journal-picker="" data-local-date-default={model.journalDateDefault ? 'true' : undefined}>
-      <Field label="Daily page date"><Input name="date" type="date" required value={model.journalDate ?? ''} /></Field><Button type="submit">Find daily page</Button><ButtonLink href="/journal" data-journal-today="">Today</ButtonLink>
+      <Field label="Daily page date"><Input name="date" type="date" required value={date} /></Field><Button type="submit">Find daily page</Button><ButtonLink href="/journal" data-journal-today="">Today</ButtonLink>
     </form>
-    <JournalDiscovery model={model} />
     <Panel>
-      <h2>Open your daily page</h2><p class="muted">Opening an existing day keeps its writing and revision. Opening a new day creates an empty page. Daily pages in trash are never restored automatically.</p>
+      <h2>Open your daily page</h2><p class="muted">Opening an existing day keeps its writing and revision. Opening a new day creates an empty page titled with the date. Pages in trash are never restored automatically.</p>
       <form method="post" action="/journal/open" data-enhance="" data-journal-open="">
-        <Token model={model} /><Hidden name="date" value={model.journalDate ?? ''} /><Button variant="primary" type="submit">Open daily page for <span data-journal-day="">{model.journalDate}</span></Button><State />
+        <Token model={model} /><Hidden name="date" value={date} /><Button variant="primary" type="submit">Open daily page for <span data-journal-day="">{date}</span></Button><State />
       </form>
-      <p class="fine">Find a date above, then open it. Nothing is created by viewing this page.</p>
+      <p class="fine">Nothing is created by viewing this page.</p>
+    </Panel>
+    <Panel>
+      <div class="section-heading"><h2>Pages dated {date}</h2><Badge>{model.dayPages?.items.length ?? 0}</Badge></div>
+      {model.dayPages?.items.length ? <ul class="object-index">{model.dayPages.items.map(record => <li><a href={objectUrl(record.id)}><strong>{titleOf(record)}</strong><span>{record.id === model.journal?.id ? 'Daily page' : 'Page'}</span></a><time datetime={record.updatedAt}>{new Date(record.updatedAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}</time></li>)}</ul> : <p class="muted">No pages are dated this day yet.</p>}
     </Panel>
   </>;
 }
@@ -333,9 +333,8 @@ function BuiltinRules({ model, typeId }: { model: ObjectPageModel; typeId: strin
   const label = (id: string) => propertyOf(model, id)?.label ?? 'field';
   return <div class="builtin-rules">
     <p class="fine" data-builtin-rule={TASK_TYPE_ID} hidden={typeId !== TASK_TYPE_ID}>Use {label(TASK_DONE_PROPERTY_ID)} to mark completion; unchecked means not done. {label(TASK_DUE_PROPERTY_ID)} is optional.</p>
-    <p class="fine" data-builtin-rule={EVENT_TYPE_ID} hidden={typeId !== EVENT_TYPE_ID}>Choose exactly one: {label(EVENT_DATES_PROPERTY_ID)} for all-day dates, or {label(EVENT_TIME_PROPERTY_ID)} for a timed event. Clear the other range. All-day end is exclusive: a one-day event ends on the following date.</p>
-    <p class="fine" data-builtin-rule={REMINDER_TYPE_ID} hidden={typeId !== REMINDER_TYPE_ID}>Choose exactly one: {label(REMINDER_DATE_PROPERTY_ID)} or {label(REMINDER_TIME_PROPERTY_ID)}. Clear the other field. A Reminder is only a calendar item; it does not send notifications or repeat.</p>
-    <p class="fine" data-builtin-rule={JOURNAL_TYPE_ID} hidden={typeId !== JOURNAL_TYPE_ID}>{label(JOURNAL_DATE_PROPERTY_ID)} requires a real calendar date. Each date has one canonical Daily Page, even in trash. Changing its date cannot overwrite another daily page. <a href="/journal">Find a daily page</a>.</p>
+    <p class="fine" data-builtin-rule={EVENT_TYPE_ID} hidden={typeId !== EVENT_TYPE_ID}>Choose exactly one: {label(EVENT_DATES_PROPERTY_ID)} for all-day dates, or {label(EVENT_TIME_PROPERTY_ID)} for a timed event. Clear the other range. All-day end is exclusive: a one-day event ends on the following date. A reminder-style moment is a short timed range.</p>
+    <p class="fine" data-builtin-rule={PAGE_TYPE_ID} hidden={typeId !== PAGE_TYPE_ID}>Pages are freeform writing. An optional {label(PAGE_DATE_PROPERTY_ID)} anchors a page to a calendar day. A page titled YYYY-MM-DD with that date is a daily page. <a href="/journal">Find a daily page</a>.</p>
   </div>;
 }
 
@@ -384,7 +383,6 @@ function ObjectEditor({ model }: { model: ObjectPageModel }) {
   const typeChanged = Boolean(record && draft?.typeId && draft.typeId !== record.typeId);
   const body = draft?.body ?? record?.body ?? '';
   const propertyCount = activeIds.size;
-  const journalDate = !record ? model.journalDate : undefined;
   let state = 'Not saved yet.';
   if (record) state = model.notice ? 'Saved. Further edits need saving.' : 'Save to apply edits.';
   if (draft) state = draft.historyRevision ? `Unsaved draft from revision ${draft.historyRevision}` : 'Unsaved changes';
@@ -395,8 +393,8 @@ function ObjectEditor({ model }: { model: ObjectPageModel }) {
   return <><h1 class="sr-only">{record ? 'Edit object' : 'New object'}</h1><a class="back-link" data-object-back="" href={`/objects?type=${type.id}`}>← {type.name} objects</a>{record?.trashed && <Badge tone="warning">In trash</Badge>}
     {record && <div class="object-actions-row"><nav class="object-sections" aria-label="Object sections"><a href="#writing-area">Writing</a><a href="#object-backlinks">Linked from</a><a href={`/objects/${record.id}/history`}>History</a></nav><form method="post" action={`/objects/${record.id}/favorite`}><Token model={model} /><Hidden name="favorite" value={model.favorite ? 'false' : 'true'} /><Hidden name="context" value="object" /><Hidden name="date" value="" /><Button type="submit" variant={model.favorite ? 'secondary' : 'ghost'}>{model.favorite ? 'Unfavorite' : 'Favorite'}</Button></form></div>}
     <div class={`object-editing${conflict ? ' has-conflict' : ''}`}>
-    <form id="object-editor" class="parch object-editor" method="post" action={record ? `/objects/${record.id}/update` : '/objects/create'} data-enhance="" data-object-editor="" data-new-object={!record ? 'true' : undefined} data-local-date-default={!record && !draft && model.journalDateDefault ? 'true' : undefined} data-draft={draft ? 'true' : undefined}><Token model={model} />{record ? <Hidden name="revision" value={draft?.revision ?? record.revision} /> : <Hidden name="requestId" value={draft?.requestId ?? crypto.randomUUID()} />}{draft?.historyRevision && <Hidden name="historyRevision" value={draft.historyRevision} />}
-      <Field class="title-field" label={<span class="sr-only">Title</span>}><Input name="title" value={draft?.title ?? record?.title ?? (type.id === JOURNAL_TYPE_ID ? journalDate ?? '' : '')} data-journal-title-default={!record && !draft && type.id === JOURNAL_TYPE_ID ? 'true' : undefined} required maxlength={500} autocomplete="off" placeholder="Untitled" /></Field>
+    <form id="object-editor" class="parch object-editor" method="post" action={record ? `/objects/${record.id}/update` : '/objects/create'} data-enhance="" data-object-editor="" data-new-object={!record ? 'true' : undefined} data-draft={draft ? 'true' : undefined}><Token model={model} />{record ? <Hidden name="revision" value={draft?.revision ?? record.revision} /> : <Hidden name="requestId" value={draft?.requestId ?? crypto.randomUUID()} />}{draft?.historyRevision && <Hidden name="historyRevision" value={draft.historyRevision} />}
+      <Field class="title-field" label={<span class="sr-only">Title</span>}><Input name="title" value={draft?.title ?? record?.title ?? ''} required maxlength={500} autocomplete="off" placeholder="Untitled" /></Field>
       <section class="properties" aria-labelledby="object-properties-heading">
         <header class={record ? 'properties-heading' : 'properties-heading sr-only'}><h2 id="object-properties-heading">Properties <Badge data-property-count="" hidden={!propertyCount}>{propertyCount}</Badge></h2><span class="fine" data-object-type-label="">{type.name}</span></header>
         <div class="object-type-picker">
@@ -416,12 +414,11 @@ function ObjectEditor({ model }: { model: ObjectPageModel }) {
             <fieldset class="object-property" data-type-ids={model.catalog.types.filter(item => item.propertyIds.includes(id)).map(item => item.id).join(' ')} hidden={!active} disabled={!active}>
               <legend class="sr-only">{property.label}</legend>
               {property.kind === 'boolean' && <Hidden name={`draft:p:${id}`} value="false" />}
-              <PropertyControl model={model} property={property} required={id === JOURNAL_DATE_PROPERTY_ID && type.id === JOURNAL_TYPE_ID} value={(draft?.properties ? draft.properties[id] : record?.properties?.[id]) ?? (id === JOURNAL_DATE_PROPERTY_ID ? journalDate : undefined)} />
+              <PropertyControl model={model} property={property} value={(draft?.properties ? draft.properties[id] : record?.properties?.[id]) ?? undefined} />
             </fieldset>
           </>;
         })}</div>
       </section>
-      <JournalDiscovery model={model} />
       <WritingFields body={body} />
       {typeChangeDrops && typeChangeDrops.fields.length > 0 && <div class="type-change-disclosure" data-type-change-drops="" role="alert" tabindex={-1}>
         <p><strong>Changing type will drop these fields:</strong></p>
@@ -540,7 +537,7 @@ function Views({ model }: { model: ObjectPageModel }) {
   const views = calendar ? model.views.filter(view => view.spec.blocks.some(block => block.component === 'calendar')) : model.views;
   return <><PageHeading title={calendar ? 'Calendar' : 'Views'} description={calendar ? 'Your dated objects, seen together. Open a saved calendar or create your own.' : 'Different perspectives on the same objects. Nothing copied, nothing moved.'}><ButtonLink variant="primary" href={calendar ? '/calendar?ai=1' : '/views?ai=1'} data-ai-start=""><Icon name="ai" />{calendar ? 'Create calendar' : 'Create view'}</ButtonLink></PageHeading>
     <div class="parch view-invitation"><span class="invitation-icon"><Icon name={calendar ? 'calendar' : 'views'} /></span><div><strong>{calendar ? 'Make room for what’s coming up' : 'A view that fits the way you think'}</strong><p>{calendar ? 'Ask for a calendar using date properties already in your workspace.' : 'Describe a list, table, calendar, or board. The view assistant creates a draft you can review.'}</p></div></div>
-    {calendar && <p class="fine">For Events, include separate calendar blocks for all-day dates and timed ranges. For Reminders, include separate blocks for dates and exact times. Bind each block to the corresponding field and filter out empty values so both alternatives appear. Creating or opening objects never generates a view automatically.</p>}
+    {calendar && <p class="fine">For Events, include separate calendar blocks for all-day dates and timed ranges, binding each block to its field with a notEmpty filter so both representations appear. Dated Pages can share a calendar through their Date field. Creating or opening objects never generates a view automatically.</p>}
     <h2 class="section-heading">{calendar ? 'Saved calendars' : 'Saved views'}<Badge>{views.length}</Badge></h2>{views.length ? <ul class="view-list">{views.map(view => <li class="parch"><span class="view-list-icon"><Icon name={view.spec.blocks.some(block => block.component === 'calendar') ? 'calendar' : 'views'} /></span><div><a href={`/views/${view.id}`}>{view.spec.title}</a><p class="muted">{view.spec.description}</p></div><Badge tone={view.status === 'draft' ? 'warning' : 'success'}>{view.status}</Badge><ButtonLink href={`/views/${view.id}`}>{view.status === 'draft' ? 'Preview' : 'Open'}</ButtonLink></li>)}</ul> : <EmptyState icon={calendar ? 'calendar' : 'views'} title={calendar ? 'No calendars yet' : 'A fresh perspective starts here'}><p>{calendar ? 'No saved view includes a calendar. Create one to bring your dated objects into focus.' : 'Create your first view from the objects and properties in your workspace.'}</p><a href={calendar ? '/calendar?ai=1' : '/views?ai=1'} data-ai-start="">{calendar ? 'Describe a calendar' : 'Describe a view'}</a></EmptyState>}</>;
 }
 
