@@ -50,7 +50,7 @@ function WorkspaceNav({ model }: { model: ObjectPageModel }) {
     <div class="nav-links">{links.filter(link => link.label !== 'Tasks' && link.label !== 'Journal').map(link => <a href={link.href} data-object-search={link.icon === 'search' ? '' : undefined} aria-keyshortcuts={link.icon === 'search' ? 'Control+k Meta+k' : undefined} aria-current={link.active ? 'page' : undefined}><Icon name={link.icon} /><span>{link.label}</span>{link.icon === 'search' && <kbd class="js-only">Ctrl/⌘ K</kbd>}</a>)}</div>
     <section class="nav-section" aria-labelledby="favorites-heading"><h2 id="favorites-heading">Favorites</h2>{model.favorites?.items.length ? <div class="nav-links">{model.favorites.items.map(record => <a href={objectUrl(record.id)} aria-current={model.object?.id === record.id ? 'page' : undefined}><Icon name={typeIcon(record.typeId)} /><span>{titleOf(record)}</span></a>)}{model.favorites.hasMore && <a href="/objects/favorites"><Icon name="arrow" /><span>All favorites</span></a>}</div> : <p class="nav-hint">No favorites yet. Use Favorite on saved objects to pin them here.</p>}</section>
     <section class="nav-section js-only" aria-labelledby="pinned-heading"><h2 id="pinned-heading">Pinned views</h2><p class="nav-hint" data-pins-empty="">Pin a view to keep it here.</p><div class="nav-links">{model.views.map(view => <a href={`/views/${view.id}`} data-pinned-view="" data-view-id={view.id} hidden aria-current={model.evaluatedView?.view.id === view.id ? 'page' : undefined}><Icon name="pin" /><span>{view.spec.title}</span></a>)}</div></section>
-    <div class="nav-bottom nav-links"><a href="/?trash=1" aria-current={model.trashed ? 'page' : undefined}><Icon name="trash" /><span>Trash</span></a><p class="nav-hint">Your objects. Your workspace.</p></div>
+    <div class="nav-bottom nav-links"><a href="/types" aria-current={model.screen === 'types' ? 'page' : undefined}><Icon name="type" /><span>Fixed domains</span></a><a href="/?trash=1" aria-current={model.trashed ? 'page' : undefined}><Icon name="trash" /><span>Trash</span></a><p class="nav-hint">Your objects. Your workspace.</p></div>
   </nav>;
 }
 
@@ -398,10 +398,12 @@ function ObjectEditor({ model }: { model: ObjectPageModel }) {
   const record = model.object;
   const draft = model.objectDraft;
   const type = model.catalog.types.find(item => item.id === draft?.typeId) ?? (record ? model.catalog.types.find(item => item.id === record.typeId) : model.objectType ?? model.catalog.types.find(item => item.id === model.selectedTypeId) ?? model.catalog.types[0]);
-  if (!type) return <p>Create a <a href="/types">type</a> before creating an object.</p>;
+  if (!type) return <p>No object type available.</p>;
   const retainedIds = [...new Set([...Object.keys(record?.properties ?? {}), ...Object.keys(draft?.properties ?? {})])];
   const propertyIds = [...new Set([...model.catalog.types.flatMap(item => item.propertyIds), ...retainedIds])];
-  const activeIds = new Set([...type.propertyIds, ...retainedIds]);
+  const activeIds = new Set(type.propertyIds);
+  const typeChangeDrops = model.typeChangeDrops;
+  const typeChanged = Boolean(record && draft?.typeId && draft.typeId !== record.typeId);
   const body = draft?.body ?? record?.body ?? '';
   const propertyCount = activeIds.size;
   const journalDate = !record ? model.journalDate : undefined;
@@ -422,7 +424,7 @@ function ObjectEditor({ model }: { model: ObjectPageModel }) {
         <div class="object-type-picker">
           <Field label="Object type"><Select name="typeId" data-new-type="">{model.catalog.types.map(item => <option value={item.id} selected={item.id === type.id}>{item.name}</option>)}</Select></Field>
 
-          <p class={record ? 'fine' : 'fine native-only'}>{record && 'Changing type keeps existing values.'}<span class="native-only"> Choose Use type below to load its fields without saving or losing your writing.</span></p>
+          <p class={record ? 'fine' : 'fine native-only'}>{record && !typeChanged && 'Changing type keeps existing values.'}{record && typeChanged && typeChangeDrops && typeChangeDrops.fields.length > 0 && 'Changing type will drop fields not in the new domain.'}<span class="native-only"> Choose Use type below to load its fields without saving or losing your writing.</span></p>
         </div>
         <p class="fine" data-properties-empty="" hidden={propertyCount > 0}>No additional properties.</p>
         <BuiltinRules model={model} typeId={type.id} />
@@ -433,7 +435,7 @@ function ObjectEditor({ model }: { model: ObjectPageModel }) {
           const fields = Object.entries(draft?.fields ?? {}).filter(([name]) => name === `p:${id}` || name.startsWith(`p:${id}:`));
           return <>
             {!active && fields.flatMap(([name, values]) => values.map(value => <input type="hidden" name={`draft:${name}`} value={value} data-inactive-draft="" />))}
-            <fieldset class="object-property" data-type-ids={model.catalog.types.filter(item => item.propertyIds.includes(id)).map(item => item.id).join(' ')} data-retained={retainedIds.includes(id) ? 'true' : undefined} hidden={!active} disabled={!active}>
+            <fieldset class="object-property" data-type-ids={model.catalog.types.filter(item => item.propertyIds.includes(id)).map(item => item.id).join(' ')} hidden={!active} disabled={!active}>
               <legend class="sr-only">{property.label}</legend>
               {property.kind === 'boolean' && <Hidden name={`draft:p:${id}`} value="false" />}
               {property.kind === 'reference' && property.multiple && <Hidden name={`draft:p:${id}`} value="" />}
@@ -444,6 +446,12 @@ function ObjectEditor({ model }: { model: ObjectPageModel }) {
       </section>
       <JournalDiscovery model={model} />
       <WritingFields body={body} />
+      {typeChangeDrops && typeChangeDrops.fields.length > 0 && <div class="type-change-disclosure" data-type-change-drops="" role="alert">
+        <p><strong>Changing type will drop these fields:</strong></p>
+        <ul>{typeChangeDrops.fields.map(field => <li><strong>{field.label}</strong>: {field.value}</li>)}</ul>
+        <p>The complete prior object will be saved in history. This cannot be undone.</p>
+        <input type="hidden" name="confirmTypeChange" value="1" />
+      </div>}
       <div class="save-bar">
         <span data-object-save-controls="">{conflict && record ? <Button type="submit" variant="primary" name="reviewedRevision" value={record.revision}>Save reconciled changes</Button> : <Button type="submit" variant="primary">{record ? 'Save changes' : 'Create object'}</Button>} <Button class="native-only" type="submit" name="intent" value="change-type" formnovalidate>Use type</Button></span>
         <State message={state} error={Boolean(model.error)} />

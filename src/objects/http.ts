@@ -449,7 +449,7 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
           model.objectDraft = { title: fields.get('title') ?? '', body: fields.get('body') ?? model.object.body, revision: fields.get('reviewedRevision') ?? fields.get('revision') ?? '', typeId: fields.get('typeId') ?? model.object.typeId, fields: draftFields(fields), historyRevision: fields.has('historyRevision') ? fields.get('historyRevision') ?? '' : undefined };
           loadBacklinks(model.object.id, 0);
           model.objects = pickerObjects();
-          requireFields(fields, ['csrf', 'revision', 'reviewedRevision', 'typeId', 'title', 'body', 'intent', 'historyRevision'], true);
+          requireFields(fields, ['csrf', 'revision', 'reviewedRevision', 'typeId', 'title', 'body', 'intent', 'historyRevision', 'confirmTypeChange'], true);
           if (model.objectDraft.historyRevision !== undefined) {
             const snapshot = objects.getObjectRevision(model.object.id, positiveInteger(model.objectDraft.historyRevision, 'Choose a historical revision.'));
             if (!historyAvailable(snapshot)) return historyFallbackPage(model.object, snapshot);
@@ -460,7 +460,31 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
             objects.getType(model.objectDraft.typeId!);
             return page();
           }
+          const targetTypeId = fields.get('typeId') ?? model.object.typeId;
+          const confirmed = fields.get('confirmTypeChange') === '1';
+          if (targetTypeId !== model.object.typeId) {
+            const targetType = objects.getType(targetTypeId);
+            const targetPropertyIds = new Set(targetType.propertyIds);
+            const droppedFields: { id: string; label: string; value: string }[] = [];
+            for (const [propertyId, value] of Object.entries(model.object.properties)) {
+              if (!targetPropertyIds.has(propertyId)) {
+                const property = objects.getProperty(propertyId);
+                droppedFields.push({ id: propertyId, label: property.label, value: typeof value === 'object' ? JSON.stringify(value) : String(value) });
+              }
+            }
+            if (droppedFields.length > 0 && !confirmed) {
+              model.typeChangeDrops = { fromTypeId: model.object.typeId, toTypeId: targetTypeId, fields: droppedFields };
+              model.objectDraft!.properties = { ...model.object.properties };
+              return page();
+            }
+          }
           const write = readWrite(fields, model.object);
+          if (write.typeId !== model.object.typeId) {
+            const targetPropertyIds = new Set(objects.getType(write.typeId).propertyIds);
+            for (const key of Object.keys(write.properties)) {
+              if (!targetPropertyIds.has(key)) delete write.properties[key];
+            }
+          }
           model.objectDraft.properties = write.properties;
           const originalRevision = revision(fields);
           const expectedRevision = fields.has('reviewedRevision') ? revision(fields, 'reviewedRevision') : originalRevision;

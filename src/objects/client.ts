@@ -348,6 +348,30 @@ for (const button of document.querySelectorAll<HTMLButtonElement>('[data-pin-vie
 renderPins();
 if (new URLSearchParams(location.search).get('focus') === 'search') document.querySelector<HTMLInputElement>('main input[type="search"]')?.focus();
 
+function triggerSelectorFor(element: HTMLElement): string | null {
+  const button = element instanceof HTMLButtonElement ? element : element instanceof HTMLInputElement ? element : null;
+  if (button?.name && button.form) {
+    const formAction = button.form.action ? new URL(button.form.action, location.href).pathname : '';
+    return `form[action="${formAction}"] [name="${button.name}"]`;
+  }
+  if (element.id) return `#${element.id}`;
+  return null;
+}
+try {
+  const stored = sessionStorage.getItem('taskdesk:focus-restore');
+  if (stored) {
+    sessionStorage.removeItem('taskdesk:focus-restore');
+    const data = JSON.parse(stored) as { scrollY?: number; selector?: string | null; url?: string };
+    requestAnimationFrame(() => {
+      if (typeof data.scrollY === 'number' && data.scrollY > 0) window.scrollTo(0, data.scrollY);
+      if (data.selector) {
+        const target = document.querySelector<HTMLElement>(data.selector);
+        if (target && target.isConnected) target.focus();
+      }
+    });
+  }
+} catch { /* storage unavailable; focus restoration is best-effort */ }
+
 async function lookupObjects(query: string, signal: AbortSignal, typeId?: string): Promise<ObjectLookupResult> {
   const response = await fetch(`/objects/lookup?${new URLSearchParams({ q: query, ...(typeId ? { typeId } : {}) })}`, { signal, credentials: 'same-origin' });
   if (!response.ok) throw new Error(`Search failed (${response.status}). Try again.`);
@@ -612,6 +636,11 @@ for (const form of forms) {
       if (!response.ok || !response.redirected) throw new Error(error || `The request could not be saved (${response.status}). Your changes are still here.`);
       dirtyForms.delete(form);
       form.dataset.busy = 'false';
+      const trigger = event.submitter instanceof HTMLElement ? event.submitter : form.querySelector<HTMLElement>('button[type="submit"]');
+      const triggerSelector = trigger ? triggerSelectorFor(trigger) : null;
+      try {
+        sessionStorage.setItem('taskdesk:focus-restore', JSON.stringify({ scrollY: window.scrollY, selector: triggerSelector, url: response.url }));
+      } catch { /* storage unavailable; focus restoration is best-effort */ }
       window.location.assign(response.url);
     } catch (error) {
       if (status) {
@@ -727,7 +756,7 @@ for (const select of document.querySelectorAll<HTMLSelectElement>('[data-new-typ
     }
     let count = 0;
     for (const field of form.querySelectorAll<HTMLFieldSetElement>('[data-type-ids]')) {
-      const active = field.dataset.retained === 'true' || (field.dataset.typeIds?.split(' ').includes(select.value) ?? false);
+      const active = field.dataset.typeIds?.split(' ').includes(select.value) ?? false;
       field.hidden = !active;
       field.disabled = !active;
       if (active) count++;

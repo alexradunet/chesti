@@ -214,4 +214,5 @@ export interface ObjectPageModel {
   offset?: number;
   hasMore?: boolean;
   trashed?: boolean;
+  typeChangeDrops?: { fromTypeId: string; toTypeId: string; fields: { id: string; label: string; value: string }[] };
 }
