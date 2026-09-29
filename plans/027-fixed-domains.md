@@ -15,7 +15,9 @@
 - **Planned at:** `ad2e6da5133694c0f1d305dbf017710fc09397ec`, 2026-09-28.
 - **Worktree:** `/home/alex/orca/workspaces/GenUIExperiment/fixed-domains`.
 - **Branch:** `alexradunet/fixed-domains`.
-- **Status:** IN PROGRESS — owner said “Go ahead” after the fresh-only revision. One Pi executor is implementing Step 2 in this worktree; lead review and Step 3 browser acceptance remain pending. Earlier Step 1 preflight work is superseded, not retroactively accepted as a migration gate.
+- **Status:** STEP 2 ACCEPTED WITH A RECORDED GAP; Step 3 review complete, follow-up open. The owner chose to accept Step 2 rather than commission a third revision round, and to record the lost regression coverage instead of blocking on it. See [027-review.md](027-review.md) for lead-verified evidence and findings F1–F7. Earlier Step 1 preflight work is superseded, not retroactively accepted as a migration gate.
+- **Implementation:** commits `0751f73`, `baeb2c2`, `f59a253` on `alexradunet/fixed-domains`. Lead re-ran `bun run check` (pass), `bun test` (50 pass, 0 fail, 18 files), `git diff --check ad2e6da..HEAD` (clean), and `sqlite:bench` on v7 (exit 0).
+- **Open follow-up:** F1/F2 domain change that drops fields cannot be completed and native “Use type” does not load target fields; F3 focus lost after enhanced mutations; F4 six current guarantees have no regression tests (owner-accepted, still open); F5–F7 documentation and small UI corrections. ~390px layout and real model generation remain unverified — see the review record.
 - **Dependencies:** existing object/history/view/security contracts; do not execute unrelated plans 012/013.
 
 ### Prior work retained in Git, not on the new critical path
