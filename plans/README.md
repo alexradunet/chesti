@@ -6,7 +6,7 @@
 
 | Plan | Outcome | Priority / effort / risk | Dependencies | Status |
 | --- | --- | --- | --- | --- |
-| [027](027-fixed-domains.md) | Six code-owned domains and Markdown-only connections on a fresh v7 database | P1 / L / MED–HIGH | Current object/history/view/security contracts; no legacy migration gate | STEP 2 ACCEPTED WITH A RECORDED GAP — Step 3 review complete; follow-up F1–F7 open in [027-review.md](027-review.md) |
+| [027](027-fixed-domains.md) | Six code-owned domains and Markdown-only connections on a fresh v7 database | P1 / L / MED–HIGH | Current object/history/view/security contracts; no legacy migration gate | STEP 2 + FOLLOW-UP COMPLETE — F1–F3 and F5–F7 fixed and lead-verified; F4 coverage plus low-severity F8–F10 open in [027-review.md](027-review.md) |
 
 **Verified baseline:** `/home/alex/orca/workspaces/GenUIExperiment/fixed-domains`, branch `alexradunet/fixed-domains`, `ad2e6da5133694c0f1d305dbf017710fc09397ec`. Bun 1.4.2, 32 focused preflight tests, all 201 tests, TypeScript and diff hygiene passed before this planning revision. Previous preservation rejections and repairs remain in Git history; they are not retroactively accepted or required for the new direction. Obsolete preflight/converter code and tests are scheduled for removal during implementation, while current-product safety tests remain or are ported. No personal data access, database reset, provider call, merge or push occurred.
 
