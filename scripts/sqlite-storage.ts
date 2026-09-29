@@ -31,7 +31,6 @@ export function parseArgs(args: string[]): { fixture: Required<SyntheticFixtureO
     if (flag === '--objects') fixture.objects = parsePositiveInteger(value, flag);
     else if (flag === '--body-bytes') fixture.bodyBytes = parsePositiveInteger(value, flag);
     else if (flag === '--revisions') fixture.revisions = parsePositiveInteger(value, flag);
-    else if (flag === '--reference-every') fixture.referenceEvery = parsePositiveInteger(value, flag);
     else if (flag === '--database' || flag === '--db' || flag === '--path' || flag === '--database-path') throw new Error('This diagnostic only creates and measures a temporary synthetic database; existing database paths are not accepted.');
     else throw new Error(`Unknown flag: ${flag}`);
   }

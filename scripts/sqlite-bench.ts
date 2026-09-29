@@ -283,8 +283,8 @@ export function collectOne(label: string, options: Required<SyntheticFixtureOpti
 }
 export function collectBenchmarkReport(options: BenchmarkOptions) {
   return { generatedAt: new Date().toISOString(), options, scales: [
-    collectOne('modest-writing', normalizeSyntheticFixtureOptions({ objects: options.objects, bodyBytes: options.bodyBytes, revisions: options.revisions, referenceEvery: options.referenceEvery, benchmarkProperties: true }), options),
-    collectOne('larger-writing', normalizeSyntheticFixtureOptions({ objects: options.largeObjects, bodyBytes: Math.max(options.bodyBytes, 2048), revisions: options.revisions, referenceEvery: options.referenceEvery, benchmarkProperties: true }), options),
+    collectOne('modest-writing', normalizeSyntheticFixtureOptions({ objects: options.objects, bodyBytes: options.bodyBytes, revisions: options.revisions, benchmarkProperties: true }), options),
+    collectOne('larger-writing', normalizeSyntheticFixtureOptions({ objects: options.largeObjects, bodyBytes: Math.max(options.bodyBytes, 2048), revisions: options.revisions, benchmarkProperties: true }), options),
   ], conclusion: 'Synthetic costs only. Production uses writing-derived backlinks; JSONB, deep pagination, added indexes, and FTS remain deferred.' };
 }
 if (import.meta.main) {
