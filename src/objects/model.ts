@@ -45,7 +45,7 @@ export const BUILTIN_PROPERTIES: readonly Omit<PropertyDefinition, 'revision'>[]
   { id: EVENT_TIME_PROPERTY_ID, label: 'Event time', kind: 'time-range' },
   { id: REMINDER_DATE_PROPERTY_ID, label: 'Reminder date', kind: 'date' },
   { id: REMINDER_TIME_PROPERTY_ID, label: 'Reminder time', kind: 'datetime' },
-  { id: JOURNAL_DATE_PROPERTY_ID, label: 'Journal date', kind: 'date' },
+  { id: JOURNAL_DATE_PROPERTY_ID, label: 'Daily page date', kind: 'date' },
   { id: TASK_SCHEDULED_PROPERTY_ID, label: 'Scheduled date', kind: 'date' },
   { id: PERSON_RELATIONSHIP_PROPERTY_ID, label: 'Relationship', kind: 'text' },
   { id: PERSON_BIRTHDAY_PROPERTY_ID, label: 'Birthday', kind: 'date' },
@@ -60,7 +60,7 @@ export const BUILTIN_TYPES: readonly { id: string; name: string; description: st
   { id: TASK_TYPE_ID, name: 'Task', description: 'Work with a completion state, optional scheduled date, and optional due date.', propertyIds: [TASK_DONE_PROPERTY_ID, TASK_DUE_PROPERTY_ID, TASK_SCHEDULED_PROPERTY_ID] },
   { id: EVENT_TYPE_ID, name: 'Event', description: 'Exactly one all-day date range or timed range, with an exclusive end.', propertyIds: [EVENT_DATES_PROPERTY_ID, EVENT_TIME_PROPERTY_ID] },
   { id: REMINDER_TYPE_ID, name: 'Reminder', description: 'A calendar item with exactly one date or time. No notifications or recurrence.', propertyIds: [REMINDER_DATE_PROPERTY_ID, REMINDER_TIME_PROPERTY_ID] },
-  { id: JOURNAL_TYPE_ID, name: 'Journal', description: 'One canonical entry per calendar date, including entries in Trash.', propertyIds: [JOURNAL_DATE_PROPERTY_ID] },
+  { id: JOURNAL_TYPE_ID, name: 'Daily Page', description: 'One canonical page per calendar date, including pages in Trash.', propertyIds: [JOURNAL_DATE_PROPERTY_ID] },
   { id: PERSON_TYPE_ID, name: 'Person', description: 'A person you know, with relationship details and reconnect dates.', propertyIds: [PERSON_RELATIONSHIP_PROPERTY_ID, PERSON_BIRTHDAY_PROPERTY_ID, PERSON_PHONE_PROPERTY_ID, PERSON_JOB_TITLE_PROPERTY_ID, PERSON_FAVORITE_ARTISTS_PROPERTY_ID, PERSON_RECONNECT_EVERY_PROPERTY_ID, PERSON_LAST_CONNECTED_PROPERTY_ID] },
 ];
 

@@ -23,6 +23,22 @@ test('HTTP creates fixed-domain objects and rejects schema mutation routes', asy
   db.close();
 });
 
+test('the home dashboard is the calendar day workspace and the object browse screen lives at /objects', async () => {
+  const db = openDatabase();
+  const runtime = new ObjectRuntime(db);
+  const home = await route(runtime, 'GET', '/');
+  assert.equal(home?.status, 200);
+  const homeMarkup = await home!.text();
+  assert.match(homeMarkup, /day-journal/);
+  assert.match(homeMarkup, /Daily page/);
+  const browse = await route(runtime, 'GET', '/objects');
+  assert.equal(browse?.status, 200);
+  const browseMarkup = await browse!.text();
+  assert.match(browseMarkup, /type-browser/);
+  assert.doesNotMatch(browseMarkup, /day-journal/);
+  db.close();
+});
+
 test('lookup and preview stay bounded and nonmutating', async () => {
   const db = openDatabase();
   const runtime = new ObjectRuntime(db);

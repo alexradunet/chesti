@@ -249,7 +249,7 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
           if (!match) throw new AppError(404, 'View conversation not found.');
           return Response.json(conversations.get(visitor.id, match[1]!), { headers: { 'Cache-Control': 'no-store' } });
         }
-        if (url.pathname === '/' || url.pathname === '/tasks') {
+        if (url.pathname === '/objects' || url.pathname === '/tasks') {
           if (url.pathname === '/tasks') {
             model.section = 'tasks';
             model.objectType = objects.getType(TASK_TYPE_ID);
@@ -295,7 +295,7 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
             if (person.typeId !== PERSON_TYPE_ID || person.trashed) throw new AppError(404, 'Person not found.');
             model.object = person;
           }
-        } else if (url.pathname === '/calendar') {
+        } else if (url.pathname === '/' || url.pathname === '/calendar') {
           requireFields(url.searchParams, ['date', 'tasksOffset', 'createdOffset', 'month', 'saved']);
           if (url.searchParams.getAll('date').length > 1 || url.searchParams.getAll('tasksOffset').length > 1 || url.searchParams.getAll('createdOffset').length > 1 || url.searchParams.getAll('month').length > 1) throw new AppError(422, 'Invalid calendar request.');
           model.journalDateDefault = !url.searchParams.has('date');
@@ -495,7 +495,7 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
         model.objects = pickerObjects();
         requireFields(fields, ['csrf', 'revision']);
         objects.setTrashed(objectMatch[1]!, revision(fields), objectMatch[2] === 'trash');
-        return go(objectMatch[2] === 'trash' ? '/?trash=1' : `/objects/${objectMatch[1]}?saved=1`);
+        return go(objectMatch[2] === 'trash' ? '/objects?trash=1' : `/objects/${objectMatch[1]}?saved=1`);
       }
       if (url.pathname === '/views/generate') {
         model.screen = 'views'; model.prompt = fields.get('prompt') ?? ''; model.aiOpen = true;
@@ -600,7 +600,7 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
         if (error.status === 409 && safeSameObject) {
           model.dayJournalConflict = true;
           model.dayJournalDraft.conflictRevision = String(model.journal!.revision);
-          model.error = 'This journal changed. Compare the latest saved writing with your draft before saving.';
+          model.error = 'This daily page changed. Compare the latest saved writing with your draft before saving.';
         } else if (error.status === 409 && model.dayJournalDraft.mode === 'update') {
           model.dayJournalDraft.saveBlocked = true;
         }

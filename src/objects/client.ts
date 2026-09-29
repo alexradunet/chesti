@@ -680,14 +680,16 @@ for (const form of forms) {
   });
 }
 
+// The day workspace lives at both "/" (home dashboard) and "/calendar".
+const isDayWorkspacePath = (pathname: string) => pathname === '/' || pathname === '/calendar';
 function warnAboutDirtyWriting(): void {
   const status = writingForm?.querySelector<HTMLElement>('[data-form-state]');
   if (status) {
     status.setAttribute('role', 'alert');
     status.setAttribute('aria-live', 'assertive');
     status.classList.add('error');
-    status.textContent = location.pathname === '/calendar'
-      ? 'Save your journal changes before using another calendar action.'
+    status.textContent = isDayWorkspacePath(location.pathname)
+      ? 'Save your daily page changes before using another calendar action.'
       : 'Save your writing changes before using this action.';
   }
 }
@@ -697,7 +699,7 @@ if (writingForm) {
     const link = event.target instanceof Element ? event.target.closest<HTMLAnchorElement>('a[href]') : null;
     if (!link || link.closest('[data-writing-toolbar], [data-writing-link-dialog], [data-object-search]')) return;
     const href = new URL(link.href, location.href);
-    const blocksDirtyWriting = (location.pathname === '/calendar' && href.pathname === '/calendar') || Boolean(link.closest('form[action$="/favorite"]'));
+    const blocksDirtyWriting = (isDayWorkspacePath(location.pathname) && isDayWorkspacePath(href.pathname)) || Boolean(link.closest('form[action$="/favorite"]'));
     if (!blocksDirtyWriting) return;
     event.preventDefault();
     event.stopImmediatePropagation();
@@ -708,7 +710,7 @@ if (writingForm) {
     const form = event.target instanceof HTMLFormElement ? event.target : undefined;
     const action = form ? new URL(form.action, location.href).pathname : '';
     const method = (form?.method || 'get').toLowerCase();
-    const blocksDirtyWriting = (method === 'get' && location.pathname === '/calendar' && action === '/calendar') || action === '/calendar/task' || action.endsWith('/favorite');
+    const blocksDirtyWriting = (method === 'get' && isDayWorkspacePath(location.pathname) && isDayWorkspacePath(action)) || action === '/calendar/task' || action.endsWith('/favorite');
     if (!blocksDirtyWriting) return;
     event.preventDefault();
     event.stopImmediatePropagation();

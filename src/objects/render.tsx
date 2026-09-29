@@ -37,20 +37,20 @@ function WorkspaceNav({ model }: { model: ObjectPageModel }) {
   const browsing = model.screen === 'objects' && !model.section && !model.trashed;
   const currentType = model.selectedTypeId ?? model.object?.typeId;
   const links: { href: string; label: string; icon: IconName; active: boolean }[] = [
-    { href: '/', label: 'Objects', icon: 'objects', active: model.screen === 'home' && !model.trashed },
-    { href: '/?focus=search', label: 'Search', icon: 'search', active: browsing && !currentType },
+    { href: '/objects', label: 'Objects', icon: 'objects', active: model.screen === 'home' && !model.trashed },
+    { href: '/objects?focus=search', label: 'Search', icon: 'search', active: browsing && !currentType },
     { href: '/tasks', label: 'Tasks', icon: 'tasks', active: model.section === 'tasks' },
     { href: '/people', label: 'People', icon: 'people', active: model.screen === 'people' },
-    { href: '/journal', label: 'Journal', icon: 'calendar', active: model.screen === 'journal' },
+    { href: '/journal', label: 'Daily page', icon: 'calendar', active: model.screen === 'journal' },
     { href: '/views', label: 'Views', icon: 'views', active: !model.section && (model.screen === 'views' || model.screen === 'view') },
   ];
   return <nav id="workspace-nav" class="wood workspace-nav" aria-label="Workspace">
     <div class="nav-brand"><Brand /><Button class="icon-button js-only nav-close" type="button" data-nav-close="" aria-label="Close navigation"><Icon name="close" /></Button></div>
     <div class="nav-actions"><ButtonLink variant="primary" class="nav-new" href="/objects/new?type=00000000-0000-4000-8000-000000000001" aria-current={model.screen === 'new-object' ? 'page' : undefined}><Icon name="plus" />New note</ButtonLink><ButtonLink class="nav-new" href="/calendar" aria-current={model.screen === 'calendar' ? 'page' : undefined}><Icon name="calendar" />Calendar</ButtonLink></div>
-    <div class="nav-links">{links.filter(link => link.label !== 'Tasks' && link.label !== 'Journal').map(link => <a href={link.href} data-object-search={link.icon === 'search' ? '' : undefined} aria-keyshortcuts={link.icon === 'search' ? 'Control+k Meta+k' : undefined} aria-current={link.active ? 'page' : undefined}><Icon name={link.icon} /><span>{link.label}</span>{link.icon === 'search' && <kbd class="js-only">Ctrl/⌘ K</kbd>}</a>)}</div>
+    <div class="nav-links">{links.filter(link => link.label !== 'Tasks' && link.label !== 'Daily page').map(link => <a href={link.href} data-object-search={link.icon === 'search' ? '' : undefined} aria-keyshortcuts={link.icon === 'search' ? 'Control+k Meta+k' : undefined} aria-current={link.active ? 'page' : undefined}><Icon name={link.icon} /><span>{link.label}</span>{link.icon === 'search' && <kbd class="js-only">Ctrl/⌘ K</kbd>}</a>)}</div>
     <section class="nav-section" aria-labelledby="favorites-heading"><h2 id="favorites-heading">Favorites</h2>{model.favorites?.items.length ? <div class="nav-links">{model.favorites.items.map(record => <a href={objectUrl(record.id)} aria-current={model.object?.id === record.id ? 'page' : undefined}><Icon name={typeIcon(record.typeId)} /><span>{titleOf(record)}</span></a>)}{model.favorites.hasMore && <a href="/objects/favorites"><Icon name="arrow" /><span>All favorites</span></a>}</div> : <p class="nav-hint">No favorites yet. Use Favorite on saved objects to pin them here.</p>}</section>
     <section class="nav-section js-only" aria-labelledby="pinned-heading"><h2 id="pinned-heading">Pinned views</h2><p class="nav-hint" data-pins-empty="">Pin a view to keep it here.</p><div class="nav-links">{model.views.map(view => <a href={`/views/${view.id}`} data-pinned-view="" data-view-id={view.id} hidden aria-current={model.evaluatedView?.view.id === view.id ? 'page' : undefined}><Icon name="pin" /><span>{view.spec.title}</span></a>)}</div></section>
-    <div class="nav-bottom nav-links"><a href="/types" aria-current={model.screen === 'types' ? 'page' : undefined}><Icon name="type" /><span>Fixed domains</span></a><a href="/?trash=1" aria-current={model.trashed ? 'page' : undefined}><Icon name="trash" /><span>Trash</span></a><p class="nav-hint">Your objects. Your workspace.</p></div>
+    <div class="nav-bottom nav-links"><a href="/types" aria-current={model.screen === 'types' ? 'page' : undefined}><Icon name="type" /><span>Fixed domains</span></a><a href="/objects?trash=1" aria-current={model.trashed ? 'page' : undefined}><Icon name="trash" /><span>Trash</span></a><p class="nav-hint">Your objects. Your workspace.</p></div>
   </nav>;
 }
 
@@ -130,7 +130,7 @@ function ObjectHome({ model }: { model: ObjectPageModel }) {
         const builtin = BUILTIN_TYPES.find(item => item.id === type.id);
         const description = builtin?.description ?? (type.propertyIds.length ? type.propertyIds.map(id => propertyOf(model, id)?.label).filter(Boolean).join(' · ') : 'A title and space to write. Make it your own.');
         const query = new URLSearchParams({ type: type.id, ...(model.trashed ? { trash: '1' } : {}) });
-        return <CardLink class="type-card type-browse-card" href={`/?${query}`}>
+        return <CardLink class="type-card type-browse-card" href={`/objects?${query}`}>
           <div class="type-card-top"><span class="type-card-icon"><Icon name={typeIcon(type.id)} /></span><Badge>{count} {count === 1 ? 'object' : 'objects'}</Badge></div>
           <h2>{type.name}</h2>
           <p class="muted">{description}</p>
@@ -145,7 +145,7 @@ function Objects({ model }: { model: ObjectPageModel }) {
   const layout = model.browseLayout ?? 'list';
   const offset = model.offset ?? 0;
   const selectedType = model.selectedTypeId ? typeName(model, model.selectedTypeId) : undefined;
-  const path = model.section === 'tasks' ? '/tasks' : '/';
+  const path = model.section === 'tasks' ? '/tasks' : '/objects';
   const query = (pageOffset: number, selectedLayout = layout, trash = model.trashed) => `${path}?${new URLSearchParams({
     ...(model.selectedTypeId && model.section !== 'tasks' ? { type: model.selectedTypeId } : {}),
     ...(!model.selectedTypeId ? { focus: 'search' } : {}),
@@ -161,7 +161,7 @@ function Objects({ model }: { model: ObjectPageModel }) {
   else if (model.trashed) emptyMessage = 'No objects of this type in the trash.';
   else if (selectedType) emptyMessage = `No ${selectedType} objects yet. Create one to get started.`;
   return <>
-    {selectedType && <a class="back-link" href={model.trashed ? '/?trash=1' : '/'}>← Object types</a>}
+    {selectedType && <a class="back-link" href={model.trashed ? '/objects?trash=1' : '/objects'}>← Object types</a>}
     <PageHeading title={heading} description={model.section === 'favorites' ? 'Saved objects you explicitly favorited.' : !selectedType ? 'Find objects across your types.' : undefined}>
       {selectedType && !model.trashed && <ButtonLink variant="primary" href={`/objects/new?type=${encodeURIComponent(model.selectedTypeId!)}`}><Icon name="plus" />New object</ButtonLink>}
     </PageHeading>
@@ -286,17 +286,17 @@ function DayWorkspace({ model }: { model: ObjectPageModel }) {
   const createdPage = (offset: number) => `/calendar?${new URLSearchParams({ date, tasksOffset: String(model.dayTasks?.offset ?? 0), createdOffset: String(offset) })}`;
   return <div class="day-workspace">
     <section class="day-main">
-      <PageHeading eyebrow={`Server-local day · ${model.timeZone ?? 'local time'}`} title={date} description="Journal, scheduled or due tasks, and objects created on this day.">
+      <PageHeading eyebrow={`Server-local day · ${model.timeZone ?? 'local time'}`} title={date} description="Daily page, scheduled or due tasks, and objects created on this day.">
         {addDays(date, -1) && <ButtonLink href={`/calendar?date=${addDays(date, -1)}`}>Previous day</ButtonLink>}<ButtonLink href="/calendar">Today</ButtonLink>{addDays(date, 1) && <ButtonLink href={`/calendar?date=${addDays(date, 1)}`}>Next day</ButtonLink>}
       </PageHeading>
       <form class="filter-bar day-mobile-picker" method="get" action="/calendar"><Field label="Choose date"><Input type="date" name="date" value={date} required /></Field><Button type="submit">Show day</Button></form>
-      <Panel class="day-journal"><div class="section-heading"><h2>Journal</h2>{journal?.trashed && <Badge tone="warning">In trash</Badge>}</div>
-        {journal?.trashed && !draft ? <p>This day's journal is in Trash. <a href={objectUrl(journal.id)}>Open the existing journal to restore it</a>.</p> : <form class="object-editor" method="post" action="/calendar/journal" data-enhance="" data-object-editor="" data-draft={draft || model.objectDraft ? 'true' : undefined}>
+      <Panel class="day-journal"><div class="section-heading"><h2>Daily page</h2>{journal?.trashed && <Badge tone="warning">In trash</Badge>}</div>
+        {journal?.trashed && !draft ? <p>This day's daily page is in Trash. <a href={objectUrl(journal.id)}>Open the existing page to restore it</a>.</p> : <form class="object-editor" method="post" action="/calendar/journal" data-enhance="" data-object-editor="" data-draft={draft || model.objectDraft ? 'true' : undefined}>
           <Token model={model} /><Hidden name="date" value={draft?.date ?? date} />{draft?.mode === 'update' ? <><Hidden name="objectId" value={draft.objectId ?? ''} /><Hidden name="revision" value={draft.revision ?? ''} /></> : journal && !draft ? <><Hidden name="objectId" value={journal.id} /><Hidden name="revision" value={journal.revision} /></> : <Hidden name="requestId" value={draft?.requestId ?? crypto.randomUUID()} />}
           <WritingFields body={body} headingLevel={3} textareaId="day-journal-body" blockId="day-writing-block" linkHeadingId="day-writing-link-heading" rows={12} />
-          <div class="save-bar"><span data-object-save-controls="">{draft?.saveBlocked ? <ButtonLink href={draft.objectId ? objectUrl(draft.objectId) : `/calendar?date=${date}`}>{draft.objectId ? 'Open submitted journal' : 'Reload selected day'}</ButtonLink> : model.dayJournalConflict && journal ? <Button type="submit" variant="primary" name="reviewedRevision" value={journal.revision}>Save reconciled journal</Button> : <Button type="submit" variant="primary">Save journal</Button>}</span><State message={model.error || (journal ? `Saved revision ${journal.revision}.` : 'Write something, then save to create this journal.')} error={Boolean(model.error)} /></div>
-          {draft?.saveBlocked && <p class="notice error">This draft no longer has a safe same-journal save target. Copy the writing above, then open the submitted journal or reload the selected day before saving.</p>}
-          <aside class="parch saved-conflict" data-conflict-panel="" hidden={!model.dayJournalConflict || !journal} tabindex={-1}>{model.dayJournalConflict && journal && <><h3>Latest saved journal · revision {journal.revision}</h3><div class="markdown-content">{raw(renderMarkdown(journal.body))}</div><details><summary>Latest Markdown source</summary><pre class="saved-source">{`\n${journal.body}`}</pre></details><p>Reconcile your draft above, then choose Save reconciled journal. Another intervening save will still reject.</p></>}</aside>
+          <div class="save-bar"><span data-object-save-controls="">{draft?.saveBlocked ? <ButtonLink href={draft.objectId ? objectUrl(draft.objectId) : `/calendar?date=${date}`}>{draft.objectId ? 'Open submitted daily page' : 'Reload selected day'}</ButtonLink> : model.dayJournalConflict && journal ? <Button type="submit" variant="primary" name="reviewedRevision" value={journal.revision}>Save reconciled daily page</Button> : <Button type="submit" variant="primary">Save daily page</Button>}</span><State message={model.error || (journal ? `Saved revision ${journal.revision}.` : 'Write something, then save to create this daily page.')} error={Boolean(model.error)} /></div>
+          {draft?.saveBlocked && <p class="notice error">This draft no longer has a safe same-page save target. Copy the writing above, then open the submitted daily page or reload the selected day before saving.</p>}
+          <aside class="parch saved-conflict" data-conflict-panel="" hidden={!model.dayJournalConflict || !journal} tabindex={-1}>{model.dayJournalConflict && journal && <><h3>Latest saved daily page · revision {journal.revision}</h3><div class="markdown-content">{raw(renderMarkdown(journal.body))}</div><details><summary>Latest Markdown source</summary><pre class="saved-source">{`\n${journal.body}`}</pre></details><p>Reconcile your draft above, then choose Save reconciled daily page. Another intervening save will still reject.</p></>}</aside>
         </form>}
       </Panel>
       <Panel><div class="section-heading"><h2>Tasks</h2><Badge>{model.dayTasks?.items.length ?? 0}</Badge></div>{model.dayTasks?.items.length ? <ul class="day-list">{model.dayTasks.items.map(task => <li><div><a href={objectUrl(task.id)}>{titleOf(task)}</a><span class="fine">{taskMatchLabel(task)}{task.done ? ' · completed' : ''}</span></div><form method="post" action="/calendar/task"><Token model={model} /><Hidden name="date" value={date} /><Hidden name="objectId" value={task.id} /><Hidden name="revision" value={task.revision} /><Hidden name="done" value={task.done ? 'false' : 'true'} /><Button type="submit">{task.done ? 'Mark incomplete' : 'Mark done'}</Button></form></li>)}</ul> : <p class="muted">No scheduled or due tasks for this date.</p>}<nav class="pagination">{(model.dayTasks?.offset ?? 0) > 0 && <a href={taskPage(Math.max(0, (model.dayTasks?.offset ?? 0) - 50))}>Previous tasks</a>}{model.dayTasks?.hasMore && <a href={taskPage((model.dayTasks.offset ?? 0) + 50)}>Next tasks</a>}</nav></Panel>
@@ -308,21 +308,21 @@ function DayWorkspace({ model }: { model: ObjectPageModel }) {
 
 function JournalDiscovery({ model }: { model: ObjectPageModel }) {
   return <div data-journal-discovery="" class="parch journal-discovery" hidden={!model.journal}>
-    {model.journal && <p>This date already has a journal{model.journal.trashed ? ' in trash' : ''}. <a href={objectUrl(model.journal.id)}>{model.journal.trashed ? 'Open existing journal to restore it' : 'Open existing journal'}</a>. Your draft is not merged or discarded.</p>}
+    {model.journal && <p>This date already has a daily page{model.journal.trashed ? ' in trash' : ''}. <a href={objectUrl(model.journal.id)}>{model.journal.trashed ? 'Open existing daily page to restore it' : 'Open existing daily page'}</a>. Your draft is not merged or discarded.</p>}
   </div>;
 }
 
 function Journal({ model }: { model: ObjectPageModel }) {
   return <>
-    <PageHeading title="Journal" description="One journal per calendar date, including journals in trash." />
+    <PageHeading title="Daily page" description="One daily page per calendar date, including pages in trash." />
     <form class="filter-bar" method="get" action="/journal" data-journal-picker="" data-local-date-default={model.journalDateDefault ? 'true' : undefined}>
-      <Field label="Journal date"><Input name="date" type="date" required value={model.journalDate ?? ''} /></Field><Button type="submit">Find journal</Button><ButtonLink href="/journal" data-journal-today="">Today</ButtonLink>
+      <Field label="Daily page date"><Input name="date" type="date" required value={model.journalDate ?? ''} /></Field><Button type="submit">Find daily page</Button><ButtonLink href="/journal" data-journal-today="">Today</ButtonLink>
     </form>
     <JournalDiscovery model={model} />
     <Panel>
-      <h2>Open your daily journal</h2><p class="muted">Opening an existing day keeps its writing and revision. Opening a new day creates an empty journal. Journals in trash are never restored automatically.</p>
+      <h2>Open your daily page</h2><p class="muted">Opening an existing day keeps its writing and revision. Opening a new day creates an empty page. Daily pages in trash are never restored automatically.</p>
       <form method="post" action="/journal/open" data-enhance="" data-journal-open="">
-        <Token model={model} /><Hidden name="date" value={model.journalDate ?? ''} /><Button variant="primary" type="submit">Open journal for <span data-journal-day="">{model.journalDate}</span></Button><State />
+        <Token model={model} /><Hidden name="date" value={model.journalDate ?? ''} /><Button variant="primary" type="submit">Open daily page for <span data-journal-day="">{model.journalDate}</span></Button><State />
       </form>
       <p class="fine">Find a date above, then open it. Nothing is created by viewing this page.</p>
     </Panel>
@@ -335,14 +335,14 @@ function BuiltinRules({ model, typeId }: { model: ObjectPageModel; typeId: strin
     <p class="fine" data-builtin-rule={TASK_TYPE_ID} hidden={typeId !== TASK_TYPE_ID}>Use {label(TASK_DONE_PROPERTY_ID)} to mark completion; unchecked means not done. {label(TASK_DUE_PROPERTY_ID)} is optional.</p>
     <p class="fine" data-builtin-rule={EVENT_TYPE_ID} hidden={typeId !== EVENT_TYPE_ID}>Choose exactly one: {label(EVENT_DATES_PROPERTY_ID)} for all-day dates, or {label(EVENT_TIME_PROPERTY_ID)} for a timed event. Clear the other range. All-day end is exclusive: a one-day event ends on the following date.</p>
     <p class="fine" data-builtin-rule={REMINDER_TYPE_ID} hidden={typeId !== REMINDER_TYPE_ID}>Choose exactly one: {label(REMINDER_DATE_PROPERTY_ID)} or {label(REMINDER_TIME_PROPERTY_ID)}. Clear the other field. A Reminder is only a calendar item; it does not send notifications or repeat.</p>
-    <p class="fine" data-builtin-rule={JOURNAL_TYPE_ID} hidden={typeId !== JOURNAL_TYPE_ID}>{label(JOURNAL_DATE_PROPERTY_ID)} requires a real calendar date. Each date has one canonical Journal, even in trash. Changing its date cannot overwrite another journal. <a href="/journal">Find a daily journal</a>.</p>
+    <p class="fine" data-builtin-rule={JOURNAL_TYPE_ID} hidden={typeId !== JOURNAL_TYPE_ID}>{label(JOURNAL_DATE_PROPERTY_ID)} requires a real calendar date. Each date has one canonical Daily Page, even in trash. Changing its date cannot overwrite another daily page. <a href="/journal">Find a daily page</a>.</p>
   </div>;
 }
 
 function ObjectSearch() {
   return <Dialog class="object-search" id="object-search" aria-labelledby="object-search-heading">
     <header><h2 id="object-search-heading">Find an object</h2><Button variant="ghost" class="icon-button" type="button" data-search-close="" aria-label="Close search"><Icon name="close" /></Button></header>
-    <form method="get" action="/" data-object-search-form="">
+    <form method="get" action="/objects" data-object-search-form="">
       <Field label="Search title or writing"><Input type="search" name="q" maxlength={200} autocomplete="off" autofocus /></Field>
       <Button type="submit">Search</Button>
     </form>
@@ -392,7 +392,7 @@ function ObjectEditor({ model }: { model: ObjectPageModel }) {
   const conflict = Boolean(record && draft?.revision && Number(draft.revision) !== record.revision);
   const backlinkLinks = model.backlinksPage?.links ?? [];
   const emptyBacklinks = model.backlinksPage?.offset ? 'No links on this page.' : 'No other objects link here yet.';
-  return <><h1 class="sr-only">{record ? 'Edit object' : 'New object'}</h1><a class="back-link" data-object-back="" href={`/?type=${type.id}`}>← {type.name} objects</a>{record?.trashed && <Badge tone="warning">In trash</Badge>}
+  return <><h1 class="sr-only">{record ? 'Edit object' : 'New object'}</h1><a class="back-link" data-object-back="" href={`/objects?type=${type.id}`}>← {type.name} objects</a>{record?.trashed && <Badge tone="warning">In trash</Badge>}
     {record && <div class="object-actions-row"><nav class="object-sections" aria-label="Object sections"><a href="#writing-area">Writing</a><a href="#object-backlinks">Linked from</a><a href={`/objects/${record.id}/history`}>History</a></nav><form method="post" action={`/objects/${record.id}/favorite`}><Token model={model} /><Hidden name="favorite" value={model.favorite ? 'false' : 'true'} /><Hidden name="context" value="object" /><Hidden name="date" value="" /><Button type="submit" variant={model.favorite ? 'secondary' : 'ghost'}>{model.favorite ? 'Unfavorite' : 'Favorite'}</Button></form></div>}
     <div class={`object-editing${conflict ? ' has-conflict' : ''}`}>
     <form id="object-editor" class="parch object-editor" method="post" action={record ? `/objects/${record.id}/update` : '/objects/create'} data-enhance="" data-object-editor="" data-new-object={!record ? 'true' : undefined} data-local-date-default={!record && !draft && model.journalDateDefault ? 'true' : undefined} data-draft={draft ? 'true' : undefined}><Token model={model} />{record ? <Hidden name="revision" value={draft?.revision ?? record.revision} /> : <Hidden name="requestId" value={draft?.requestId ?? crypto.randomUUID()} />}{draft?.historyRevision && <Hidden name="historyRevision" value={draft.historyRevision} />}
@@ -715,7 +715,7 @@ function WorkspaceScreen({ model }: { model: ObjectPageModel }) {
 export function renderObjectWorkspace(model: ObjectPageModel): string {
   let title = model.screen === 'people' ? 'People' : 'Objects';
   if (model.screen === 'calendar') title = 'Calendar';
-  else if (model.screen === 'journal') title = 'Journal';
+  else if (model.screen === 'journal') title = 'Daily page';
   else if (model.trashed) title = model.selectedTypeId ? `${typeName(model, model.selectedTypeId)} · Trash` : 'Trash';
   else if (model.screen === 'object' || model.screen === 'object-history') title = model.object?.title || 'Object';
   else if (model.screen === 'new-object') title = 'New object';

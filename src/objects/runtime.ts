@@ -137,13 +137,13 @@ export class ObjectRuntime {
   saveDayJournal(input: { date: string; body: string; requestId: string } | { date: string; body: string; objectId: string; revision: number }): ObjectRecord {
     if (!validDate(input.date)) throw new AppError(422, 'Choose a real calendar date in YYYY-MM-DD format.');
     if ('objectId' in input) {
-      if (typeof input.objectId !== 'string' || !ID.test(input.objectId)) throw new AppError(422, 'Invalid journal object.');
+      if (typeof input.objectId !== 'string' || !ID.test(input.objectId)) throw new AppError(422, 'Invalid daily page object.');
       return this.db.transaction(() => {
         const previous = this.getObject(input.objectId);
         revisionIs(previous.revision, input.revision);
-        if (previous.trashed) throw new AppError(409, 'This journal is in Trash. Open the existing object to restore it.');
+        if (previous.trashed) throw new AppError(409, 'This daily page is in Trash. Open the existing object to restore it.');
         if (previous.typeId !== JOURNAL_TYPE_ID || previous.properties[JOURNAL_DATE_PROPERTY_ID] !== input.date) {
-          throw new AppError(409, 'This journal no longer belongs to the selected day. Reload before saving.');
+          throw new AppError(409, 'This daily page no longer belongs to the selected day. Reload before saving.');
         }
         return this.updateObjectFromPrevious(previous, input.revision, { typeId: JOURNAL_TYPE_ID, title: previous.title, properties: { ...previous.properties }, body: input.body });
       }).immediate();
@@ -398,9 +398,9 @@ export class ObjectRuntime {
     }
     if (write.typeId === JOURNAL_TYPE_ID) {
       const date = write.properties[JOURNAL_DATE_PROPERTY_ID];
-      if (!validDate(date)) throw new AppError(422, 'Journal requires a real calendar date in YYYY-MM-DD format.');
+      if (!validDate(date)) throw new AppError(422, 'Daily Page requires a real calendar date in YYYY-MM-DD format.');
       const existing = this.getJournal(date);
-      if (existing && existing.id !== previous?.id) throw new AppError(409, `A Journal already exists for ${date}, including in Trash. Open the existing Journal instead.`);
+      if (existing && existing.id !== previous?.id) throw new AppError(409, `A Daily Page already exists for ${date}, including in Trash. Open the existing Daily Page instead.`);
     }
   }
   private remember(object: ObjectRecord): void {

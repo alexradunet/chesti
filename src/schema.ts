@@ -127,10 +127,10 @@ function installTables(db: Database): void {
     ON objects(json_extract(properties_json, '${JOURNAL_DATE_PATH}')) WHERE type_id = '${JOURNAL_TYPE_ID}';
     CREATE TRIGGER objects_journal_date_insert BEFORE INSERT ON objects
     WHEN NEW.type_id = '${JOURNAL_TYPE_ID}' AND (${invalidDate})
-    BEGIN SELECT RAISE(ABORT, 'Journal requires a real calendar date.'); END;
+    BEGIN SELECT RAISE(ABORT, 'Daily Page requires a real calendar date.'); END;
     CREATE TRIGGER objects_journal_date_update BEFORE UPDATE ON objects
     WHEN NEW.type_id = '${JOURNAL_TYPE_ID}' AND (${invalidDate})
-    BEGIN SELECT RAISE(ABORT, 'Journal requires a real calendar date.'); END;
+    BEGIN SELECT RAISE(ABORT, 'Daily Page requires a real calendar date.'); END;
   `);
 }
 

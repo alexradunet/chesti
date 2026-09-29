@@ -10,7 +10,7 @@ const status = (code: number) => (error: unknown) => error instanceof AppError &
 test('catalog is fixed and schema mutation APIs do not exist', () => {
   const db = openDatabase();
   const runtime = new ObjectRuntime(db);
-  assert.deepEqual(runtime.catalog().types.map(type => type.name), ['Page', 'Task', 'Event', 'Reminder', 'Journal', 'Person']);
+  assert.deepEqual(runtime.catalog().types.map(type => type.name), ['Page', 'Task', 'Event', 'Reminder', 'Daily Page', 'Person']);
   assert.equal('createType' in runtime, false);
   assert.equal('addProperty' in runtime, false);
   assert.equal(db.query("SELECT name FROM sqlite_schema WHERE name = 'object_types'").get(), null);
