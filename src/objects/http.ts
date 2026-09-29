@@ -74,7 +74,7 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
   const conversations = new ViewConversationService(objects.db, views);
   const generating = new Set<string>();
   return async (req: Request, url: URL, visitor: Visitor, fields?: URLSearchParams): Promise<Response | undefined> => {
-    if (!(url.pathname === '/' || /^\/calendar(?:\/|$)/.test(url.pathname) || url.pathname === '/tasks' || url.pathname === '/people' || /^\/(?:journal|types|objects|properties|views)(?:\/|$)/.test(url.pathname))) return;
+    if (!(url.pathname === '/' || /^\/calendar(?:\/|$)/.test(url.pathname) || url.pathname === '/tasks' || url.pathname === '/people' || /^\/(?:journal|types|objects|views)(?:\/|$)/.test(url.pathname))) return;
     if (req.method === 'POST' && url.pathname === '/objects/preview') {
       requireFields(fields!, ['csrf', 'body']);
       return Response.json({ html: renderMarkdown(validateMarkdown(fields!.get('body'))) });
@@ -311,8 +311,6 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
           model.journal = objects.getJournal(model.journalDate);
         } else if (url.pathname === '/types') {
           model.screen = 'types';
-          model.basedOnTypeId = url.searchParams.get('basedOnTypeId') || undefined;
-          if (model.basedOnTypeId) objects.getType(model.basedOnTypeId);
         }
         else if (url.pathname === '/objects/new') {
           model.screen = 'new-object';
@@ -353,10 +351,9 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
             model.objects = pickerObjects([model.object.properties, model.history.selected?.properties]);
             return page();
           }
-          const match = /^\/(types|objects|views)\/([a-f0-9-]{36})$/.exec(url.pathname);
+          const match = /^\/(objects|views)\/([a-f0-9-]{36})$/.exec(url.pathname);
           if (!match) throw new AppError(404, 'Page not found.');
-          if (match[1] === 'types') { model.screen = 'type'; model.objectType = objects.getType(match[2]!); }
-          else if (match[1] === 'objects') {
+          if (match[1] === 'objects') {
             model.screen = 'object'; model.object = objects.getObject(match[2]!);
             model.objectType = objects.getType(model.object.typeId);
             model.favorite = objects.isFavorite(model.object.id);
@@ -413,9 +410,6 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
         requireFields(fields, ['csrf', 'date']);
         const journal = objects.openJournal(model.journalDate);
         return go(`/objects/${journal.id}`);
-      }
-      if (url.pathname === '/types/create' || /^\/types\/([a-f0-9-]{36})\/(update|properties)$/.test(url.pathname) || /^\/properties\/([a-f0-9-]{36})\/update$/.test(url.pathname)) {
-        throw new AppError(404, 'Schema editing has been retired. Choose one of the fixed domains.');
       }
       if (url.pathname === '/objects/create') {
         model.screen = 'new-object';

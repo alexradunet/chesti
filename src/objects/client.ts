@@ -670,14 +670,6 @@ window.addEventListener('beforeunload', event => {
   event.returnValue = '';
 });
 
-const typeNameInput = document.querySelector<HTMLInputElement>('[data-type-create] input[name="name"]');
-const typeNamePreview = document.querySelector<HTMLElement>('[data-type-name-preview]');
-if (typeNameInput && typeNamePreview) {
-  const sync = () => { typeNamePreview.textContent = typeNameInput.value.trim() || 'Your new type'; };
-  typeNameInput.addEventListener('input', sync);
-  sync();
-}
-
 function localDate(): string {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
@@ -751,26 +743,8 @@ for (const select of document.querySelectorAll<HTMLSelectElement>('[data-new-typ
     }
     const typeLabel = form.querySelector('[data-object-type-label]');
     if (typeLabel) typeLabel.textContent = select.selectedOptions[0]?.textContent ?? '';
-    form.querySelector('[data-type-setup]')?.setAttribute('href', `/types/${select.value}`);
     const empty = form.querySelector<HTMLElement>('[data-properties-empty]');
     if (empty) empty.hidden = count > 0;
-  };
-  select.addEventListener('change', sync);
-  sync();
-}
-
-for (const select of document.querySelectorAll<HTMLSelectElement>('[data-property-kind]')) {
-  const sync = () => {
-    const help = select.form?.querySelector<HTMLElement>('[data-kind-help]');
-    if (help) help.textContent = select.selectedOptions[0]?.dataset.help ?? '';
-    for (const section of select.form?.querySelectorAll<HTMLElement>('[data-kind-options]') ?? []) {
-      const enabled = section.dataset.kindOptions === select.value;
-      section.hidden = !enabled;
-      for (const input of section.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>('input, select, textarea')) {
-        input.disabled = !enabled;
-        if (input.name === 'options' || input.name === 'targetTypeId') input.required = enabled;
-      }
-    }
   };
   select.addEventListener('change', sync);
   sync();

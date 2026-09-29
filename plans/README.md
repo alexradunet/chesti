@@ -1,5 +1,21 @@
 # Implementation plans
 
+## Current assignment — fixed domains, 2026-09-28
+
+**Latest owner decision:** there is no production data and a clean slate is acceptable if simpler. [Plan 027](027-fixed-domains.md) now specifies a fresh-only fixed-domain application, superseding its preservation-migration proposal. There is no reason to implement a v6→v7 converter, continue preflight acceptance loops or maintain legacy compatibility. Existing database files and Git history stay intact; a new database path supplies the clean slate. This planning revision does not execute source changes or delete files.
+
+| Plan | Outcome | Priority / effort / risk | Dependencies | Status |
+| --- | --- | --- | --- | --- |
+| [027](027-fixed-domains.md) | Six code-owned domains and Markdown-only connections on a fresh v7 database | P1 / L / MED–HIGH | Current object/history/view/security contracts; no legacy migration gate | IN PROGRESS — owner authorized fresh-only implementation; sole Pi executor working on Step 2 |
+
+**Verified baseline:** `/home/alex/orca/workspaces/GenUIExperiment/fixed-domains`, branch `alexradunet/fixed-domains`, `ad2e6da5133694c0f1d305dbf017710fc09397ec`. Bun 1.4.2, 32 focused preflight tests, all 201 tests, TypeScript and diff hygiene passed before this planning revision. Previous preservation rejections and repairs remain in Git history; they are not retroactively accepted or required for the new direction. Obsolete preflight/converter code and tests are scheduled for removal during implementation, while current-product safety tests remain or are ported. No personal data access, database reset, provider call, merge or push occurred.
+
+**Execution started on owner “Go ahead”:** one Pi executor, terminal `term_0e4813ad-5a81-4138-bb43-c3b1dea34c1b`, in the existing isolated worktree from `ad2e6da`. Complete plan inlined; lead owns planning records and reviews, worker is the sole source writer. Step 2 source/test/docs commit is assigned; Step 3 acceptance remains with the lead. No new worktree, recursive workers, Task/Dispatch identities, migration, live-file access or publication.
+
+**Execution order:** Step 1 records retirement of the migration requirement → Step 2 replaces schema/runtime/views/UI/demo/diagnostic callers together, removes obsolete migration machinery and updates tests/docs → Step 3 reviews the integrated application and real Orca browser flows. No dormant v7 migration engine or dual-runtime mode. Unsupported database versions refuse with instructions to choose a new path, never auto-convert or reset. New v7 data still has full history, receipts, atomicity, backups, draft/revision and security guarantees. Original-checkout updates, server restart, merge/push or deletion of any existing database need separate instructions. Owner plans 012/013 and historical records below remain unchanged.
+
+---
+
 ## Current assignment — favorites and day workspace, 2026-09-27
 
 Owner requested `/improve` plans and implementation of the agreed navigation/calendar enhancement. Baseline `ce30958`. One isolated Pi executor implemented sequentially; advisor wrote plans, reviewed full diffs and reran gates. Owner subsequently authorized integration: master is now `69427bb`, no push. A verified private database backup preceded integration; see accepted review. Existing owner drafts 012/013 remain untouched. Plan 025 supplies storage/query prerequisites for 026; the same executor may proceed after its focused/full gates pass. Final DONE requires independent combined review, not merely executor completion.

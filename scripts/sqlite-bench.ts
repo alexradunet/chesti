@@ -1,7 +1,7 @@
 import type { Database } from 'bun:sqlite';
 import { buildSyntheticFixture, normalizeSyntheticFixtureOptions, syntheticWriting } from './sqlite-fixture.js';
 import type { SyntheticFixture, SyntheticFixtureOptions } from './sqlite-fixture.js';
-import { PAGE_TYPE_ID } from '../src/objects/model.js';
+import { PAGE_TYPE_ID, TASK_TYPE_ID, TASK_DUE_PROPERTY_ID } from '../src/objects/model.js';
 import type { ObjectWrite, ViewSpec } from '../src/objects/model.js';
 import { ViewService } from '../src/objects/views.js';
 
@@ -9,12 +9,12 @@ type Binding = string | number | null;
 export interface Measurement { medianMs: number; p95Ms: number; rangeMs: [number, number]; samples: number }
 export interface BenchmarkOptions {
   objects: number; largeObjects: number; bodyBytes: number; revisions: number;
-  referenceEvery: number; repetitions: number; warmups: number;
+  repetitions: number; warmups: number;
 }
-const LIMITS = { objects: 10_000, largeObjects: 10_000, bodyBytes: 16_384, revisions: 10, referenceEvery: 1_000, repetitions: 50, warmups: 20 };
+const LIMITS = { objects: 10_000, largeObjects: 10_000, bodyBytes: 16_384, revisions: 10, repetitions: 50, warmups: 20 };
 export function parseArgs(args: string[]): BenchmarkOptions {
-  const options: BenchmarkOptions = { objects: 1000, largeObjects: 10_000, bodyBytes: 384, revisions: 1, referenceEvery: 7, repetitions: 9, warmups: 2 };
-  const flags: Record<string, keyof BenchmarkOptions> = { objects: 'objects', 'large-objects': 'largeObjects', 'body-bytes': 'bodyBytes', revisions: 'revisions', 'reference-every': 'referenceEvery', repetitions: 'repetitions', warmups: 'warmups' };
+  const options: BenchmarkOptions = { objects: 1000, largeObjects: 10_000, bodyBytes: 384, revisions: 1, repetitions: 9, warmups: 2 };
+  const flags: Record<string, keyof BenchmarkOptions> = { objects: 'objects', 'large-objects': 'largeObjects', 'body-bytes': 'bodyBytes', revisions: 'revisions', repetitions: 'repetitions', warmups: 'warmups' };
   for (const arg of args) {
     if (/^--(?:database|db|path|database-path)(?:=|$)/.test(arg)) throw new Error('sqlite:bench creates owned temporary synthetic databases only; existing database paths are not accepted.');
     const match = /^--([a-z-]+)=(\d+)$/.exec(arg);
@@ -89,7 +89,6 @@ const expression = (id: string) => `json_extract(o.properties_json, '${path(id)}
 export function propertyIndexSql(f: SyntheticFixture) {
   return `CREATE INDEX bench_property_scheduled ON objects(type_id, trashed, json_extract(properties_json, '${path(f.scheduledPropertyId)}'))`;
 }
-const referenceIndexSql = 'CREATE INDEX bench_refs_property_target_source ON object_references(property_id, target_id COLLATE NOCASE, source_id)';
 
 // All phases use ONE owning database and the exact same input/history. Per-sample
 // savepoints restore state OUTSIDE the timer. Probe setup is committed before either
@@ -110,16 +109,14 @@ function writeSamples(f: SyntheticFixture, warmups: number, repetitions: number,
   }
   return { timing: statistics(samples), observed };
 }
-export function writeComparison(f: SyntheticFixture, kind: 'property' | 'reference' | 'search', warmups: number, repetitions: number) {
+export function writeComparison(f: SyntheticFixture, kind: 'property' | 'search', warmups: number, repetitions: number) {
   const db = f.db;
   let built = false;
   try {
-    // A live private target avoids newly adding a reference to a trashed read target.
-    const target = f.runtime.createObject({ typeId: PAGE_TYPE_ID, title: 'Write-only target', properties: {}, body: '' });
-    const initial: ObjectWrite = { typeId: PAGE_TYPE_ID, title: 'Measured initial', properties: { [f.scheduledPropertyId]: '2026-11-14' }, body: syntheticWriting(0, f.options.bodyBytes) };
+    const initial: ObjectWrite = { typeId: TASK_TYPE_ID, title: 'Measured initial', properties: { [f.scheduledPropertyId]: '2026-11-14', [TASK_DUE_PROPERTY_ID]: '2026-11-14' }, body: syntheticWriting(0, f.options.bodyBytes) };
     let probe = f.runtime.createObject(initial);
     for (let revision = 0; revision < f.options.revisions; revision++) probe = f.runtime.updateObject(probe.id, probe.revision, { ...initial, title: `Measured history ${revision}` });
-    const input: ObjectWrite = { typeId: PAGE_TYPE_ID, title: 'Measured changed title', properties: { [f.scheduledPropertyId]: '2026-11-28', [f.multiReferencePropertyId]: [target.id] }, body: syntheticWriting(1, f.options.bodyBytes) };
+    const input: ObjectWrite = { typeId: TASK_TYPE_ID, title: 'Measured changed title', properties: { [f.scheduledPropertyId]: '2026-11-28', [TASK_DUE_PROPERTY_ID]: '2026-11-28' }, body: syntheticWriting(1, f.options.bodyBytes) };
     const inspect = (id: string) => {
       const value = db.query<{ value: string }, [string]>(`SELECT json_extract(properties_json, '${path(f.scheduledPropertyId)}') AS value FROM objects WHERE id = ?`).get(id)!.value;
       if (value !== '2026-11-28') throw new Error('Measured property update did not change expression value');
@@ -142,9 +139,6 @@ export function writeComparison(f: SyntheticFixture, kind: 'property' | 'referen
     if (kind === 'property') {
       ddl = propertyIndexSql(f);
       db.exec(ddl);
-    } else if (kind === 'reference') {
-      ddl = referenceIndexSql;
-      db.exec(ddl);
     } else {
       ddl = 'bench_search_key INTEGER PRIMARY KEY + FTS5 trigram';
       createSearchTables(db);
@@ -155,7 +149,6 @@ export function writeComparison(f: SyntheticFixture, kind: 'property' | 'referen
   } finally {
     if (built) {
       if (kind === 'property') db.exec('DROP INDEX bench_property_scheduled');
-      else if (kind === 'reference') db.exec('DROP INDEX bench_refs_property_target_source');
       else db.exec('DROP TABLE bench_object_search; DROP TABLE bench_search_key');
     }
   }
@@ -165,9 +158,8 @@ export function propertyIndexScenario(f: SyntheticFixture, warmups = 1, repetiti
   const db = f.db;
   const field = expression(f.scheduledPropertyId);
   const definitions = [
-    { label: 'common-type-common-date', typeId: PAGE_TYPE_ID, threshold: '2026-11-14' },
-    { label: 'common-type-rare-date', typeId: PAGE_TYPE_ID, threshold: '2026-11-27' },
-    { label: 'rare-type-date', typeId: f.rareTypeId, threshold: '2026-11-20' },
+    { label: 'common-type-common-date', typeId: TASK_TYPE_ID, threshold: '2026-11-14' },
+    { label: 'common-type-rare-date', typeId: TASK_TYPE_ID, threshold: '2026-11-27' },
   ];
   const cases = definitions.map(definition => {
     const { label, typeId, threshold } = definition;
@@ -198,54 +190,6 @@ export function propertyIndexScenario(f: SyntheticFixture, warmups = 1, repetiti
   }
 }
 
-export function referenceScenario(f: SyntheticFixture, warmups = 1, repetitions = 3, selectedTargets?: string[]) {
-  const db = f.db;
-  const targets = db.query<{ target_id: string; n: number }, [string, string]>(`SELECT r.target_id, COUNT(*) AS n FROM object_references r JOIN objects o ON o.id = r.source_id WHERE r.property_id = ? AND o.type_id = ? AND o.trashed = 0 GROUP BY r.target_id ORDER BY n DESC, r.target_id`).all(f.multiReferencePropertyId, PAGE_TYPE_ID);
-  if (!targets.length && !selectedTargets) throw new Error('Fixture has no live multiple-reference matches; increase --objects or lower --reference-every.');
-  const chosen = selectedTargets ?? [...new Set([targets[0]!.target_id, targets.at(-1)!.target_id])];
-  const cases = chosen.map((target, index) => {
-    const select = `SELECT ${projection}, 0 AS source_index, 0 AS sort_missing, NULL AS sort_ascending, NULL AS sort_descending FROM objects AS o WHERE o.trashed = 0 AND o.type_id = ? AND `;
-    const jsonSql = `${select}EXISTS (SELECT 1 FROM json_each(${expression(f.multiReferencePropertyId)}) member WHERE member.value COLLATE NOCASE = ?)${ordering}`;
-    const edgeSql = `${select}EXISTS (SELECT 1 FROM object_references r WHERE r.source_id = o.id AND r.property_id = ? AND r.target_id COLLATE NOCASE = ?)${ordering}`;
-    const targetFirstSql = `${select}o.id IN (SELECT source_id FROM object_references WHERE property_id = ? AND target_id = ?)${ordering}`;
-    const jsonValues: Binding[] = [PAGE_TYPE_ID, target.toUpperCase()];
-    const edgeValues: Binding[] = [PAGE_TYPE_ID, f.multiReferencePropertyId, target.toUpperCase()];
-    const targetFirstValues: Binding[] = [PAGE_TYPE_ID, f.multiReferencePropertyId, target.toUpperCase()];
-    const spec: ViewSpec = { title: 'Reference', blocks: [{ title: 'Reference', component: 'list', sources: [{ typeId: PAGE_TYPE_ID, bindings: {}, where: [{ propertyId: f.multiReferencePropertyId, operator: 'contains', value: target }] }] }] };
-    const view = viewIds(f, spec);
-    const baselineIds = ids(db, jsonSql, jsonValues);
-    verifyView('reference', view, baselineIds);
-    assertSameIds('reference existing-edge', baselineIds, ids(db, edgeSql, edgeValues));
-    assertSameIds('reference target-first', baselineIds, ids(db, targetFirstSql, targetFirstValues));
-    const matchCount = db.query<{ n: number }, Binding[]>(`SELECT COUNT(*) AS n FROM objects o WHERE o.trashed = 0 AND o.type_id = ? AND EXISTS (SELECT 1 FROM json_each(${expression(f.multiReferencePropertyId)}) member WHERE member.value COLLATE NOCASE = ?)`).get(...jsonValues)!.n;
-    const targetFirstCount = db.query<{ n: number }, Binding[]>(`SELECT COUNT(*) AS n FROM objects o WHERE o.trashed = 0 AND o.type_id = ? AND o.id IN (SELECT source_id FROM object_references WHERE property_id = ? AND target_id = ?)`).get(...targetFirstValues)!.n;
-    const edgeCount = targets.find(row => row.target_id.toLowerCase() === target.toLowerCase())?.n ?? 0;
-    if (matchCount !== edgeCount || matchCount !== targetFirstCount) throw new Error('reference full-count semantic mismatch');
-    return { label: index === 0 ? 'common-target' : 'rare-target', target, matchCount, targetFirstCount, view, ids: baselineIds, jsonSql, edgeSql, targetFirstSql, jsonValues, edgeValues, targetFirstValues, beforeStatistics: { json: explain(db, jsonSql, jsonValues), existing: explain(db, edgeSql, edgeValues), targetFirst: explain(db, targetFirstSql, targetFirstValues) } };
-  });
-  db.exec('ANALYZE');
-  const existing = cases.map(c => ({ plan: explain(db, c.edgeSql, c.edgeValues), baselinePlan: explain(db, c.jsonSql, c.jsonValues), reads: pairedReads(warmups, repetitions, () => ids(db, c.jsonSql, c.jsonValues), () => ids(db, c.edgeSql, c.edgeValues)), addedStorageBytes: 0, buildMs: 0, buildScope: 'No additional schema to build; canonical reference maintenance already occurs in both sides.' }));
-  const targetFirst = cases.map(c => {
-    const targetIds = ids(db, c.targetFirstSql, c.targetFirstValues);
-    assertSameIds('reference target-first existing-index', c.ids, targetIds);
-    const plan = explain(db, c.targetFirstSql, c.targetFirstValues);
-    return { ids: targetIds, plan, usesExistingTargetIndex: plan.some(detail => detail.includes('object_references_target')), reads: pairedReads(warmups, repetitions, () => ids(db, c.jsonSql, c.jsonValues), () => ids(db, c.targetFirstSql, c.targetFirstValues)), addedStorageBytes: 0, buildMs: 0, buildScope: 'Adopted query-only target-first candidate using existing canonical target edges; no additional DDL.' };
-  });
-  db.exec('SAVEPOINT bench_reference');
-  try {
-    const buildMs = timed(() => db.exec(referenceIndexSql)).milliseconds;
-    const beforeStatistics = cases.map(c => explain(db, c.edgeSql, c.edgeValues));
-    db.exec('ANALYZE');
-    const results = cases.map((c, index) => {
-      const candidateIds = ids(db, c.edgeSql, c.edgeValues);
-      assertSameIds('reference composite', c.ids, candidateIds);
-      return { ...c, existing: existing[index]!, targetFirst: targetFirst[index]!, composite: { ids: candidateIds, beforeStatistics: beforeStatistics[index]!, plan: explain(db, c.edgeSql, c.edgeValues), reads: pairedReads(warmups, repetitions, () => ids(db, c.jsonSql, c.jsonValues), () => ids(db, c.edgeSql, c.edgeValues)) } };
-    });
-    return { name: 'reference-membership', equivalent: true, buildMs, storageBytes: bytes(db, ['bench_refs_property_target_source']), cases: results };
-  } finally {
-    db.exec('ROLLBACK TO bench_reference; RELEASE bench_reference');
-  }
-}
 
 function likePattern(query: string) { return `%${query.replace(/[\\%_]/g, '\\$&')}%`; }
 function phrase(query: string): string | undefined {
@@ -318,23 +262,19 @@ export function collectOne(label: string, options: Required<SyntheticFixtureOpti
       requestedObjects: options.objects,
       actualObjects: db.query<{ n: number }, []>('SELECT COUNT(*) AS n FROM objects').get()!.n,
       types: db.query('SELECT type_id, trashed, COUNT(*) AS count FROM objects GROUP BY type_id, trashed').all(),
-      arrays: db.query(`SELECT type_id, trashed, COALESCE(json_array_length(${expression(f.multiReferencePropertyId)}),0) AS length, COUNT(*) AS count FROM objects o GROUP BY type_id, trashed, length ORDER BY type_id, trashed, length`).all(),
       historyRows: db.query<{ n: number }, []>('SELECT COUNT(*) AS n FROM object_revisions').get()!.n,
     };
     // All read probes precede all write probes. Each candidate removes its schema;
     // search also rolls back its two explicit semantic records. Each later write
     // comparison adds two setup records, explicitly reported separately.
     const property = propertyIndexScenario(f, bench.warmups, bench.repetitions);
-    const reference = referenceScenario(f, bench.warmups, bench.repetitions);
     const search = searchScenario(f, bench.warmups, bench.repetitions);
     const propertyWrites = writeComparison(f, 'property', bench.warmups, bench.repetitions);
-    const referenceWrites = writeComparison(f, 'reference', bench.warmups, bench.repetitions);
     const searchWrites = writeComparison(f, 'search', bench.warmups, bench.repetitions);
     return { label, fixture: options, setupMs: setup.milliseconds, setupScope: 'One owned temporary database: open/schema, synthetic properties/type, canonical objects, revisions, references and trash. All scenarios reuse it; no internal fixtures.', distribution,
       engine: { bun: Bun.version, sqlite: db.query('SELECT sqlite_version() AS version, sqlite_source_id() AS sourceId').get(), pragmas: { journalMode: db.query('PRAGMA journal_mode').get(), synchronous: db.query('PRAGMA synchronous').get(), trustedSchema: db.query('PRAGMA trusted_schema').get() } },
       scenarios: {
         property: { ...property, write: propertyWrites },
-        reference: { ...reference, write: referenceWrites, existingIndexWrite: referenceWrites.baseline, existingIndexWriteScope: 'The same measured canonical baseline samples, not another run: edge reads need no additional write maintenance.' },
         search: { ...search, write: searchWrites },
       } };
   } finally {
@@ -343,9 +283,9 @@ export function collectOne(label: string, options: Required<SyntheticFixtureOpti
 }
 export function collectBenchmarkReport(options: BenchmarkOptions) {
   return { generatedAt: new Date().toISOString(), options, scales: [
-    collectOne('modest-writing-sparse-arrays', normalizeSyntheticFixtureOptions({ objects: options.objects, bodyBytes: options.bodyBytes, revisions: options.revisions, referenceEvery: options.referenceEvery, benchmarkProperties: true }), options),
-    collectOne('larger-writing-dense-arrays', normalizeSyntheticFixtureOptions({ objects: options.largeObjects, bodyBytes: Math.max(options.bodyBytes, 2048), revisions: options.revisions, referenceEvery: options.referenceEvery, benchmarkProperties: true, benchmarkDense: true }), options),
-  ], conclusion: 'Synthetic costs only. Production adopts only the target-first reference membership query using existing edges; added indexes, FTS, JSONB and deep pagination remain deferred.' };
+    collectOne('modest-writing', normalizeSyntheticFixtureOptions({ objects: options.objects, bodyBytes: options.bodyBytes, revisions: options.revisions, referenceEvery: options.referenceEvery, benchmarkProperties: true }), options),
+    collectOne('larger-writing', normalizeSyntheticFixtureOptions({ objects: options.largeObjects, bodyBytes: Math.max(options.bodyBytes, 2048), revisions: options.revisions, referenceEvery: options.referenceEvery, benchmarkProperties: true }), options),
+  ], conclusion: 'Synthetic costs only. Production uses writing-derived backlinks; JSONB, deep pagination, added indexes, and FTS remain deferred.' };
 }
 if (import.meta.main) {
   try {

@@ -99,14 +99,6 @@ export interface ObjectRecord extends ViewObjectRecord {
   body: string;
 }
 export interface Catalog { types: ObjectType[]; properties: PropertyDefinition[] }
-export interface NewPropertyDraft {
-  label: string;
-  kind: string;
-  options: string;
-  targetTypeId: string;
-  multiple: boolean;
-  revision: string;
-}
 export interface ObjectWrite {
   typeId: string;
   title: string;
@@ -185,7 +177,7 @@ export interface BacklinkPage { links: Backlink[]; offset: number; hasMore: bool
 export interface ObjectPageModel {
   csrf: string;
   path: string;
-  screen: 'home' | 'objects' | 'people' | 'types' | 'type' | 'new-object' | 'object' | 'object-history' | 'views' | 'view' | 'journal' | 'calendar';
+  screen: 'home' | 'objects' | 'people' | 'types' | 'new-object' | 'object' | 'object-history' | 'views' | 'view' | 'journal' | 'calendar';
   section?: 'calendar' | 'tasks' | 'favorites';
   catalog: Catalog;
   views: SavedView[];
@@ -209,11 +201,7 @@ export interface ObjectPageModel {
   dayJournalConflict?: boolean;
   dayJournalDraft?: { mode: 'create' | 'update'; date: string; body: string; requestId?: string; objectId?: string; revision?: string; saveBlocked?: boolean; conflictRevision?: string };
   calendarMonth?: string;
-  basedOnTypeId?: string;
-  typeDraft?: { name: string; basedOnTypeId?: string };
-  newPropertyDraft?: NewPropertyDraft;
-  evaluatedView?: EvaluatedView;
-  backlinksPage?: BacklinkPage;
+  evaluatedView?: EvaluatedView;  backlinksPage?: BacklinkPage;
   search?: string;
   selectedTypeId?: string;
   notice?: string;

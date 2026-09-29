@@ -106,27 +106,6 @@
 .object-shell .type-card-footer a { text-decoration: none; }
 .object-shell .type-browse-card { min-height: 235px; }
 .object-shell .type-browse-card .type-card-footer { color: var(--action-primary); }
-.object-shell .creation-panel { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: clamp(var(--space-6), 5cqi, var(--space-16)); padding: clamp(var(--space-6), 3cqi, var(--space-10)); scroll-margin-top: var(--space-6); }
-.object-shell .creation-panel form > label { margin-bottom: var(--space-2); }
-.object-shell .type-name-preview { display: flex; align-items: center; gap: var(--space-3); min-width: 0; margin: var(--space-5) 0; padding: var(--space-4); border: 2px dashed var(--border-default); }
-.object-shell .type-name-preview small { display: block; margin-top: var(--space-1); }
-.object-shell .type-settings { padding: var(--space-2) var(--space-4); }
-.object-shell .type-properties .section-heading { justify-content: space-between; }
-.object-shell .type-properties .section-heading h2 { margin: 0; }
-.object-shell .built-in-properties { display: flex; flex-wrap: wrap; gap: var(--space-3); margin: var(--space-5) 0; }
-.object-shell .built-in-properties > span { padding: var(--space-3) var(--space-4); }
-.object-shell .built-in-properties small { margin-left: var(--space-4); }
-.object-shell .property-list .inline-form { margin-bottom: var(--space-1); }
-.object-shell .property-list p { font-size: var(--text-sm); margin: var(--space-1) 0; }
-.object-shell .property-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: var(--space-4); }
-.object-shell .property-cards > li { padding: var(--space-5); align-self: start; }
-.object-shell .property-card-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--space-3); }
-.object-shell .property-cards details { margin-top: var(--space-3); }
-.object-shell .property-cards summary { font-size: var(--text-sm); color: var(--text-muted); }
-.object-shell .option-chips { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-3); }
-.object-shell .property-empty { display: flex; align-items: flex-start; gap: var(--space-4); padding: var(--space-6); text-align: left; }
-.object-shell .property-empty p { margin: var(--space-2) 0 0; }
-.object-shell .kind-help { min-height: 2.5rem; margin-top: var(--space-2); }
 .object-shell .reference-control { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--space-2) var(--space-3); align-items: end; margin-bottom: var(--space-4); }
 .object-shell .reference-control > label, .object-shell .reference-control > small { grid-column: 1 / -1; }
 .object-shell .reference-control > label, .object-shell .reference-control > select { margin: 0; }
@@ -364,7 +343,6 @@
   .object-shell .workspace-header { padding: var(--space-3) var(--space-5); }
   .object-shell .workspace-breadcrumb > a, .object-shell .workspace-breadcrumb > span[aria-hidden] { display: none; }
   .object-shell .two-columns { gap: 0; }
-  .object-shell .creation-panel { grid-template-columns: minmax(0, 1fr); gap: var(--space-5); }
   .object-shell .panel { padding: var(--space-5); }
   .object-shell .object-index > li { align-items: flex-start; padding: 0 var(--space-4); }
   .object-shell .object-index > li > a { flex-direction: column; align-items: flex-start; gap: var(--space-1); }

@@ -12,9 +12,7 @@ export interface SyntheticFixtureOptions {
   objects?: number;
   bodyBytes?: number;
   revisions?: number;
-  referenceEvery?: number;
   benchmarkProperties?: boolean;
-  benchmarkDense?: boolean;
 }
 
 export interface SyntheticFixture {
@@ -23,8 +21,6 @@ export interface SyntheticFixture {
   db: Database;
   runtime: ObjectRuntime;
   ids: string[];
-  referencePropertyId: string;
-  multiReferencePropertyId: string;
   scheduledPropertyId: string;
   rareTypeId: string;
   options: Required<SyntheticFixtureOptions>;
@@ -35,7 +31,6 @@ const LIMITS = {
   objects: 10_000,
   bodyBytes: 16_384,
   revisions: 10,
-  referenceEvery: 1_000,
 };
 
 function appendWithinUtf8Limit(parts: string[], text: string, budget: number, used: number): number {
@@ -75,9 +70,7 @@ export function normalizeSyntheticFixtureOptions(input: SyntheticFixtureOptions 
     objects: boundedInteger(input.objects ?? 1_000, 'objects', 1),
     bodyBytes: boundedInteger(input.bodyBytes ?? 1_024, 'bodyBytes', 0),
     revisions: boundedInteger(input.revisions ?? 2, 'revisions', 0),
-    referenceEvery: boundedInteger(input.referenceEvery ?? 5, 'referenceEvery', 1),
     benchmarkProperties: input.benchmarkProperties === true,
-    benchmarkDense: input.benchmarkProperties === true && input.benchmarkDense === true,
   };
 }
 
@@ -89,8 +82,6 @@ export function buildSyntheticFixture(input: SyntheticFixtureOptions = {}): Synt
   try {
     db = openDatabase(file);
     const runtime = new ObjectRuntime(db);
-    const referencePropertyId = '';
-    const multiReferencePropertyId = '';
     const scheduledPropertyId = TASK_SCHEDULED_PROPERTY_ID;
     const rareTypeId = PAGE_TYPE_ID;
     const ids: string[] = [];
@@ -103,7 +94,7 @@ export function buildSyntheticFixture(input: SyntheticFixtureOptions = {}): Synt
         const properties: Record<string, PropertyValue> = isTask
           ? { [TASK_DUE_PROPERTY_ID]: `2026-10-${String((index % 28) + 1).padStart(2, '0')}`, [TASK_SCHEDULED_PROPERTY_ID]: index % 53 === 3 ? '2026-11-28' : `2026-11-${String((index % 28) + 1).padStart(2, '0')}` }
           : {};
-        const body = `${syntheticWriting(index, options.bodyBytes)}${!isTask && lastPageId && index % options.referenceEvery === 0 ? `\n\n[Related](/objects/${lastPageId})` : ''}`;
+        const body = `${syntheticWriting(index, options.bodyBytes)}${!isTask && index % 5 === 0 && lastPageId ? `\n\n[Related](/objects/${lastPageId})` : ''}`;
         let object = runtime.createObject({
           typeId: isTask ? TASK_TYPE_ID : isRare ? rareTypeId : PAGE_TYPE_ID,
           title: `${isRare ? 'Rare synthetic object' : 'Synthetic object'} ${String(index).padStart(5, '0')}`,
@@ -137,8 +128,6 @@ export function buildSyntheticFixture(input: SyntheticFixtureOptions = {}): Synt
       db,
       runtime,
       ids,
-      referencePropertyId,
-      multiReferencePropertyId,
       scheduledPropertyId,
       rareTypeId,
       options,
