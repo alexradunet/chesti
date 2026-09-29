@@ -348,6 +348,32 @@ for (const button of document.querySelectorAll<HTMLButtonElement>('[data-pin-vie
 renderPins();
 if (new URLSearchParams(location.search).get('focus') === 'search') document.querySelector<HTMLInputElement>('main input[type="search"]')?.focus();
 
+function triggerSelectorFor(element: HTMLElement): string | null {
+  const triggerAttr = element.dataset.submitTrigger;
+  if (triggerAttr) return `[data-submit-trigger="${triggerAttr}"]`;
+  const button = element instanceof HTMLButtonElement ? element : element instanceof HTMLInputElement ? element : null;
+  if (button?.name && button.form) {
+    const formAction = button.form.action ? new URL(button.form.action, location.href).pathname : '';
+    return `form[action="${formAction}"] [name="${button.name}"]`;
+  }
+  if (element.id) return `#${element.id}`;
+  return null;
+}
+try {
+  const stored = sessionStorage.getItem('taskdesk:focus-restore');
+  if (stored) {
+    sessionStorage.removeItem('taskdesk:focus-restore');
+    const data = JSON.parse(stored) as { scrollY?: number; selector?: string | null; url?: string };
+    requestAnimationFrame(() => {
+      if (typeof data.scrollY === 'number' && data.scrollY > 0) window.scrollTo(0, data.scrollY);
+      if (data.selector) {
+        const target = document.querySelector<HTMLElement>(data.selector);
+        if (target && target.isConnected) target.focus();
+      }
+    });
+  }
+} catch { /* storage unavailable; focus restoration is best-effort */ }
+
 async function lookupObjects(query: string, signal: AbortSignal, typeId?: string): Promise<ObjectLookupResult> {
   const response = await fetch(`/objects/lookup?${new URLSearchParams({ q: query, ...(typeId ? { typeId } : {}) })}`, { signal, credentials: 'same-origin' });
   if (!response.ok) throw new Error(`Search failed (${response.status}). Try again.`);
@@ -609,9 +635,34 @@ for (const form of forms) {
           panel.focus();
         }
       }
+      // Server returns 200 with a disclosure form when a domain change would drop fields.
+      // Replace the editor form with the server's re-rendered version so the user can confirm.
+      if (response.ok && !response.redirected && form.hasAttribute('data-object-editor')) {
+        const nextDisclosure = page.querySelector('[data-type-change-drops]');
+        const currentEditor = document.querySelector('[data-object-editor]');
+        const nextEditor = page.querySelector('[data-object-editor]');
+        if (nextDisclosure && currentEditor && nextEditor) {
+          currentEditor.replaceWith(document.importNode(nextEditor, true));
+          const newForm = document.querySelector<HTMLFormElement>('[data-object-editor]');
+          if (newForm) {
+            // Re-bind dirty state and re-sync the type selector
+            dirtyForms.add(newForm);
+            const newSelect = newForm.querySelector<HTMLSelectElement>('[data-new-type]');
+            if (newSelect) newSelect.dispatchEvent(new Event('change'));
+            const disclosure = newForm.querySelector<HTMLElement>('[data-type-change-drops]');
+            if (disclosure) disclosure.focus();
+          }
+          return;
+        }
+      }
       if (!response.ok || !response.redirected) throw new Error(error || `The request could not be saved (${response.status}). Your changes are still here.`);
       dirtyForms.delete(form);
       form.dataset.busy = 'false';
+      const trigger = event.submitter instanceof HTMLElement ? event.submitter : form.querySelector<HTMLElement>('button[type="submit"]');
+      const triggerSelector = trigger ? triggerSelectorFor(trigger) : null;
+      try {
+        sessionStorage.setItem('taskdesk:focus-restore', JSON.stringify({ scrollY: window.scrollY, selector: triggerSelector, url: response.url }));
+      } catch { /* storage unavailable; focus restoration is best-effort */ }
       window.location.assign(response.url);
     } catch (error) {
       if (status) {
@@ -670,14 +721,6 @@ window.addEventListener('beforeunload', event => {
   event.returnValue = '';
 });
 
-const typeNameInput = document.querySelector<HTMLInputElement>('[data-type-create] input[name="name"]');
-const typeNamePreview = document.querySelector<HTMLElement>('[data-type-name-preview]');
-if (typeNameInput && typeNamePreview) {
-  const sync = () => { typeNamePreview.textContent = typeNameInput.value.trim() || 'Your new type'; };
-  typeNameInput.addEventListener('input', sync);
-  sync();
-}
-
 function localDate(): string {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
@@ -735,7 +778,7 @@ for (const select of document.querySelectorAll<HTMLSelectElement>('[data-new-typ
     }
     let count = 0;
     for (const field of form.querySelectorAll<HTMLFieldSetElement>('[data-type-ids]')) {
-      const active = field.dataset.retained === 'true' || (field.dataset.typeIds?.split(' ').includes(select.value) ?? false);
+      const active = field.dataset.typeIds?.split(' ').includes(select.value) ?? false;
       field.hidden = !active;
       field.disabled = !active;
       if (active) count++;
@@ -751,26 +794,8 @@ for (const select of document.querySelectorAll<HTMLSelectElement>('[data-new-typ
     }
     const typeLabel = form.querySelector('[data-object-type-label]');
     if (typeLabel) typeLabel.textContent = select.selectedOptions[0]?.textContent ?? '';
-    form.querySelector('[data-type-setup]')?.setAttribute('href', `/types/${select.value}`);
     const empty = form.querySelector<HTMLElement>('[data-properties-empty]');
     if (empty) empty.hidden = count > 0;
-  };
-  select.addEventListener('change', sync);
-  sync();
-}
-
-for (const select of document.querySelectorAll<HTMLSelectElement>('[data-property-kind]')) {
-  const sync = () => {
-    const help = select.form?.querySelector<HTMLElement>('[data-kind-help]');
-    if (help) help.textContent = select.selectedOptions[0]?.dataset.help ?? '';
-    for (const section of select.form?.querySelectorAll<HTMLElement>('[data-kind-options]') ?? []) {
-      const enabled = section.dataset.kindOptions === select.value;
-      section.hidden = !enabled;
-      for (const input of section.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>('input, select, textarea')) {
-        input.disabled = !enabled;
-        if (input.name === 'options' || input.name === 'targetTypeId') input.required = enabled;
-      }
-    }
   };
   select.addEventListener('change', sync);
   sync();

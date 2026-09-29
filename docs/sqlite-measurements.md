@@ -18,9 +18,7 @@ Checkpoint example:
     "objects": 20,
     "bodyBytes": 256,
     "revisions": 1,
-    "referenceEvery": 5,
-    "benchmarkProperties": false,
-    "benchmarkDense": false
+    "benchmarkProperties": false
   },
   "page": {
     "pageSize": 4096,

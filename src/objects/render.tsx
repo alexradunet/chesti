@@ -50,7 +50,7 @@ function WorkspaceNav({ model }: { model: ObjectPageModel }) {
     <div class="nav-links">{links.filter(link => link.label !== 'Tasks' && link.label !== 'Journal').map(link => <a href={link.href} data-object-search={link.icon === 'search' ? '' : undefined} aria-keyshortcuts={link.icon === 'search' ? 'Control+k Meta+k' : undefined} aria-current={link.active ? 'page' : undefined}><Icon name={link.icon} /><span>{link.label}</span>{link.icon === 'search' && <kbd class="js-only">Ctrl/⌘ K</kbd>}</a>)}</div>
     <section class="nav-section" aria-labelledby="favorites-heading"><h2 id="favorites-heading">Favorites</h2>{model.favorites?.items.length ? <div class="nav-links">{model.favorites.items.map(record => <a href={objectUrl(record.id)} aria-current={model.object?.id === record.id ? 'page' : undefined}><Icon name={typeIcon(record.typeId)} /><span>{titleOf(record)}</span></a>)}{model.favorites.hasMore && <a href="/objects/favorites"><Icon name="arrow" /><span>All favorites</span></a>}</div> : <p class="nav-hint">No favorites yet. Use Favorite on saved objects to pin them here.</p>}</section>
     <section class="nav-section js-only" aria-labelledby="pinned-heading"><h2 id="pinned-heading">Pinned views</h2><p class="nav-hint" data-pins-empty="">Pin a view to keep it here.</p><div class="nav-links">{model.views.map(view => <a href={`/views/${view.id}`} data-pinned-view="" data-view-id={view.id} hidden aria-current={model.evaluatedView?.view.id === view.id ? 'page' : undefined}><Icon name="pin" /><span>{view.spec.title}</span></a>)}</div></section>
-    <div class="nav-bottom nav-links"><a href="/types" aria-current={model.screen === 'types' || model.screen === 'type' ? 'page' : undefined}><Icon name="settings" /><span>Manage types</span></a><a href="/?trash=1" aria-current={model.trashed ? 'page' : undefined}><Icon name="trash" /><span>Trash</span></a><p class="nav-hint">Your objects. Your workspace.</p></div>
+    <div class="nav-bottom nav-links"><a href="/types" aria-current={model.screen === 'types' ? 'page' : undefined}><Icon name="type" /><span>Fixed domains</span></a><a href="/?trash=1" aria-current={model.trashed ? 'page' : undefined}><Icon name="trash" /><span>Trash</span></a><p class="nav-hint">Your objects. Your workspace.</p></div>
   </nav>;
 }
 
@@ -100,24 +100,6 @@ function PropertyControl({ model, property, value, name = `p:${property.id}`, re
       {property.kind === 'time-range' && <Field label="Time zone"><Input name={`${name}:timeZone`} type="text" value={fields?.[`${name}:timeZone`]?.[0] ?? range?.timeZone ?? ''} placeholder="Europe/London" /></Field>}
     </div><small id={`${id}-help`}>{property.kind === 'time-range' ? 'ISO timestamps with offsets, for example 2026-09-24T09:00:00+01:00.' : 'End is exclusive: for one all-day event on September 24, use September 24 to September 25. Fill both dates, or clear both to leave unset.'}</small></fieldset>;
   }
-  if (property.kind === 'select') return <Field label={property.label}><Select name={name}><option value="" selected={!scalar}>Not set</option>{property.options?.map(option => <option value={option.id} selected={scalar === option.id}>{option.label}</option>)}</Select></Field>;
-  if (property.kind === 'reference') {
-    const selected = fields?.[name]?.filter(Boolean) ?? (Array.isArray(value) ? value : typeof value === 'string' ? [value] : []);
-    const selectedIds = new Set(selected.map(objectIdentity));
-    const candidates = model.objects.filter(record => (!property.targetTypeId || record.typeId === property.targetTypeId) && !record.trashed);
-    const missing = selected.filter((item, index) => selected.findIndex(other => sameObjectIdentity(other, item)) === index && !candidates.some(record => sameObjectIdentity(record.id, item)));
-    const helpId = `${id}-help`;
-    return <div class="reference-control">
-      <Field for={id} label={property.label} />
-      <Select id={id} name={name} multiple={property.multiple} size={property.multiple ? 4 : undefined} aria-describedby={property.multiple ? helpId : undefined}>
-        {!property.multiple && <option value="" selected={!selected.length}>Not set</option>}
-        {candidates.map(record => <option value={record.id} selected={selectedIds.has(objectIdentity(record.id))}>{titleOf(record)} · {typeName(model, record.typeId)}</option>)}
-        {missing.map(item => { const record = objectOf(model, item); return <option value={record?.id ?? item} selected>{record?.title || `Linked object ${item}`}</option>; })}
-      </Select>
-      <Button class="js-only reference-search-button" type="button" data-reference-search="" data-reference-target={id} data-reference-type={property.targetTypeId} aria-label={`Find object for ${property.label}`}>Find object</Button>
-      {property.multiple && <small id={helpId}>Choose multiple with Ctrl or Command. Clear the selection to remove all links.</small>}
-    </div>;
-  }
   return <Field label={property.label}><Input name={name} type={property.kind === 'number' ? 'number' : property.kind === 'date' ? 'date' : 'text'} step={property.kind === 'number' ? 'any' : undefined} value={scalar} required={required} data-journal-date={property.id === JOURNAL_DATE_PROPERTY_ID ? '' : undefined} aria-describedby={property.kind === 'datetime' ? `${id}-help` : undefined} />{property.kind === 'datetime' && <small id={`${id}-help`}>ISO timestamp with offset, for example 2026-09-24T09:00:00+01:00.</small>}</Field>;
 }
 
@@ -125,8 +107,6 @@ function Value({ model, propertyId, value }: { model: ObjectPageModel; propertyI
   const property = propertyOf(model, propertyId);
   if (value === undefined || value === '' || (Array.isArray(value) && !value.length)) return <span class="muted">Not set</span>;
   if (isRange(value)) return <span class="range-value"><span>{value.start}</span><span> to </span><span>{value.end}</span>{value.timeZone && <small> ({value.timeZone})</small>}</span>;
-  if (property?.kind === 'reference') return <span class="reference-values">{(Array.isArray(value) ? value : [String(value)]).map(id => <a href={objectUrl(id)}>{objectOf(model, id)?.title || `Linked object ${id}`}</a>)}</span>;
-  if (property?.kind === 'select') return <span>{property.options?.find(option => option.id === value)?.label ?? String(value)}</span>;
   return <span>{typeof value === 'boolean' ? value ? 'Yes' : 'No' : Array.isArray(value) ? value.join(', ') : String(value)}</span>;
 }
 
@@ -135,7 +115,7 @@ function ObjectHome({ model }: { model: ObjectPageModel }) {
   return <>
     <div class="workspace-intro">
     <PageHeading eyebrow={model.trashed ? 'Your workspace, recoverable' : 'Your personal workspace'} title={model.trashed ? 'Trash' : 'Objects'} description={model.trashed ? 'Choose a type to find objects you can restore.' : 'A place for your thoughts, plans, and everyday details.'}>
-      {!model.trashed && <><ButtonLink href="/types#create-type"><Icon name="plus" />New type</ButtonLink><ButtonLink variant="primary" href="/objects/new"><Icon name="plus" />New content</ButtonLink></>}
+      {!model.trashed && <ButtonLink variant="primary" href="/objects/new"><Icon name="plus" />New content</ButtonLink>}
     </PageHeading>
     <dl class="workspace-summary" aria-label="Workspace summary">
       <div><dt>{model.trashed ? 'Objects in trash' : 'Objects'}</dt><dd>{objectCount}</dd></div>
@@ -231,75 +211,23 @@ const propertyKinds = [
   { value: 'boolean', label: 'Checkbox', help: 'A simple yes or no, such as Done or Reviewed.' },
   { value: 'date', label: 'Date', help: 'A day without a time, such as a due date or birthday.' },
   { value: 'datetime', label: 'Date & time', help: 'An exact moment, including its time-zone offset.' },
-  { value: 'select', label: 'Select', help: 'One choice from a list you define, such as a status or priority.' },
-  { value: 'reference', label: 'Object link', help: 'Connect to an object of another type, such as a project or person.' },
   { value: 'date-range', label: 'Date range', help: 'A start and end date, such as a trip or project schedule.' },
   { value: 'time-range', label: 'Time range', help: 'Start and end timestamps with a time zone, such as a meeting.' },
 ] as const;
 const kindLabel = (property: PropertyDefinition) => propertyKinds.find(kind => kind.value === property.kind)?.label ?? property.kind;
 
 function Types({ model }: { model: ObjectPageModel }) {
-  const base = model.typeDraft?.basedOnTypeId ?? model.basedOnTypeId;
   return <>
-    <PageHeading eyebrow="Shape your workspace" title="Object types" description="Built-in foundations and your own independent types."><ButtonLink href="#create-type"><Icon name="plus" />New type</ButtonLink></PageHeading>
+    <PageHeading eyebrow="Fixed domains" title="Object types" description="Six fixed domains with code-owned fields. Connections are Markdown links." />
     <div class="type-cards">{model.catalog.types.map(type => {
       const builtin = BUILTIN_TYPES.find(item => item.id === type.id);
-      return <Panel as="article" class="type-card"><span class="type-card-icon"><Icon name={typeIcon(type.id)} /></span><h2><a href={`/types/${type.id}`}>{type.name}</a></h2>
-        {builtin && <Badge>Protected {builtin.name} · customizable</Badge>}
-        <p class="muted">{type.propertyIds.length ? type.propertyIds.map(id => propertyOf(model, id)?.label).filter(Boolean).join(' · ') : 'A title and space to write. No extra properties yet.'}</p>
-        <div class="type-card-footer"><span class="fine">{type.propertyIds.length} {type.propertyIds.length === 1 ? 'property' : 'properties'}</span><a href={`/objects/new?type=${type.id}`} aria-label={`New ${type.name}`}>Create object →</a></div>
+      return <Panel as="article" class="type-card"><span class="type-card-icon"><Icon name={typeIcon(type.id)} /></span><h2>{type.name}</h2>
+        {builtin && <Badge>Fixed {builtin.name}</Badge>}
+        <p class="muted">{builtin?.description ?? 'A title and Markdown writing.'}</p>
+        <div class="type-card-footer"><span class="fine">{type.propertyIds.length} {type.propertyIds.length === 1 ? 'field' : 'fields'}</span><a href={`/objects/new?type=${type.id}`} aria-label={`New ${type.name}`}>Create object →</a></div>
       </Panel>;
     })}</div>
-    <Panel class="creation-panel" id="create-type">
-      <div><span class="eyebrow">Make it your own</span><h2>Create a type</h2><p class="muted">Start empty or copy another type’s current properties.</p><p class="fine" id="based-on-help">Copied properties share their identities and labels; each object keeps its own values. Your new type is independent: it does not inherit built-in rules or future fields. A copy of Journal is not another daily journal.</p></div>
-      <form method="post" action="/types/create" data-enhance="" data-type-create="" data-draft={model.typeDraft ? 'true' : undefined}>
-        <Token model={model} /><Field label="Type name"><Input name="name" value={model.typeDraft?.name ?? ''} required maxlength={100} placeholder="e.g. Book, Project, or Person" autocomplete="off" aria-describedby="type-name-help" /></Field>
-        <small id="type-name-help">Name one thing, like “Book”, rather than a collection.</small>
-        <Field label="Based on"><Select name="basedOnTypeId" aria-describedby="based-on-help"><option value="" selected={!base}>Empty type</option>{model.catalog.types.map(type => <option value={type.id} selected={base === type.id}>{type.name}</option>)}{base && !model.catalog.types.some(type => type.id === base) && <option value={base} selected>Unavailable type</option>}</Select></Field>
-        <div class="type-name-preview" aria-hidden="true"><span class="type-card-icon"><Icon name="type" /></span><div><strong data-type-name-preview="">{model.typeDraft?.name || 'Your new type'}</strong><small>Title · Writing · Your properties</small></div></div>
-        <Button variant="primary" type="submit">Create type &amp; add properties</Button><State />
-      </form>
-    </Panel>
   </>;
-}
-
-function TypeEditor({ model }: { model: ObjectPageModel }) {
-  const type = model.objectType;
-  if (!type) return <p class="empty">Type not found.</p>;
-  const available = model.catalog.properties.filter(property => !type.propertyIds.includes(property.id));
-  const builtin = BUILTIN_TYPES.find(item => item.id === type.id);
-  const draft = model.newPropertyDraft;
-  const selectedKind = draft?.kind ?? propertyKinds[0].value;
-  const selectedTargetTypeId = draft?.targetTypeId ?? '';
-  return <><a class="back-link" href="/types">← All types</a><PageHeading eyebrow="Type setup" title={type.name} description={`Choose the details that make a ${type.name} useful to you.`}><ButtonLink variant="primary" href={`/objects/new?type=${type.id}`}><Icon name="plus" />Create object</ButtonLink></PageHeading>
-    {builtin && <p class="parch notice"><strong>Protected {builtin.name} · customizable.</strong> Its identity and core fields remain available. Rename this type, rename field labels, and add your own fields. {builtin.description}</p>}
-    <p><a href={`/types?basedOnTypeId=${type.id}#create-type`}>Create an independent type based on {type.name}</a></p>
-    <details class="parch type-settings"><summary>Rename type</summary><form class="inline-form" method="post" action={`/types/${type.id}/update`} data-enhance=""><Token model={model} /><Hidden name="revision" value={type.revision} /><Field label="Type name"><Input name="name" value={type.name} required maxlength={100} /></Field><Button type="submit">Save name</Button><State /></form></details>
-    <section class="type-properties"><div class="section-heading"><h2>Object properties</h2><Badge>{type.propertyIds.length} fields</Badge></div><p class="muted">Core field rules apply to built-in types. Additional fields are optional.</p><div class="built-in-properties"><span class="parch">Title <small>Built in</small></span><span class="parch">Writing <small>Built in</small></span></div>
-      {type.propertyIds.length ? <ul class="property-list property-cards">{type.propertyIds.map(id => { const property = propertyOf(model, id); const sharedWith = model.catalog.types.filter(item => item.id !== type.id && item.propertyIds.includes(id)); return property && <li class="parch"><div class="property-card-heading"><strong>{property.label}</strong><Badge>{kindLabel(property)}</Badge>{BUILTIN_PROPERTIES.some(item => item.id === id) && <Badge>Protected core field</Badge>}</div>{property.options?.length ? <div class="option-chips">{property.options.map(option => <Badge>{option.label}</Badge>)}</div> : null}{property.targetTypeId && <p class="muted">Links to {typeName(model, property.targetTypeId)}{property.multiple ? ' · multiple links' : ''}</p>}<details><summary>Rename property</summary><p class="fine">{sharedWith.length ? `Shared with ${sharedWith.map(item => item.name).join(', ')}. Renaming changes the label there too.` : 'Renaming keeps existing values and views connected.'}</p><form class="inline-form" method="post" action={`/properties/${id}/update`} data-enhance=""><Token model={model} /><Hidden name="revision" value={property.revision} /><Field label="Property label"><Input name="label" value={property.label} required maxlength={100} /></Field><Button type="submit">Save label</Button><State /></form></details></li>; })}</ul> : <div class="parch empty property-empty"><Icon name="type" /><div><strong>Start simple. Add structure when you need it.</strong><p>You can create objects now, or add a property below. Existing objects keep their writing.</p></div></div>}</section>
-    <div class="two-columns property-builders">
-      <Panel>
-        <h2>Add a property</h2>
-        <p class="muted">What would you like to keep track of?</p>
-        <form method="post" action={`/types/${type.id}/properties`} data-enhance="" data-new-property="" data-draft={draft ? 'true' : undefined}>
-          <Token model={model} />
-          <Hidden name="revision" value={draft?.revision ?? type.revision} />
-          <Field label="Property label"><Input name="label" value={draft?.label ?? ''} required maxlength={100} placeholder="e.g. Status, Due date, or Author" /></Field>
-          <Field label="Property format"><Select name="kind" data-property-kind="" aria-describedby="property-kind-help">
-            {propertyKinds.map(kind => <option value={kind.value} selected={selectedKind === kind.value} data-help={kind.help}>{kind.label}</option>)}
-            {!propertyKinds.some(kind => kind.value === selectedKind) && <option value={selectedKind} selected>Unavailable format</option>}
-          </Select></Field>
-          <p class="kind-help fine" id="property-kind-help" data-kind-help="">{propertyKinds.find(kind => kind.value === selectedKind)?.help ?? 'Choose a supported property format.'}</p>
-          <div data-kind-options="select"><Field label="Choices"><Textarea name="options" rows={4} placeholder={'Not started\nIn progress\nDone'}>{draft ? `\n${draft.options}` : ''}</Textarea></Field><small>One choice per line. Required for a Select property.</small></div>
-          <div data-kind-options="reference">
-            <Field label="Link to type"><Select name="targetTypeId"><option value="" selected={!selectedTargetTypeId}>Choose a type</option>{model.catalog.types.map(item => <option value={item.id} selected={selectedTargetTypeId === item.id}>{item.name}</option>)}{selectedTargetTypeId && !model.catalog.types.some(item => item.id === selectedTargetTypeId) && <option value={selectedTargetTypeId} selected>Unavailable type</option>}</Select></Field>
-            <Field class="check"><Input type="checkbox" name="multiple" value="true" checked={draft?.multiple ? true : undefined} />Allow multiple object links</Field>
-            <small>Only objects of this type can be linked.</small>
-          </div>
-          <Button variant="primary" type="submit"><Icon name="plus" />Add property</Button><State />
-        </form>
-      </Panel>
-    <Panel class="reuse-property"><span class="eyebrow">Keep things connected</span><h2>Use an existing property</h2><p class="muted">Already tracking this elsewhere? Reuse the same property so views can bring your objects together.</p>{available.length ? <form method="post" action={`/types/${type.id}/properties`} data-enhance=""><Token model={model} /><Hidden name="revision" value={type.revision} /><Field label="Shared property"><Select name="propertyId" required><option value="" selected>Choose a property</option>{available.map(property => <option value={property.id}>{property.label} · {kindLabel(property)}</option>)}</Select></Field><p class="fine">Labels and choices are shared. Each object keeps its own value.</p><Button type="submit">Use property</Button><State /></form> : <p class="fine">No other properties to reuse yet. New properties you add will be available to other types.</p>}</Panel></div></>;
 }
 
 function localDateValue(year: number, month: number, day: number): Date {
@@ -448,10 +376,12 @@ function ObjectEditor({ model }: { model: ObjectPageModel }) {
   const record = model.object;
   const draft = model.objectDraft;
   const type = model.catalog.types.find(item => item.id === draft?.typeId) ?? (record ? model.catalog.types.find(item => item.id === record.typeId) : model.objectType ?? model.catalog.types.find(item => item.id === model.selectedTypeId) ?? model.catalog.types[0]);
-  if (!type) return <p>Create a <a href="/types">type</a> before creating an object.</p>;
+  if (!type) return <p>No object type available.</p>;
   const retainedIds = [...new Set([...Object.keys(record?.properties ?? {}), ...Object.keys(draft?.properties ?? {})])];
   const propertyIds = [...new Set([...model.catalog.types.flatMap(item => item.propertyIds), ...retainedIds])];
-  const activeIds = new Set([...type.propertyIds, ...retainedIds]);
+  const activeIds = new Set(type.propertyIds);
+  const typeChangeDrops = model.typeChangeDrops;
+  const typeChanged = Boolean(record && draft?.typeId && draft.typeId !== record.typeId);
   const body = draft?.body ?? record?.body ?? '';
   const propertyCount = activeIds.size;
   const journalDate = !record ? model.journalDate : undefined;
@@ -471,10 +401,10 @@ function ObjectEditor({ model }: { model: ObjectPageModel }) {
         <header class={record ? 'properties-heading' : 'properties-heading sr-only'}><h2 id="object-properties-heading">Properties <Badge data-property-count="" hidden={!propertyCount}>{propertyCount}</Badge></h2><span class="fine" data-object-type-label="">{type.name}</span></header>
         <div class="object-type-picker">
           <Field label="Object type"><Select name="typeId" data-new-type="">{model.catalog.types.map(item => <option value={item.id} selected={item.id === type.id}>{item.name}</option>)}</Select></Field>
-          {!record && <a href="/types#create-type">Create a new type</a>}
-          <p class={record ? 'fine' : 'fine native-only'}>{record && 'Changing type keeps existing values.'}<span class="native-only"> Choose Use type below to load its fields without saving or losing your writing.</span></p>
+
+          <p class={record ? 'fine' : 'fine native-only'}>{record && !typeChanged && 'Changing type keeps existing values.'}{record && typeChanged && typeChangeDrops && typeChangeDrops.fields.length > 0 && 'Changing type will drop fields not in the new domain.'}<span class="native-only"> Choose Use type below to load its fields without saving or losing your writing.</span></p>
         </div>
-        <p class="fine" data-properties-empty="" hidden={propertyCount > 0}>No additional properties. <a href={`/types/${type.id}`} data-type-setup="">Manage type</a></p>
+        <p class="fine" data-properties-empty="" hidden={propertyCount > 0}>No additional properties.</p>
         <BuiltinRules model={model} typeId={type.id} />
         <div class="property-grid">{propertyIds.map(id => {
           const property = propertyOf(model, id);
@@ -483,10 +413,9 @@ function ObjectEditor({ model }: { model: ObjectPageModel }) {
           const fields = Object.entries(draft?.fields ?? {}).filter(([name]) => name === `p:${id}` || name.startsWith(`p:${id}:`));
           return <>
             {!active && fields.flatMap(([name, values]) => values.map(value => <input type="hidden" name={`draft:${name}`} value={value} data-inactive-draft="" />))}
-            <fieldset class="object-property" data-type-ids={model.catalog.types.filter(item => item.propertyIds.includes(id)).map(item => item.id).join(' ')} data-retained={retainedIds.includes(id) ? 'true' : undefined} hidden={!active} disabled={!active}>
+            <fieldset class="object-property" data-type-ids={model.catalog.types.filter(item => item.propertyIds.includes(id)).map(item => item.id).join(' ')} hidden={!active} disabled={!active}>
               <legend class="sr-only">{property.label}</legend>
               {property.kind === 'boolean' && <Hidden name={`draft:p:${id}`} value="false" />}
-              {property.kind === 'reference' && property.multiple && <Hidden name={`draft:p:${id}`} value="" />}
               <PropertyControl model={model} property={property} required={id === JOURNAL_DATE_PROPERTY_ID && type.id === JOURNAL_TYPE_ID} value={(draft?.properties ? draft.properties[id] : record?.properties?.[id]) ?? (id === JOURNAL_DATE_PROPERTY_ID ? journalDate : undefined)} />
             </fieldset>
           </>;
@@ -494,8 +423,14 @@ function ObjectEditor({ model }: { model: ObjectPageModel }) {
       </section>
       <JournalDiscovery model={model} />
       <WritingFields body={body} />
+      {typeChangeDrops && typeChangeDrops.fields.length > 0 && <div class="type-change-disclosure" data-type-change-drops="" role="alert" tabindex={-1}>
+        <p><strong>Changing type will drop these fields:</strong></p>
+        <ul>{typeChangeDrops.fields.map(field => <li><strong>{field.label}</strong>: {field.value}</li>)}</ul>
+        <p>The complete prior object will be saved in history. This cannot be undone.</p>
+        <input type="hidden" name="confirmTypeChange" value="1" />
+      </div>}
       <div class="save-bar">
-        <span data-object-save-controls="">{conflict && record ? <Button type="submit" variant="primary" name="reviewedRevision" value={record.revision}>Save reconciled changes</Button> : <Button type="submit" variant="primary">{record ? 'Save changes' : 'Create object'}</Button>} <Button class="native-only" type="submit" name="intent" value="change-type" formnovalidate>Use type</Button></span>
+        <span data-object-save-controls="">{conflict && record ? <Button type="submit" variant="primary" name="reviewedRevision" value={record.revision} data-submit-trigger="save">Save reconciled changes</Button> : <Button type="submit" variant="primary" data-submit-trigger="save">{record ? 'Save changes' : 'Create object'}</Button>} <Button class="native-only" type="submit" name="intent" value="change-type" formnovalidate>Use type</Button></span>
         <State message={state} error={Boolean(model.error)} />
       </div>
     </form>
@@ -644,7 +579,6 @@ function ViewBlockContent({ model, block, blockIndex, view }: { model: ObjectPag
   return <div class="board-groups">{properties.map(propertyId => {
     const property = propertyOf(model, propertyId);
     const groups = new Map<string, { value: PropertyValue | undefined; rows: ViewRow[] }>();
-    if (property?.kind === 'select') for (const option of property.options ?? []) groups.set(JSON.stringify(option.id), { value: option.id, rows: [] });
     if (property?.kind === 'boolean') for (const value of [false, true]) groups.set(JSON.stringify(value), { value, rows: [] });
     for (const row of rows.filter(item => item.bindings.group === propertyId)) {
       const value = row.object.properties[propertyId];
@@ -768,7 +702,6 @@ function WorkspaceScreen({ model }: { model: ObjectPageModel }) {
     case 'objects': return <Objects model={model} />;
     case 'people': return <People model={model} />;
     case 'types': return <Types model={model} />;
-    case 'type': return <TypeEditor model={model} />;
     case 'new-object':
     case 'object': return <ObjectEditor model={model} />;
     case 'object-history': return <ObjectHistory model={model} />;
@@ -786,8 +719,7 @@ export function renderObjectWorkspace(model: ObjectPageModel): string {
   else if (model.trashed) title = model.selectedTypeId ? `${typeName(model, model.selectedTypeId)} · Trash` : 'Trash';
   else if (model.screen === 'object' || model.screen === 'object-history') title = model.object?.title || 'Object';
   else if (model.screen === 'new-object') title = 'New object';
-  else if (model.screen === 'type') title = model.objectType?.name || 'Type';
-  else if (model.screen === 'types') title = 'Manage types';
+  else if (model.screen === 'types') title = 'Object types';
   else if (model.screen === 'view') title = model.evaluatedView?.view.spec.title || 'View';
   else if (model.screen === 'views') title = 'Views';
   else if (model.screen === 'objects') title = model.section === 'favorites' ? 'Favorites' : model.selectedTypeId ? typeName(model, model.selectedTypeId) : 'Search';

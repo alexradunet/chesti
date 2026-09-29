@@ -12,7 +12,7 @@
 - **Depends on:** none; sequential internal gates below
 - **Category:** architecture / migration
 - **Planned at:** `e5b6ed1`, 2026-09-28
-- **State:** BLOCKED at Step 1, isolated `c90018b` — two correction rounds exhausted; see `plans/027-step1-blocked.md`. Step 2 and real-workspace cutover are not authorized.
+- **State:** SUPERSEDED — the owner later chose a clean-slate fresh-v7 direction with no legacy migration; the current plan is `plans/027-fixed-domains.md`. The original migration-preflight proposal and its blocked Step 1 review are preserved here as history; see `plans/027-step1-blocked.md`.
 - **Verified baseline:** Bun 1.4.2; `bun run check` passed; `bun test` passed, 169 tests across 19 files, zero failures
 
 ## Why this matters
