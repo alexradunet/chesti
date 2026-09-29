@@ -1,5 +1,27 @@
 # Implementation plans
 
+## Current assignment — fixed domains and Markdown-only connections, 2026-09-28
+
+The owner chose deliberate code-developed features instead of runtime schema customization, then selected Markdown links only (no structured Context relationship). After receiving the plan, the owner explicitly authorized **implementation**. This permits isolated implementation and verification, not personal-data inspection, live migration, merge, push, or restarting the live application.
+
+| Plan | Outcome | Priority / effort / risk | Dependencies | Status |
+| --- | --- | --- | --- | --- |
+| [027](027-fixed-domain-model.md) | Six fixed domains with SQL columns, shared identity/writing/lifecycle, explicit forms, fixed AI views, Markdown-only links, and fail-closed preserving migration | P1 / L / HIGH | Sequential gates inside plan | BLOCKED — Step 1 at `c90018b` after two repairs; preflight still approves altered constraints and leaks malformed lowercase identifiers; no migration/runtime/UI gate approved |
+
+[Execution record](027-execution.md). Sole writer: `/home/alex/orca/workspaces/GenUIExperiment/fixed-domains`, branch `alexradunet/fixed-domains`, exact baseline `e5b6ed1`. Terminal `term_2072a56d-7884-4804-a8a6-35003407c96c`; agent-first Orca child, setup hooks skipped, complete plan inlined. Reviewer maintains this index and independently checks each gate. **Final checkpoint outcome:** [blocked review](027-step1-blocked.md), after [review 1](027-review-step1.md) and [final correction request](027-review-step1-round2.md). Independent TS/**188 tests**/hygiene pass at `c90018b`, but targeted probes still accept a same-name wrong Journal index and a no-op trigger containing the expected error message; malformed lowercase property text is still exposed, and the frozen fixture is not a genuine complete v6 shape. Two repair rounds used; worker instructed to pause, work preserved. No Step 2, source integration, personal-data operation, or live-server change. Further focused repair requires renewed assignment.
+
+**Verified baseline:** `e5b6ed1`, Bun 1.4.2; `bun run check` passed and `bun test` passed **169 tests across 19 files**, zero failures. An additional in-memory Task/Page SQL probe passed deferred subtype completeness, NOCASE identity, wrong-kind/immutable-kind/deletion guards, and FK/integrity checks; this is not a complete migration test. Research covered current schema/runtime/HTTP/editor/view/generator contracts, demo, history/idempotency, backup tests, and diagnostics callsites. No personal database, credentials, browser flow, or real provider was exercised. Only planning files changed.
+
+**Execution order:** preservation fixtures/read-only preflight → storage/upgrade proof → typed commands/read projections → fixed view/generator contract → explicit native forms/browser enhancement → demo/diagnostics/docs → combined independent review and Orca browser verification. Use one isolated implementation writer because the shared contracts overlap heavily. No intermediate generic/fixed hybrid is a shippable result.
+
+**Material rollout gate:** the existing demo itself creates custom fields, Context references, and a reference-scoped view. Unknown fields/kinds, customized schema metadata, structured references, or unsupported saved/historical views must block migration—not be silently deleted, inferred from labels, appended to Markdown, or kept in a second editable legacy runtime. A real-backup inventory and owner-approved disposition are needed before cutover. Stable built-in wire IDs may remain for fixed view bindings and receipt hashes; that is not runtime schema extensibility.
+
+**Plan reconciliation:** 012/013 remain untouched owner drafts. Their generic-schema/storage assumptions are stale relative to this newly agreed fixed-domain direction; do not execute them alongside 027 without a separately approved replan. Historical assignments and publication permissions below do not authorize this work.
+
+**Considered and rejected:** structured Context, custom-field escape hatches, Projects/tags, interpreting all Markdown mentions as membership, a universal migration mapper, and an automatic fresh-database reset. They either contradict the owner's simplicity choice or require a separate data/product decision.
+
+---
+
 ## Current assignment — favorites and day workspace, 2026-09-27
 
 Owner requested `/improve` plans and implementation of the agreed navigation/calendar enhancement. Baseline `ce30958`. One isolated Pi executor implemented sequentially; advisor wrote plans, reviewed full diffs and reran gates. Owner subsequently authorized integration: master is now `69427bb`, no push. A verified private database backup preceded integration; see accepted review. Existing owner drafts 012/013 remain untouched. Plan 025 supplies storage/query prerequisites for 026; the same executor may proceed after its focused/full gates pass. Final DONE requires independent combined review, not merely executor completion.
