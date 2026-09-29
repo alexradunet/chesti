@@ -100,24 +100,6 @@ function PropertyControl({ model, property, value, name = `p:${property.id}`, re
       {property.kind === 'time-range' && <Field label="Time zone"><Input name={`${name}:timeZone`} type="text" value={fields?.[`${name}:timeZone`]?.[0] ?? range?.timeZone ?? ''} placeholder="Europe/London" /></Field>}
     </div><small id={`${id}-help`}>{property.kind === 'time-range' ? 'ISO timestamps with offsets, for example 2026-09-24T09:00:00+01:00.' : 'End is exclusive: for one all-day event on September 24, use September 24 to September 25. Fill both dates, or clear both to leave unset.'}</small></fieldset>;
   }
-  if (property.kind === 'select') return <Field label={property.label}><Select name={name}><option value="" selected={!scalar}>Not set</option>{property.options?.map(option => <option value={option.id} selected={scalar === option.id}>{option.label}</option>)}</Select></Field>;
-  if (property.kind === 'reference') {
-    const selected = fields?.[name]?.filter(Boolean) ?? (Array.isArray(value) ? value : typeof value === 'string' ? [value] : []);
-    const selectedIds = new Set(selected.map(objectIdentity));
-    const candidates = model.objects.filter(record => (!property.targetTypeId || record.typeId === property.targetTypeId) && !record.trashed);
-    const missing = selected.filter((item, index) => selected.findIndex(other => sameObjectIdentity(other, item)) === index && !candidates.some(record => sameObjectIdentity(record.id, item)));
-    const helpId = `${id}-help`;
-    return <div class="reference-control">
-      <Field for={id} label={property.label} />
-      <Select id={id} name={name} multiple={property.multiple} size={property.multiple ? 4 : undefined} aria-describedby={property.multiple ? helpId : undefined}>
-        {!property.multiple && <option value="" selected={!selected.length}>Not set</option>}
-        {candidates.map(record => <option value={record.id} selected={selectedIds.has(objectIdentity(record.id))}>{titleOf(record)} · {typeName(model, record.typeId)}</option>)}
-        {missing.map(item => { const record = objectOf(model, item); return <option value={record?.id ?? item} selected>{record?.title || `Linked object ${item}`}</option>; })}
-      </Select>
-      <Button class="js-only reference-search-button" type="button" data-reference-search="" data-reference-target={id} data-reference-type={property.targetTypeId} aria-label={`Find object for ${property.label}`}>Find object</Button>
-      {property.multiple && <small id={helpId}>Choose multiple with Ctrl or Command. Clear the selection to remove all links.</small>}
-    </div>;
-  }
   return <Field label={property.label}><Input name={name} type={property.kind === 'number' ? 'number' : property.kind === 'date' ? 'date' : 'text'} step={property.kind === 'number' ? 'any' : undefined} value={scalar} required={required} data-journal-date={property.id === JOURNAL_DATE_PROPERTY_ID ? '' : undefined} aria-describedby={property.kind === 'datetime' ? `${id}-help` : undefined} />{property.kind === 'datetime' && <small id={`${id}-help`}>ISO timestamp with offset, for example 2026-09-24T09:00:00+01:00.</small>}</Field>;
 }
 
@@ -125,8 +107,6 @@ function Value({ model, propertyId, value }: { model: ObjectPageModel; propertyI
   const property = propertyOf(model, propertyId);
   if (value === undefined || value === '' || (Array.isArray(value) && !value.length)) return <span class="muted">Not set</span>;
   if (isRange(value)) return <span class="range-value"><span>{value.start}</span><span> to </span><span>{value.end}</span>{value.timeZone && <small> ({value.timeZone})</small>}</span>;
-  if (property?.kind === 'reference') return <span class="reference-values">{(Array.isArray(value) ? value : [String(value)]).map(id => <a href={objectUrl(id)}>{objectOf(model, id)?.title || `Linked object ${id}`}</a>)}</span>;
-  if (property?.kind === 'select') return <span>{property.options?.find(option => option.id === value)?.label ?? String(value)}</span>;
   return <span>{typeof value === 'boolean' ? value ? 'Yes' : 'No' : Array.isArray(value) ? value.join(', ') : String(value)}</span>;
 }
 
@@ -231,8 +211,6 @@ const propertyKinds = [
   { value: 'boolean', label: 'Checkbox', help: 'A simple yes or no, such as Done or Reviewed.' },
   { value: 'date', label: 'Date', help: 'A day without a time, such as a due date or birthday.' },
   { value: 'datetime', label: 'Date & time', help: 'An exact moment, including its time-zone offset.' },
-  { value: 'select', label: 'Select', help: 'One choice from a list you define, such as a status or priority.' },
-  { value: 'reference', label: 'Object link', help: 'Connect to an object of another type, such as a project or person.' },
   { value: 'date-range', label: 'Date range', help: 'A start and end date, such as a trip or project schedule.' },
   { value: 'time-range', label: 'Time range', help: 'Start and end timestamps with a time zone, such as a meeting.' },
 ] as const;
@@ -438,7 +416,6 @@ function ObjectEditor({ model }: { model: ObjectPageModel }) {
             <fieldset class="object-property" data-type-ids={model.catalog.types.filter(item => item.propertyIds.includes(id)).map(item => item.id).join(' ')} hidden={!active} disabled={!active}>
               <legend class="sr-only">{property.label}</legend>
               {property.kind === 'boolean' && <Hidden name={`draft:p:${id}`} value="false" />}
-              {property.kind === 'reference' && property.multiple && <Hidden name={`draft:p:${id}`} value="" />}
               <PropertyControl model={model} property={property} required={id === JOURNAL_DATE_PROPERTY_ID && type.id === JOURNAL_TYPE_ID} value={(draft?.properties ? draft.properties[id] : record?.properties?.[id]) ?? (id === JOURNAL_DATE_PROPERTY_ID ? journalDate : undefined)} />
             </fieldset>
           </>;
@@ -446,14 +423,14 @@ function ObjectEditor({ model }: { model: ObjectPageModel }) {
       </section>
       <JournalDiscovery model={model} />
       <WritingFields body={body} />
-      {typeChangeDrops && typeChangeDrops.fields.length > 0 && <div class="type-change-disclosure" data-type-change-drops="" role="alert">
+      {typeChangeDrops && typeChangeDrops.fields.length > 0 && <div class="type-change-disclosure" data-type-change-drops="" role="alert" tabindex={-1}>
         <p><strong>Changing type will drop these fields:</strong></p>
         <ul>{typeChangeDrops.fields.map(field => <li><strong>{field.label}</strong>: {field.value}</li>)}</ul>
         <p>The complete prior object will be saved in history. This cannot be undone.</p>
         <input type="hidden" name="confirmTypeChange" value="1" />
       </div>}
       <div class="save-bar">
-        <span data-object-save-controls="">{conflict && record ? <Button type="submit" variant="primary" name="reviewedRevision" value={record.revision}>Save reconciled changes</Button> : <Button type="submit" variant="primary">{record ? 'Save changes' : 'Create object'}</Button>} <Button class="native-only" type="submit" name="intent" value="change-type" formnovalidate>Use type</Button></span>
+        <span data-object-save-controls="">{conflict && record ? <Button type="submit" variant="primary" name="reviewedRevision" value={record.revision} data-submit-trigger="save">Save reconciled changes</Button> : <Button type="submit" variant="primary" data-submit-trigger="save">{record ? 'Save changes' : 'Create object'}</Button>} <Button class="native-only" type="submit" name="intent" value="change-type" formnovalidate>Use type</Button></span>
         <State message={state} error={Boolean(model.error)} />
       </div>
     </form>
@@ -602,7 +579,6 @@ function ViewBlockContent({ model, block, blockIndex, view }: { model: ObjectPag
   return <div class="board-groups">{properties.map(propertyId => {
     const property = propertyOf(model, propertyId);
     const groups = new Map<string, { value: PropertyValue | undefined; rows: ViewRow[] }>();
-    if (property?.kind === 'select') for (const option of property.options ?? []) groups.set(JSON.stringify(option.id), { value: option.id, rows: [] });
     if (property?.kind === 'boolean') for (const value of [false, true]) groups.set(JSON.stringify(value), { value, rows: [] });
     for (const row of rows.filter(item => item.bindings.group === propertyId)) {
       const value = row.object.properties[propertyId];

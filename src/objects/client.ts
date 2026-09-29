@@ -349,6 +349,8 @@ renderPins();
 if (new URLSearchParams(location.search).get('focus') === 'search') document.querySelector<HTMLInputElement>('main input[type="search"]')?.focus();
 
 function triggerSelectorFor(element: HTMLElement): string | null {
+  const triggerAttr = element.dataset.submitTrigger;
+  if (triggerAttr) return `[data-submit-trigger="${triggerAttr}"]`;
   const button = element instanceof HTMLButtonElement ? element : element instanceof HTMLInputElement ? element : null;
   if (button?.name && button.form) {
     const formAction = button.form.action ? new URL(button.form.action, location.href).pathname : '';
@@ -631,6 +633,26 @@ for (const form of forms) {
           const reading = document.querySelector<HTMLElement>('[data-native-reading]');
           if (reading) reading.hidden = true;
           panel.focus();
+        }
+      }
+      // Server returns 200 with a disclosure form when a domain change would drop fields.
+      // Replace the editor form with the server's re-rendered version so the user can confirm.
+      if (response.ok && !response.redirected && form.hasAttribute('data-object-editor')) {
+        const nextDisclosure = page.querySelector('[data-type-change-drops]');
+        const currentEditor = document.querySelector('[data-object-editor]');
+        const nextEditor = page.querySelector('[data-object-editor]');
+        if (nextDisclosure && currentEditor && nextEditor) {
+          currentEditor.replaceWith(document.importNode(nextEditor, true));
+          const newForm = document.querySelector<HTMLFormElement>('[data-object-editor]');
+          if (newForm) {
+            // Re-bind dirty state and re-sync the type selector
+            dirtyForms.add(newForm);
+            const newSelect = newForm.querySelector<HTMLSelectElement>('[data-new-type]');
+            if (newSelect) newSelect.dispatchEvent(new Event('change'));
+            const disclosure = newForm.querySelector<HTMLElement>('[data-type-change-drops]');
+            if (disclosure) disclosure.focus();
+          }
+          return;
         }
       }
       if (!response.ok || !response.redirected) throw new Error(error || `The request could not be saved (${response.status}). Your changes are still here.`);

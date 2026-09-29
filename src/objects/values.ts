@@ -38,7 +38,7 @@ function zoned(value: string, timeZone: string): boolean {
   } catch { return false; }
 }
 /** Returns a diagnostic explanation, not a coerced or repaired value. */
-export function valueError(kind: Exclude<PropertyKind, 'select' | 'reference'>, value: unknown): string | undefined {
+export function valueError(kind: PropertyKind, value: unknown): string | undefined {
   switch (kind) {
     case 'text': return typeof value === 'string' ? undefined : 'Expected text.';
     case 'number': return typeof value === 'number' && Number.isFinite(value) && (!Number.isInteger(value) || Number.isSafeInteger(value)) ? undefined : 'Expected a finite number; integers must be in the safe JavaScript range.';

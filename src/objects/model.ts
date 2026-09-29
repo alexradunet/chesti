@@ -26,7 +26,7 @@ export const PERSON_RECONNECT_EVERY_PROPERTY_ID = '00000000-0000-4000-8000-00000
 export const PERSON_LAST_CONNECTED_PROPERTY_ID = '00000000-0000-4000-8000-000000000507';
 export const PropertyKindSchema = Type.Union([
   Type.Literal('text'), Type.Literal('number'), Type.Literal('boolean'), Type.Literal('date'), Type.Literal('datetime'),
-  Type.Literal('select'), Type.Literal('reference'), Type.Literal('date-range'), Type.Literal('time-range'),
+  Type.Literal('date-range'), Type.Literal('time-range'),
 ]);
 export type PropertyKind = Static<typeof PropertyKindSchema>;
 export interface PropertyDefinition {

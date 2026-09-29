@@ -195,7 +195,7 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
         if (!property) return false;
         if (property.kind === 'text') {
           if (typeof value !== 'string' || /[\r\n]/.test(value)) return false;
-        } else if (property.kind === 'select' || property.kind === 'reference' || valueError(property.kind, value)) return false;
+        } else if (valueError(property.kind, value)) return false;
       }
       return true;
     };

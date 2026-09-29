@@ -368,7 +368,6 @@ export class ObjectRuntime {
     for (const [propertyId, value] of Object.entries(write.properties)) {
       if (!allowed.has(propertyId)) throw new AppError(422, 'Submitted fields must belong to the selected domain.');
       const property = this.getProperty(propertyId);
-      if (property.kind === 'select' || property.kind === 'reference') throw new AppError(422, 'Submitted fields must belong to the selected domain.');
       const error = valueError(property.kind, value);
       if (error) throw new AppError(422, `${property.label}: ${error}`);
     }
