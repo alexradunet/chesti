@@ -1,6 +1,6 @@
 # Object workspace quick start
 
-Create objects, share properties between types, and use AI to author views over the same data.
+Create fixed-domain objects and use AI to author views over the same data.
 
 ## Start
 
@@ -9,7 +9,7 @@ bun install --frozen-lockfile
 bun start
 ```
 
-Open **http://127.0.0.1:3000/**. A new object workspace starts with an editable demo built from Page, Task, Event, Reminder, and Journal, ordinary properties, linked Markdown, and published views. To initialize another workspace, choose a new database path; an existing workspace is never reseeded. To use another database or an explicit authenticated model:
+Open **http://127.0.0.1:3000/**. A new object workspace starts with an editable demo built from Page, Task, Event, Reminder, Journal, and Person, fixed fields, Markdown links, and published views. To initialize another workspace, choose a new database path; an existing workspace is never reseeded. Existing v1–v6 object databases are refused rather than migrated or deleted. To use another database or an explicit authenticated model:
 
 ```sh
 DATABASE_PATH=/absolute/path/to/workspace.sqlite \
@@ -34,9 +34,9 @@ Initialization and all demo writes commit together or roll back together. Existi
 
 The bundled views are already published so you can try their actions offline. Creating or refining additional views still requires Pi authentication and explicit draft publication; the demo is not a fallback for generation failures.
 
-## Create shared data
+## Create fixed-domain data
 
-1. Open **Manage types** in the left sidebar. Task already has **Done**, **Due date**, and **Scheduled date**. Built-in types and their core fields are protected, but you can rename display labels and add fields.
+1. Choose one of the six fixed domains when creating an object. Task has **Done**, **Due date**, and **Scheduled date**. The domains and fields are code-owned; there is no schema editor, custom type creation, select field, or structured reference field.
 2. Under **Create a type**, enter `Work item`, choose Task under **Based on**, and choose **Create type & add properties**. This reuses the current Done, Due date, and Scheduled date property identities. The new type is independent: later field additions and built-in lifecycle rules do not propagate.
 3. Add an `Effort` property with the **Number** format to Work item. Use **Use an existing property** when the same concept is already represented elsewhere. Property cards show formats and choices; **Rename property** identifies other types that share its label.
 4. Open **New note** for a generic Page, or open **Objects** and choose a type-specific new object. For a Task, add Scheduled date and/or Due date in **Properties**, above the optional writing. Choose **Create object** to save. Create another task without a date and a Work item with a date. Switching types keeps title, writing, and field drafts; without JavaScript, choose **Use type** to load the selected fields without saving. Only the selected type’s properties are saved on creation; existing objects also retain their existing fields.
@@ -155,10 +155,10 @@ Alternatively stop the server and back up the database together with any `-wal`/
 
 Synthetic storage measurements are documented in [SQLite storage measurements](sqlite-measurements.md).
 
-Back up before upgrading to object schema version 6. Version 6 adds the protected Person type and seven optional fields without modifying existing objects or merging custom types named Person. Open **People** to browse relationships; set Last connected and Reconnect every (months, 1–120) to calculate the next reconnect date automatically. Month ends clamp to the last day of the target month; no background notifications are sent. Startup transactionally centralizes the current application schema and adds conservative structural checks for object JSON, property metadata, revisions, and saved-view history without changing existing objects, object revisions, views, conversations, visitor identities, labels, creation receipts, or unrelated tables. The built-in Task type revision advances once when the Scheduled field is attached; existing object revisions do not. Existing version-3 databases are preserved; version-2 databases first add built-in types, core fields, and journal date constraints; version-1 structured writing and history first convert to Markdown in the same transaction, preserving identities and links. Incompatible reserved definitions or existing rows that violate the new structural checks abort rather than overwrite data.
+Back up current v7 data before future upgrades. Version 7 is a fresh-only fixed-domain format: older object schema versions are not migrated in this application. To keep an older file available, leave it in place and start this version with a new explicit `DATABASE_PATH`. Open **People** to browse relationships; set Last connected and Reconnect every (months, 1–120) to calculate the next reconnect date automatically. Month ends clamp to the last day of the target month; no background notifications are sent.
 
 Empty editor paragraphs retain blank-line source, and ending or consecutive hard breaks become ordinary Markdown whitespace breaks. Markdown may collapse empty editor blocks visually; it does not add placeholders or raw HTML. Emphasis is preserved across punctuation, whitespace, and adjacent or nested marks; conversion may use character entities to prevent Markdown delimiter ambiguity. These conversions also apply to historical revisions and creation receipts, and the converted Markdown must fit the 256 KiB writing limit. Unknown or malformed structures and unsupported content such as inline code containing newlines still abort the upgrade. On failure, the transaction leaves the version-1 database intact and usable by the previous application version; the reported conversion issue must be resolved before upgrading.
 
-Only the current object database is supported. There is no historical issue/vault runtime, directory import/export tool, or legacy migration path. Startup never converts or deletes unrelated tables or files. Back up the SQLite database rather than treating Markdown files as live storage.
+Only fresh version-7 object databases are supported by this build. There is no historical issue/vault runtime, directory import/export tool, legacy object migration path, or automatic reset. Startup never converts or deletes unrelated tables or files. Back up the SQLite database rather than treating Markdown files as live storage.
 
 See the [object/view contract](object-contract.md) for storage, query, and command constraints.

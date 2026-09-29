@@ -1,6 +1,6 @@
 # Taskdesk
 
-A local, object-first workspace. **Objects own data; views are ways to see it.** The built-in interface only browses and edits objects and types. New workspaces include a bundled demo; additional saved views are authored by AI, previewed as drafts, and explicitly published—there is no manual view builder.
+A local, object-first workspace. **Objects own data; views are ways to see it.** Taskdesk now starts from a fresh version-7 database with six fixed domains: Page, Task, Event, Reminder, Journal, and Person. New workspaces include a bundled demo; additional saved views are authored by AI, previewed as drafts, and explicitly published—there is no manual view builder or schema editor.
 
 ## Run
 
@@ -19,7 +19,7 @@ bun run sqlite:runtime
 
 This opens only an in-memory database and reports Bun's SQLite version, source ID, compile options, and direct feature probes. See [the SQLite runtime evaluation](docs/sqlite-runtime.md) for the current patch-level decision; the supported minimum remains Bun 1.4.2 until a newer stable Bun runtime is verified.
 
-Open **http://127.0.0.1:3000/**. First initialization creates a descriptive demo using only the protected **Page, Task, Event, Reminder, and Journal** types, ordinary properties, linked Markdown, and trusted views. Start with **Page → Start here · your workspace is made of primitives**, or **Views → 01 · Start here**. The demo includes all nine property kinds, three published views, and a restorable example in Trash. It needs no model; creating types, editing objects, and opening saved views also work offline.
+Open **http://127.0.0.1:3000/**. First initialization creates a descriptive demo using only the fixed **Page, Task, Event, Reminder, Journal, and Person** domains, Markdown links, and trusted views. It needs no model; editing objects and opening saved views work offline. Existing v1–v6 object databases are refused rather than migrated—choose a new `DATABASE_PATH` for this fresh fixed-domain format.
 
 View generation uses your local Pi authentication and a real model. There is no deterministic fallback. If necessary, authenticate with Pi and select an available model:
 
@@ -39,7 +39,7 @@ Bun loads `.env` files normally. Use one server per database. This is a local si
 
 ## Use it
 
-1. **Manage types:** use the built-in types directly, rename their display labels, or add your own fields. Under **Create a type**, choose **Based on** to reuse another type’s current properties—for example, create Work item based on Task. The new type shares property identities, not future field additions or built-in lifecycle rules. Built-in identities and core fields cannot be deleted.
+1. **Choose a domain:** create one of the six fixed domains. Page has only title and Markdown. Task has Done, Scheduled, and Due. Event and Reminder use their fixed temporal fields. Journal has one date. Person has relationship details and derived reconnect dates.
 2. **New note** creates a generic Page. For other new objects, enter a title, choose a type and fill its always-visible compact property rows, then edit Markdown writing below. New-object fields use two columns when space allows; the formatting toolbar scrolls horizontally rather than pushing writing farther down. Small screens and types with many fields can still require vertical scrolling. Task has Done, an optional Scheduled date, and an optional Due date. Event requires either All-day dates or Event time; Reminder requires either Reminder date or Reminder time, with no notifications. Range ends are exclusive. Page needs no extra properties. Type switching preserves title, writing, and field drafts; without JavaScript, choose **Use type** to load fields without saving. Only the selected type’s fields are saved on creation; existing objects also retain their existing properties.
 3. **Views → Create view:** describe the view in the right-hand assistant, for example: “Show Task and Work item in an editable calendar using Due date. Include unscheduled objects.”
 4. Review the generated draft in the main area, then publish. Continue the conversation to refine the latest result; **Refine with AI** explicitly starts a conversation about the selected view. Each refinement creates a separate draft.
@@ -77,7 +77,7 @@ Save feedback stays beside the save button instead of appearing in duplicate pag
 
 The object workspace is the only supported application. Startup seeds the demo transactionally when first initializing an object database, or opens an existing workspace unchanged. It never reseeds an existing workspace, even after its objects are trashed or its views deleted. Demo dates are relative to the server's local initialization day and stay fixed afterward; timed examples use explicit UTC times. Startup does not import or migrate historical issue/vault data. Existing object data and visitor-owned view conversations remain usable. Unrelated tables and files are left untouched, not converted or deleted. Back up SQLite before upgrading; see the quick start.
 
-Object schema version 6 adds the protected Person type and its seven optional fields without changing existing objects or same-named custom types. Version 5 keeps one application schema owner, adds Task's Scheduled date core field and shared favorites, and retains version-4 conservative structural checks for current JSON shapes, metadata, and saved-view history. Version-3 databases upgrade transactionally without rewriting objects, views, conversations, visitors, histories, receipts, labels, or unrelated tables. Version-2 databases first add protected built-in definitions and storage-enforced daily-journal dates while preserving customizations; version-1 databases first convert supported structured writing to Markdown. Unknown schemas, incompatible reserved definitions, or existing data that violates the structural checks abort the transaction. Back up SQLite before upgrading.
+Object schema version 7 is a fresh-only fixed-domain format. Existing object database versions 1–6, incomplete application schemas, and newer unknown versions are refused with instructions to choose a new database path. Taskdesk does not delete, reset, or migrate those files.
 
 ## Implementation
 
@@ -91,7 +91,6 @@ Bun supplies the HTTP server, SQLite driver, browser bundler, saved-Markdown ren
 - `src/objects/values.ts`: dependency-light scalar and temporal validation.
 - `src/objects/markdown.ts`: bounded Markdown source, safe Bun rendering, search text, and link extraction.
 - `src/objects/writing.ts`, `writing-commands.ts`, `writing-links.ts`: textarea enhancement, bounded draft preview, selection-based Markdown commands, and the shared safe-link policy.
-- `src/objects/upgrade-markdown.ts`: transactional upgrade of existing structured object writing.
 - `src/objects/views.ts`: persistent view lifecycle, prepared bounded queries, and scoped commands.
 - `src/objects/conversations.ts`: visitor-owned view threads and atomic draft/turn persistence.
 - `src/objects/generator.ts`: isolated metadata-only Pi generation and validated submission.
@@ -122,6 +121,6 @@ Open **`/design-system`**, linked from the footer, to inspect the actual shared 
 
 ## Current boundaries
 
-No live type inheritance, generated plugins, arbitrary model execution, synchronization, attachment storage, notification delivery, or per-object sharing permissions. Custom types are flexible property recommendations; canonical built-ins additionally enforce their completion/date rules. Creating a type based on another type reuses its current property IDs, without copying objects or inheriting daily-journal uniqueness. Property kind, reference shape, and select options are fixed after creation; renaming labels is supported. Built-in core field attachments and identities are protected.
+No live type inheritance, generated plugins, arbitrary model execution, synchronization, attachment storage, notification delivery, or per-object sharing permissions. The six domains and their fields are fixed in code. There are no custom types, user-created properties, select fields, structured references, or schema-label edits. Connections are ordinary Markdown links with derived backlinks.
 
 Browse pages show 50 lightweight object summaries and read bounded derived body_text only for gallery excerpts; full Markdown bodies load only for canonical object reads. Object history shows 20 historical revisions per page and loads full body content only for the selected revision. Generated blocks show up to 100 rows with an explicit truncation notice. Refine the prompt to narrow larger result sets. Enhanced object, writing-link, reference, and view-input search return at most 50 matches and explicitly ask you to narrow truncated results. Native reference pickers are bounded to 200 live candidates per target type; native view input pickers show up to 200 candidates. Existing selections remain visible. Calendar agendas group by the stored start date, not a month grid or recurrence engine.

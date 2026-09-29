@@ -2,17 +2,14 @@ import type { Database } from 'bun:sqlite';
 import { AppError } from '../core.js';
 import { initializeApplicationSchema } from '../schema.js';
 import { fingerprint } from './fingerprint.js';
-import { PERSON_TYPE_ID, PERSON_RECONNECT_EVERY_PROPERTY_ID, type ViewObjectRecord } from './model.js';
+import { FIXED_PROPERTIES, FIXED_TYPES, FIXED_PROPERTY_IDS, FIXED_TYPE_IDS, PERSON_TYPE_ID, PERSON_RECONNECT_EVERY_PROPERTY_ID, type ViewObjectRecord } from './model.js';
 import { localDateBounds, validDate, valueError } from './values.js';
 import { markdownReferences, markdownText, validateMarkdown } from './markdown.js';
 import { EVENT_DATES_PROPERTY_ID, EVENT_TIME_PROPERTY_ID, EVENT_TYPE_ID, JOURNAL_DATE_PROPERTY_ID, JOURNAL_TYPE_ID, REMINDER_DATE_PROPERTY_ID, REMINDER_TIME_PROPERTY_ID, REMINDER_TYPE_ID, TASK_DONE_PROPERTY_ID, TASK_DUE_PROPERTY_ID, TASK_SCHEDULED_PROPERTY_ID, TASK_TYPE_ID } from './model.js';
-import type { BacklinkPage, BoundedPage, Catalog, DayTaskSummary, ObjectListOptions, ObjectRecord, ObjectRevisionSummary, ObjectSummary, ObjectType, ObjectWrite, PropertyDefinition, PropertyKind, PropertyValue } from './model.js';
+import type { BacklinkPage, BoundedPage, Catalog, DayTaskSummary, ObjectListOptions, ObjectRecord, ObjectRevisionSummary, ObjectSummary, ObjectType, ObjectWrite, PropertyDefinition, PropertyValue } from './model.js';
 
 const ID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
-const KINDS: Record<PropertyKind, true> = { text: true, number: true, boolean: true, date: true, datetime: true, select: true, reference: true, 'date-range': true, 'time-range': true };
 const JOURNAL_DATE_PATH = `$."${JOURNAL_DATE_PROPERTY_ID}"`;
-interface TypeRow { id: string; name: string; property_ids_json: string; revision: number }
-interface PropertyRow { id: string; label: string; kind: PropertyKind; options_json: string | null; target_type_id: string | null; multiple: number; revision: number }
 interface ObjectSummaryRow { id: string; type_id: string; title: string; revision: number; created_at: string; updated_at: string; trashed: number }
 interface ObjectRow extends ObjectSummaryRow { properties_json: string; body: string }
 interface DayTaskRow extends ObjectSummaryRow { done: unknown; due_date: unknown; scheduled_date: unknown; matches_due: number; matches_scheduled: number }
@@ -33,16 +30,6 @@ function snapshotRecord(value: string): ObjectRecord {
       !Number.isSafeInteger(record.revision) || record.revision < 1 || typeof record.createdAt !== 'string' || typeof record.updatedAt !== 'string' ||
       typeof record.trashed !== 'boolean') throw new AppError(500, 'Historical snapshot is not readable.');
   return record;
-}
-function objectType(row: TypeRow): ObjectType {
-  return { id: row.id, name: row.name, propertyIds: JSON.parse(row.property_ids_json), revision: row.revision };
-}
-function propertyDefinition(row: PropertyRow): PropertyDefinition {
-  return { id: row.id, label: row.label, kind: row.kind, revision: row.revision, ...(row.options_json === null ? {} : { options: JSON.parse(row.options_json) }), ...(row.target_type_id === null ? {} : { targetTypeId: row.target_type_id }), ...(row.kind === 'reference' ? { multiple: row.multiple === 1 } : {}) };
-}
-function label(value: unknown, name: string): string {
-  if (typeof value !== 'string' || !value.trim() || value.length > 200) throw new AppError(422, `${name} must contain 1–200 characters.`);
-  return value.trim();
 }
 function revisionIs(current: number, supplied: number): void {
   if (!Number.isSafeInteger(supplied) || current !== supplied) throw new AppError(409, 'This item changed. Reload before saving.');
@@ -83,77 +70,19 @@ export class ObjectRuntime {
 
   catalog(): Catalog {
     return {
-      types: this.db.query<TypeRow, []>('SELECT * FROM object_types ORDER BY name COLLATE NOCASE, id').all().map(objectType),
-      properties: this.db.query<PropertyRow, []>('SELECT * FROM object_properties ORDER BY label COLLATE NOCASE, id').all().map(propertyDefinition),
+      types: FIXED_TYPES.map(type => ({ ...type, propertyIds: [...type.propertyIds] })),
+      properties: FIXED_PROPERTIES.map(property => ({ ...property })),
     };
   }
   getType(id: string): ObjectType {
-    const row = this.db.query<TypeRow, [string]>('SELECT * FROM object_types WHERE id = ?').get(id);
-    if (!row) throw new AppError(404, 'Object type not found.');
-    return objectType(row);
+    const type = FIXED_TYPES.find(item => item.id === id);
+    if (!type) throw new AppError(404, 'Object type not found.');
+    return { ...type, propertyIds: [...type.propertyIds] };
   }
   getProperty(id: string): PropertyDefinition {
-    const row = this.db.query<PropertyRow, [string]>('SELECT * FROM object_properties WHERE id = ?').get(id);
-    if (!row) throw new AppError(404, 'Property not found.');
-    return propertyDefinition(row);
-  }
-  createType(name: string, basedOnTypeId?: string): ObjectType {
-    name = label(name, 'Type name');
-    return this.db.transaction(() => {
-      const propertyIds = basedOnTypeId === undefined ? [] : this.getType(basedOnTypeId).propertyIds;
-      const id = crypto.randomUUID();
-      this.db.query('INSERT INTO object_types(id, name, property_ids_json, revision) VALUES (?, CAST(? AS TEXT), ?, 1)').run(id, Buffer.from(name), JSON.stringify(propertyIds));
-      return this.getType(id);
-    })();
-  }
-  renameType(id: string, revision: number, name: string): ObjectType {
-    name = label(name, 'Type name');
-    return this.db.transaction(() => {
-      revisionIs(this.getType(id).revision, revision);
-      this.db.query('UPDATE object_types SET name = CAST(? AS TEXT), revision = revision + 1 WHERE id = ? AND revision = ?').run(Buffer.from(name), id, revision);
-      return this.getType(id);
-    })();
-  }
-  addProperty(typeId: string, revision: number, input: { propertyId?: string; label?: string; kind?: PropertyKind; options?: string[]; targetTypeId?: string; multiple?: boolean }): ObjectType {
-    return this.db.transaction(() => {
-      const type = this.getType(typeId);
-      revisionIs(type.revision, revision);
-      let propertyId = input.propertyId;
-      if (propertyId !== undefined) {
-        this.getProperty(propertyId);
-        if (input.label !== undefined || input.kind !== undefined || input.options !== undefined || input.targetTypeId !== undefined || input.multiple !== undefined) throw new AppError(422, 'Reuse a property by ID without redefining it.');
-      } else {
-        const propertyLabel = label(input.label, 'Property label');
-        if (!input.kind || !Object.hasOwn(KINDS, input.kind)) throw new AppError(422, 'Choose a supported property kind.');
-        if (input.kind !== 'select' && input.options !== undefined) throw new AppError(422, 'Only select properties have options.');
-        if (input.kind !== 'reference' && (input.targetTypeId !== undefined || input.multiple !== undefined)) throw new AppError(422, 'Only reference properties have a target type or multiple values.');
-        let options: PropertyDefinition['options'];
-        if (input.kind === 'select') {
-          if (!Array.isArray(input.options) || !input.options.length || input.options.length > 100) throw new AppError(422, 'Select properties need 1–100 options.');
-          const labels = input.options.map(option => label(option, 'Option'));
-          if (new Set(labels).size !== labels.length) throw new AppError(422, 'Option labels must be unique.');
-          options = labels.map(option => ({ id: crypto.randomUUID(), label: option }));
-        }
-        if (input.kind === 'reference') {
-          if (!input.targetTypeId) throw new AppError(422, 'Reference properties need a target type.');
-          this.getType(input.targetTypeId);
-          if (input.multiple !== undefined && typeof input.multiple !== 'boolean') throw new AppError(422, 'Reference multiplicity must be true or false.');
-        }
-        propertyId = crypto.randomUUID();
-        this.db.query('INSERT INTO object_properties(id, label, kind, options_json, target_type_id, multiple, revision) VALUES (?, CAST(? AS TEXT), ?, ?, ?, ?, 1)').run(propertyId, Buffer.from(propertyLabel), input.kind, options ? JSON.stringify(options) : null, input.targetTypeId ?? null, input.multiple ? 1 : 0);
-      }
-      if (type.propertyIds.includes(propertyId)) throw new AppError(409, 'This type already uses that property.');
-      this.db.query('UPDATE object_types SET property_ids_json = ?, revision = revision + 1 WHERE id = ? AND revision = ?').run(JSON.stringify([...type.propertyIds, propertyId]), typeId, revision);
-      return this.getType(typeId);
-    })();
-  }
-  renameProperty(id: string, revision: number, name: string): PropertyDefinition {
-    name = label(name, 'Property label');
-    return this.db.transaction(() => {
-      revisionIs(this.getProperty(id).revision, revision);
-      this.db.query('UPDATE object_properties SET label = CAST(? AS TEXT), revision = revision + 1 WHERE id = ? AND revision = ?').run(Buffer.from(name), id, revision);
-      return this.getProperty(id);
-    })();
+    const property = FIXED_PROPERTIES.find(item => item.id === id);
+    if (!property) throw new AppError(404, 'Property not found.');
+    return { ...property };
   }
   getObject(id: string): ObjectRecord {
     const row = this.db.query<ObjectRow, [string]>('SELECT * FROM objects WHERE id = ?').get(id);
@@ -385,13 +314,6 @@ export class ObjectRuntime {
     const writing = this.writingDerivations(write.body, bodyChanged);
     this.validateValues(write, previous, writing.links);
     if (write.typeId !== previous.typeId) {
-      const incoming = this.db.query<{ property_id: string }, [string]>('SELECT DISTINCT property_id FROM object_references WHERE target_id = ? AND property_id != \'\'').all(previous.id);
-      for (const edge of incoming) {
-        if (this.getProperty(edge.property_id).targetTypeId !== write.typeId) {
-          const external = this.db.query<{ source_id: string }, [string, string, string]>('SELECT source_id FROM object_references WHERE target_id = ? AND property_id = ? AND source_id != ? LIMIT 1').get(previous.id, edge.property_id, previous.id);
-          if (external) throw new AppError(409, 'This type change would invalidate an existing reference. Remove or change that reference first.');
-        }
-      }
     }
     this.remember(previous);
     if (bodyChanged) {
@@ -422,11 +344,11 @@ export class ObjectRuntime {
     if (!target) throw new AppError(404, 'Object not found.');
     if (!Number.isInteger(offset) || offset < 0 || offset > 1_000_000) throw new AppError(422, 'Invalid backlinks page.');
     const limit = 50;
-    const rows = this.db.query<ObjectSummaryRow & { property_id: string }, [string, number, number]>(`SELECT o.id, o.type_id, o.title, o.revision, o.created_at, o.updated_at, o.trashed, r.property_id
+    const rows = this.db.query<ObjectSummaryRow, [string, number, number]>(`SELECT o.id, o.type_id, o.title, o.revision, o.created_at, o.updated_at, o.trashed
       FROM object_references r JOIN objects o ON o.id = r.source_id
-      WHERE r.target_id = ? ORDER BY o.updated_at DESC, o.id, r.property_id LIMIT ? OFFSET ?`).all(id, limit + 1, offset);
+      WHERE r.target_id = ? ORDER BY o.updated_at DESC, o.id LIMIT ? OFFSET ?`).all(id, limit + 1, offset);
     return {
-      links: rows.slice(0, limit).map(row => ({ object: objectSummary(row), ...(row.property_id ? { propertyId: row.property_id } : {}) })),
+      links: rows.slice(0, limit).map(row => ({ object: objectSummary(row) })),
       offset,
       hasMore: rows.length > limit,
     };
@@ -441,26 +363,14 @@ export class ObjectRuntime {
     return { typeId: input.typeId, title: input.title, properties: structuredClone(input.properties) as Record<string, PropertyValue>, body };
   }
   private validateValues(write: ObjectWrite, previous?: ObjectRecord, writingLinks = this.writingDerivations(write.body).links): void {
-    this.getType(write.typeId);
+    const type = this.getType(write.typeId);
+    const allowed = new Set(type.propertyIds);
     for (const [propertyId, value] of Object.entries(write.properties)) {
+      if (!allowed.has(propertyId)) throw new AppError(422, 'Submitted fields must belong to the selected domain.');
       const property = this.getProperty(propertyId);
-      if (property.kind === 'select') {
-        if (typeof value !== 'string' || !property.options?.some(option => option.id === value)) throw new AppError(422, `${property.label}: choose an option by its stable ID.`);
-      } else if (property.kind === 'reference') {
-        const ids = property.multiple ? value : [value];
-        if (!Array.isArray(ids) || ids.length > 256 || ids.some(id => typeof id !== 'string' || !ID.test(id)) || new Set(ids.map(id => String(id).toLowerCase())).size !== ids.length) throw new AppError(422, `${property.label}: expected ${property.multiple ? 'unique object IDs' : 'one object ID'}.`);
-        const oldValue = previous?.properties[propertyId];
-        const retained = new Set((Array.isArray(oldValue) ? oldValue : typeof oldValue === 'string' ? [oldValue] : []).map(id => id.toLowerCase()));
-        for (const targetId of ids as string[]) {
-          const target = this.getObjectSummary(targetId);
-          const targetType = previous && target.id.toLowerCase() === previous.id.toLowerCase() ? write.typeId : target.typeId;
-          if (targetType !== property.targetTypeId) throw new AppError(422, `${property.label}: target has the wrong object type.`);
-          if (target.trashed && !retained.has(target.id.toLowerCase())) throw new AppError(422, `${property.label}: cannot add a reference to a trashed object.`);
-        }
-      } else {
-        const error = valueError(property.kind, value);
-        if (error) throw new AppError(422, `${property.label}: ${error}`);
-      }
+      if (property.kind === 'select' || property.kind === 'reference') throw new AppError(422, 'Submitted fields must belong to the selected domain.');
+      const error = valueError(property.kind, value);
+      if (error) throw new AppError(422, `${property.label}: ${error}`);
     }
     const retained = previous?.body === write.body ? writingLinks : new Set(previous ? markdownReferences(previous.body) : []);
     for (const targetId of writingLinks) {
@@ -501,12 +411,9 @@ export class ObjectRuntime {
     return { links: new Set(markdownReferences(body)), ...(includeText ? { text: markdownText(body) } : {}) };
   }
   private indexReferences(object: ObjectRecord, writingLinks: Set<string>, preserveWriting = false): void {
-    this.db.query(`DELETE FROM object_references WHERE source_id = ?${preserveWriting ? " AND property_id != ''" : ''}`).run(object.id);
-    const insert = this.db.query('INSERT OR IGNORE INTO object_references(source_id, target_id, property_id) VALUES (?, ?, ?)');
-    for (const [propertyId, value] of Object.entries(object.properties)) {
-      if (this.getProperty(propertyId).kind !== 'reference') continue;
-      for (const targetId of Array.isArray(value) ? value : [value]) insert.run(object.id, String(targetId), propertyId);
-    }
-    if (!preserveWriting) for (const targetId of writingLinks) insert.run(object.id, targetId, '');
+    if (preserveWriting) return;
+    this.db.query('DELETE FROM object_references WHERE source_id = ?').run(object.id);
+    const insert = this.db.query('INSERT OR IGNORE INTO object_references(source_id, target_id) VALUES (?, ?)');
+    if (!preserveWriting) for (const targetId of writingLinks) insert.run(object.id, targetId);
   }
 }

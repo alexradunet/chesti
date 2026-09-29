@@ -1,9 +1,16 @@
+import { Database } from 'bun:sqlite';
+import { existsSync } from 'node:fs';
 import { openDatabase } from '../database.js';
+import { rejectUnsupportedApplicationSchema } from '../schema.js';
 import { ObjectRuntime } from './runtime.js';
 import { seedDemo } from './demo.js';
 
 /** Seed only the first application initialization, never an emptied workspace. */
 export function openWorkspace(file: string): ObjectRuntime {
+  if (file !== ':memory:' && existsSync(file)) {
+    const check = new Database(file, { readonly: true, strict: true });
+    try { rejectUnsupportedApplicationSchema(check); } finally { check.close(); }
+  }
   const db = openDatabase(file);
   try {
     const objects = db.transaction(() => {

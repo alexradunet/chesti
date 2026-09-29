@@ -56,19 +56,24 @@ export const BUILTIN_PROPERTIES: readonly Omit<PropertyDefinition, 'revision'>[]
   { id: PERSON_LAST_CONNECTED_PROPERTY_ID, label: 'Last connected', kind: 'date' },
 ];
 export const BUILTIN_TYPES: readonly { id: string; name: string; description: string; propertyIds: readonly string[] }[] = [
-  { id: PAGE_TYPE_ID, name: 'Page', description: 'Freeform writing without required fields.', propertyIds: [] },
+  { id: PAGE_TYPE_ID, name: 'Page', description: 'Freeform writing without extra fields.', propertyIds: [] },
   { id: TASK_TYPE_ID, name: 'Task', description: 'Work with a completion state, optional scheduled date, and optional due date.', propertyIds: [TASK_DONE_PROPERTY_ID, TASK_DUE_PROPERTY_ID, TASK_SCHEDULED_PROPERTY_ID] },
   { id: EVENT_TYPE_ID, name: 'Event', description: 'Exactly one all-day date range or timed range, with an exclusive end.', propertyIds: [EVENT_DATES_PROPERTY_ID, EVENT_TIME_PROPERTY_ID] },
   { id: REMINDER_TYPE_ID, name: 'Reminder', description: 'A calendar item with exactly one date or time. No notifications or recurrence.', propertyIds: [REMINDER_DATE_PROPERTY_ID, REMINDER_TIME_PROPERTY_ID] },
   { id: JOURNAL_TYPE_ID, name: 'Journal', description: 'One canonical entry per calendar date, including entries in Trash.', propertyIds: [JOURNAL_DATE_PROPERTY_ID] },
   { id: PERSON_TYPE_ID, name: 'Person', description: 'A person you know, with relationship details and reconnect dates.', propertyIds: [PERSON_RELATIONSHIP_PROPERTY_ID, PERSON_BIRTHDAY_PROPERTY_ID, PERSON_PHONE_PROPERTY_ID, PERSON_JOB_TITLE_PROPERTY_ID, PERSON_FAVORITE_ARTISTS_PROPERTY_ID, PERSON_RECONNECT_EVERY_PROPERTY_ID, PERSON_LAST_CONNECTED_PROPERTY_ID] },
 ];
+
 export interface ObjectType {
   id: string;
   name: string;
   propertyIds: string[];
   revision: number;
 }
+export const FIXED_TYPES: readonly ObjectType[] = BUILTIN_TYPES.map(type => ({ id: type.id, name: type.name, propertyIds: [...type.propertyIds], revision: 1 }));
+export const FIXED_PROPERTIES: readonly PropertyDefinition[] = BUILTIN_PROPERTIES.map(property => ({ ...property, revision: 1 }));
+export const FIXED_TYPE_IDS = new Set(FIXED_TYPES.map(type => type.id));
+export const FIXED_PROPERTY_IDS = new Set(FIXED_PROPERTIES.map(property => property.id));
 export type PropertyValue = string | number | boolean | string[] | { start: string; end: string; timeZone?: string };
 export interface ObjectSummary {
   id: string;
@@ -130,7 +135,6 @@ const FilterSchema = object({
 export const ViewSpecSchema = object({
   title: Type.String({ minLength: 1, maxLength: 100 }),
   description: Type.Optional(Type.String({ maxLength: 500 })),
-  input: Type.Optional(object({ label: Type.String({ minLength: 1, maxLength: 80 }), typeId: IdSchema })),
   blocks: Type.Array(object({
     title: Type.String({ minLength: 1, maxLength: 100 }),
     component: Type.Union([Type.Literal('list'), Type.Literal('table'), Type.Literal('calendar'), Type.Literal('board')]),
@@ -144,7 +148,7 @@ export const ViewSpecSchema = object({
     editable: Type.Optional(Type.Boolean()),
   }), { minItems: 1, maxItems: 6 }),
 });
-export type ViewSpec = Static<typeof ViewSpecSchema>;
+export type ViewSpec = Static<typeof ViewSpecSchema> & { input?: { label: string; typeId: string } };
 export type ViewBlock = ViewSpec['blocks'][number];
 export type ViewSource = ViewBlock['sources'][number];
 export interface SavedView {

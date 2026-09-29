@@ -4,7 +4,7 @@ import type { Visitor } from '../visitors.js';
 import { renderMarkdown, validateMarkdown } from './markdown.js';
 import { serverTimeZone, validDate, valueError } from './values.js';
 import { PERSON_TYPE_ID, IdSchema, JOURNAL_DATE_PROPERTY_ID, JOURNAL_TYPE_ID, PAGE_TYPE_ID, TASK_TYPE_ID } from './model.js';
-import type { EvaluatedView, ObjectLookupResult, ObjectPageModel, ObjectRecord, ObjectSummary, ObjectWrite, PropertyDefinition, PropertyKind, PropertyValue, SavedView, ViewConversation, ViewGenerator } from './model.js';
+import type { EvaluatedView, ObjectLookupResult, ObjectPageModel, ObjectRecord, ObjectSummary, ObjectWrite, PropertyDefinition, PropertyValue, SavedView, ViewConversation, ViewGenerator } from './model.js';
 import type { ObjectRuntime } from './runtime.js';
 import { ViewService } from './views.js';
 import { generateView } from './generator.js';
@@ -28,7 +28,6 @@ function requireFields(fields: URLSearchParams, allowed: string[], properties = 
 }
 function formValue(property: PropertyDefinition, fields: URLSearchParams, prefix: string): PropertyValue | null {
   const values = fields.getAll(prefix);
-  if (property.kind === 'reference' && property.multiple) return values.filter(Boolean).length ? values.filter(Boolean) : null;
   if (values.length > 1) throw new AppError(422, `Repeated value for ${property.label}.`);
   if (property.kind === 'date-range' || property.kind === 'time-range') {
     // JSON is accepted for programmatic/native clients; the normal UI has named range inputs.
@@ -67,16 +66,6 @@ function draftFields(fields: URLSearchParams): Record<string, string[]> {
   for (const name of fields.keys()) if (name.startsWith('draft:p:')) draft[name.slice(6)] = fields.getAll(name);
   for (const name of fields.keys()) if (name.startsWith('p:')) draft[name] = fields.getAll(name);
   return draft;
-}
-function newPropertyDraft(fields: URLSearchParams) {
-  return {
-    label: fields.get('label') ?? '',
-    kind: fields.get('kind') ?? '',
-    options: fields.get('options') ?? '',
-    targetTypeId: fields.get('targetTypeId') ?? '',
-    multiple: fields.get('multiple') === 'on' || fields.get('multiple') === 'true',
-    revision: fields.get('revision') ?? '',
-  };
 }
 
 /** The native editor, enhanced editor, and generated view forms share the same commands. */
@@ -150,25 +139,13 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
       for (const properties of propertySets) {
         for (const [id, value] of Object.entries(properties ?? {})) {
           propertyIds.add(id);
-          const property = catalog.properties.find(item => item.id === id);
-          if (property?.kind !== 'reference') continue;
-          for (const target of Array.isArray(value) ? value : [value]) {
-            if (typeof target === 'string') selectedIds.set(target.toLowerCase(), target);
-          }
         }
       }
       for (const [name, values] of Object.entries(model.objectDraft?.fields ?? {})) {
         const match = /^p:([a-f0-9-]{36})$/i.exec(name);
         if (!match) continue;
-        const property = catalog.properties.find(item => item.id === match[1]);
-        if (property?.kind !== 'reference') continue;
-        propertyIds.add(property.id);
-        for (const target of values) if (target) selectedIds.set(target.toLowerCase(), target);
       }
       const targetTypes = new Set<string>();
-      for (const property of catalog.properties) {
-        if (propertyIds.has(property.id) && property.kind === 'reference' && property.targetTypeId) targetTypes.add(property.targetTypeId);
-      }
       const byId = new Map<string, ObjectSummary>();
       const add = (record: ObjectSummary) => byId.set(record.id.toLowerCase(), record);
       for (const typeId of targetTypes) for (const record of objects.listObjectSummaries({ typeId, limit: 200 })) add(record);
@@ -195,17 +172,6 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
         const ids = Array.isArray(value) ? value : typeof value === 'string' ? [value] : [];
         for (const id of ids) selectedIds.add(id);
       };
-      if (evaluated.view.spec.input?.typeId) targetTypes.add(evaluated.view.spec.input.typeId);
-      for (const block of evaluated.blocks) {
-        for (const row of block.rows) {
-          for (const propertyId of Object.values(row.bindings)) {
-            const property = catalog.properties.find(item => item.id === propertyId);
-            if (property?.kind !== 'reference') continue;
-            if (property.targetTypeId) targetTypes.add(property.targetTypeId);
-            addValue(row.object.properties[property.id]);
-          }
-        }
-      }
       for (const typeId of targetTypes) {
         for (const record of objects.listObjectSummaries({ typeId, limit: 200 })) add(record);
       }
@@ -229,14 +195,7 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
         if (!property) return false;
         if (property.kind === 'text') {
           if (typeof value !== 'string' || /[\r\n]/.test(value)) return false;
-        } else if (property.kind === 'select') {
-          if (typeof value !== 'string' || !property.options?.some(option => option.id === value)) return false;
-        } else if (property.kind === 'reference') {
-          const ids = property.multiple ? value : [value];
-          if (!Array.isArray(ids) || ids.length > 256) return false;
-          if (ids.some(id => typeof id !== 'string' || !Value.Check(IdSchema, id.toLowerCase()))) return false;
-          if (new Set(ids.map(id => String(id).toLowerCase())).size !== ids.length) return false;
-        } else if (valueError(property.kind, value)) return false;
+        } else if (property.kind === 'select' || property.kind === 'reference' || valueError(property.kind, value)) return false;
       }
       return true;
     };
@@ -455,39 +414,8 @@ export function createObjectRoutes(objects: ObjectRuntime, generator: ViewGenera
         const journal = objects.openJournal(model.journalDate);
         return go(`/objects/${journal.id}`);
       }
-      if (url.pathname === '/types/create') {
-        model.screen = 'types';
-        model.typeDraft = { name: fields.get('name') ?? '', basedOnTypeId: fields.get('basedOnTypeId') || undefined };
-        requireFields(fields, ['csrf', 'name', 'basedOnTypeId']);
-        const type = objects.createType(model.typeDraft.name, model.typeDraft.basedOnTypeId);
-        return go(`/types/${type.id}?saved=1`);
-      }
-      const typeMatch = /^\/types\/([a-f0-9-]{36})\/(update|properties)$/.exec(url.pathname);
-      if (typeMatch) {
-        model.screen = 'type'; model.objectType = objects.getType(typeMatch[1]!);
-        if (typeMatch[2] === 'update') {
-          requireFields(fields, ['csrf', 'name', 'revision']);
-          objects.renameType(model.objectType.id, revision(fields), fields.get('name') ?? '');
-        } else {
-          requireFields(fields, ['csrf', 'revision', 'propertyId', 'label', 'kind', 'options', 'targetTypeId', 'multiple']);
-          const propertyId = fields.get('propertyId');
-          if (!propertyId) model.newPropertyDraft = newPropertyDraft(fields);
-          objects.addProperty(model.objectType.id, revision(fields), propertyId ? { propertyId } : {
-            label: fields.get('label') ?? '', kind: fields.get('kind') as PropertyKind,
-            ...(fields.get('options') ? { options: fields.get('options')!.split(/\r?\n/).map(value => value.trim()).filter(Boolean) } : {}),
-            ...(fields.get('targetTypeId') ? { targetTypeId: fields.get('targetTypeId')! } : {}),
-            ...(fields.has('multiple') ? { multiple: fields.get('multiple') === 'on' || fields.get('multiple') === 'true' } : {}),
-          });
-        }
-        return go(`/types/${model.objectType.id}?saved=1`);
-      }
-      const propertyMatch = /^\/properties\/([a-f0-9-]{36})\/update$/.exec(url.pathname);
-      if (propertyMatch) {
-        model.screen = 'types';
-        requireFields(fields, ['csrf', 'label', 'revision']);
-        objects.renameProperty(propertyMatch[1]!, revision(fields), fields.get('label') ?? '');
-        const type = catalog.types.find(type => type.propertyIds.includes(propertyMatch[1]!));
-        return go(type ? `/types/${type.id}?saved=1` : '/types?saved=1');
+      if (url.pathname === '/types/create' || /^\/types\/([a-f0-9-]{36})\/(update|properties)$/.test(url.pathname) || /^\/properties\/([a-f0-9-]{36})\/update$/.test(url.pathname)) {
+        throw new AppError(404, 'Schema editing has been retired. Choose one of the fixed domains.');
       }
       if (url.pathname === '/objects/create') {
         model.screen = 'new-object';
